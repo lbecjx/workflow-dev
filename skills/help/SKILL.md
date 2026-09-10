@@ -98,9 +98,9 @@ Available skills:
 
 ---
 
-## Local work (no Jira)
+## Local work (no external tracker)
 
-This workflow doesn't require Jira — `init` accepts a path to any local Markdown file as a story source (see Phase 1-alt in `skills/init`). Point it at any `.md` file that has a title and Acceptance Criteria and it works exactly like a Jira ID would.
+This workflow doesn't require a cloud-based issue tracker — `init` accepts a path to any local Markdown file as a story source (see Phase 1-alt in `skills/init`). Point it at any `.md` file that has a title and Acceptance Criteria and it works exactly like passing an external tracker's issue ID would.
 
 One way to produce such files without hand-writing them is the separate **`local-backlog`** plugin (auto-incrementing codes, a local viewer) — it's an independent plugin, not a dependency; install it separately if you want that workflow, and see its own `/local-backlog:help` for what it offers.
 
