@@ -1,0 +1,16 @@
+# OS cruft
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Python cache (in case any script here ever grows a .py sibling)
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Personal/local Claude Code settings — never meant to be shared
+.claude/settings.local.json
