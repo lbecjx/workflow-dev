@@ -5,7 +5,7 @@ description: Loads the persistent context at session start. Reads REPO.md and th
 
 <!--
 workflow-dev — a persistent-context development workflow for Claude Code
-Copyright (C) 2026  Luis Becjx
+Copyright (C) 2026  Luis Becerra
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

@@ -52,7 +52,7 @@ Licensed under the GNU General Public License v3.0 or later — see [LICENSE](./
 
 ```
 workflow-dev — a persistent-context development workflow for Claude Code
-Copyright (C) 2026  Luis Becjx
+Copyright (C) 2026  Luis Becerra
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -68,4 +68,4 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 ```
 
-Author: Luis Becjx ([@lbecjx](https://github.com/lbecjx))
+Author: Luis Becerra ([@lbecjx](https://github.com/lbecjx))

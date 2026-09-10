@@ -3,7 +3,7 @@
   "name": "workflow-dev",
   "description": "A Claude Code plugin for a persistent-context, quality-gated development workflow.",
   "owner": {
-    "name": "Luis Becjx"
+    "name": "Luis Becerra"
   },
   "plugins": [
     {
