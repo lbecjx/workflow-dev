@@ -1,6 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "workflow-dev",
+  "description": "A Claude Code plugin for a persistent-context, quality-gated development workflow.",
   "owner": {
     "name": "lbecjx"
   },
