@@ -40,9 +40,11 @@ This plugin also ships three hooks that make the workflow above easier to keep u
 
 (Replace the path with wherever you've cloned this repo, or its GitHub URL once published.)
 
-## Independence from `local-backlog`
+## Recommended alongside this plugin
 
-This plugin has no dependency on the separate [`local-backlog`](https://github.com/lbecjx/local-backlog) plugin. `/workflow-dev:init` natively accepts any local Markdown file as a story source — `local-backlog` is just one convenient way to produce such files if you don't have Jira. Install either one on its own, or both; neither requires the other.
+If you don't have a cloud-based issue/story tracker, we suggest also installing [`local-backlog`](https://github.com/lbecjx/local-backlog) — it creates and browses stories locally, in plain Markdown, with auto-incrementing codes. `/workflow-dev:init` natively accepts any local `.md` file as a story source, so anything `local-backlog` creates works as input here.
+
+They're independent plugins, though — install either one on its own, or both; neither depends on the other.
 
 ## License
 
