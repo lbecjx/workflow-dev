@@ -34,11 +34,9 @@ This plugin also ships three hooks that make the workflow above easier to keep u
 ## Installation
 
 ```
-/plugin marketplace add /path/to/workflow-dev
-/plugin install workflow-dev@workflow-dev
+/plugin marketplace add lbecjx/claude-plugins
+/plugin install workflow-dev@lbecjx
 ```
-
-(Replace the path with wherever you've cloned this repo, or its GitHub URL once published.)
 
 ## Recommended alongside this plugin
 
