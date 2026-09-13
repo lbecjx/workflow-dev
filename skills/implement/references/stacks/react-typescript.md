@@ -24,16 +24,14 @@ Each `.tsx` file exports exactly ONE component. The filename matches the compone
 
 ```typescript
 // file: Badge.tsx
-export const Badge: React.FC<BadgeProps> = ({ label, color }) => { ... }
+export function Badge({ label, color }: BadgeProps) { ... }
 ```
 
 ### Typed Props Pattern
 
-Every component uses `React.FC<Props>` with an explicit `interface`:
+Every component is a plain function with an explicit `interface` for its props — not `React.FC<Props>`. Current community consensus (confirmed against the React TypeScript Cheatsheet, 2026): `React.FC` is legacy style, not required by modern React/TypeScript, and has two concrete problems — it adds `children` to every component's props whether wanted or not, and it has type-inference issues with generic components.
 
 ```typescript
-import type React from 'react'
-
 interface StatCardProps {
   label: string
   value: string
@@ -41,15 +39,15 @@ interface StatCardProps {
   borderClass?: string  // optional marked with ?
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ label, value, colorClass, borderClass }) => {
+export function StatCard({ label, value, colorClass, borderClass }: StatCardProps) {
   return (...)
 }
 ```
 
 Rules:
 - `interface` for props (not `type` — interfaces are extendable, show intent)
-- `React.FC<Props>` pattern (not bare function)
-- `import type React from 'react'` (type-only import)
+- Plain typed function (not `React.FC<Props>`) — type the props, not the component
+- If a component genuinely accepts `children`, declare it explicitly in the props interface (`children?: React.ReactNode`) rather than getting it implicitly from `React.FC`
 - Optional props marked with `?`
 - Named exports only (no `export default`)
 
@@ -88,9 +86,9 @@ If the same or very similar markup appears in more than one place, extract it in
 
 // ✅ Extracted to atom
 // src/components/atoms/Label.tsx
-export const Label: React.FC<LabelProps> = ({ text }) => (
-  <span className="text-[9px] uppercase text-[#8b949e]">{text}</span>
-)
+export function Label({ text }: LabelProps) {
+  return <span className="text-[9px] uppercase text-[#8b949e]">{text}</span>
+}
 ```
 
 ### Zero Coupling
@@ -252,7 +250,7 @@ If touching build config (Vite, webpack, etc.):
 | Inline styles | Use utility classes instead |
 | Multiple components per file | Violates one-component rule |
 | Props without interface | Violates full-TS rule |
-| Bare function components | Must use `React.FC<Props>` pattern |
+| `React.FC<Props>` | Legacy — implicitly adds `children`, has generics inference issues; use a plain typed function |
 | Copy-paste markup | Extract to component (DRY) |
 | Business logic in components | Move to stores or utils |
 | `console.log` in committed code | Remove before commit |
