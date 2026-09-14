@@ -14,8 +14,15 @@
 # mean nothing worth saving happened — research findings and decisions can
 # live purely in the conversation, with zero files touched.
 #
-# PreCompact only supports systemMessage (shown to the human), not
-# additionalContext — it cannot hand Claude anything to act on directly.
+# PreCompact does not surface systemMessage or additionalContext to anyone —
+# per Claude Code's own docs, those only reach Claude/the human on
+# UserPromptSubmit, UserPromptExpansion, SessionStart, and PostModelSwitch;
+# on every other event, including PreCompact, they go to the debug log only.
+# terminalSequence is the one field documented as "supported on all events",
+# so it's the only way this hook can actually get a human's attention —
+# it can't carry the reason text, just ring the terminal bell. The bell is
+# emitted below as a JSON-escaped control character, not a raw byte, since
+# a raw control byte inside a JSON string would make the output invalid.
 
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
@@ -27,7 +34,7 @@ while IFS= read -r STORY_FILE; do
   # just mirrors the source ticket and is a separate, independent clock).
   IMPL_STATUS_LINE=$(grep -m1 '^### Implementation Status:' "$STORY_FILE")
   if [[ "$IMPL_STATUS_LINE" == *"In Progress"* ]]; then
-    printf '{"hookSpecificOutput":{"hookEventName":"PreCompact","systemMessage":"Session about to compact — %s is still In Progress. If anything from this conversation (decisions, discoveries) should persist, run /workflow-dev:save first."}}' "$STORY_FILE"
+    printf '{"systemMessage":"Session about to compact — %s is still In Progress. If anything from this conversation (decisions, discoveries) should persist, run /workflow-dev:save first.","terminalSequence":"\\u0007"}' "$STORY_FILE"
     exit 0
   fi
 done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
