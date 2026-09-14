@@ -10,12 +10,16 @@
 # active story's real state, so returning to a project after time away
 # doesn't require remembering where things were left off.
 #
-# Only acts on a genuinely new session (session_start_reason == "startup") —
-# not on resume/clear/compact/fork, which would repeat this mid-conversation
-# (e.g. right after PreCompact already showed its own reminder).
+# Only acts on a genuinely new session (source == "startup") — not on
+# resume/clear/compact/fork, which would repeat this mid-conversation (e.g.
+# right after PreCompact already showed its own reminder). The field is
+# "source", not "session_start_reason" — the previous name never matched
+# Claude Code's actual SessionStart input, so this whole hook silently
+# no-opped on every real session since it was written; manual tests missed
+# this because they fed the script the wrong field name themselves.
 
 INPUT=$(cat)
-REASON=$(printf '%s' "$INPUT" | grep -o '"session_start_reason"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+REASON=$(printf '%s' "$INPUT" | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 [[ "$REASON" == "startup" ]] || exit 0
 
 CONTEXT_DIR=".workflow-dev/context"
