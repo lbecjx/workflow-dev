@@ -21,34 +21,37 @@ REASON=$(printf '%s' "$INPUT" | grep -o '"session_start_reason"[[:space:]]*:[[:s
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
-STORY_FILE=$(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md" | head -1)
-[[ -n "$STORY_FILE" ]] || exit 0
-
-# Cheap gate first: only our own Implementation Status matters here — the
-# section 1.1 Story `Status` just mirrors the source ticket and is a
-# different clock (it can say "In Review" while we're Done, or "Done" while
-# we still have task groups left). Done and Won't Do are both closed on our
-# side, nothing to resume.
-IMPL_STATUS_LINE=$(grep -m1 '^### Implementation Status:' "$STORY_FILE")
-[[ "$IMPL_STATUS_LINE" == *"In Progress"* ]] || exit 0
-
 suggest() {
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$1"
 }
 
-if ! grep -q "^## 5. Plan" "$STORY_FILE"; then
-  suggest "Active workflow-dev story with no Plan yet ($STORY_FILE). Suggest /workflow-dev:resume, then /workflow-dev:plan."
+# Check every story file, not just one — a project can have several (done,
+# won't-do, in-progress) and only the in-progress ones matter here.
+while IFS= read -r STORY_FILE; do
+  # Cheap gate first: only our own Implementation Status matters here — the
+  # section 1.1 Story `Status` just mirrors the source ticket and is a
+  # different clock (it can say "In Review" while we're Done, or "Done" while
+  # we still have task groups left). Done and Won't Do are both closed on our
+  # side, nothing to resume.
+  IMPL_STATUS_LINE=$(grep -m1 '^### Implementation Status:' "$STORY_FILE")
+  [[ "$IMPL_STATUS_LINE" == *"In Progress"* ]] || continue
+
+  if ! grep -qE "^## [0-9]+\. Plan" "$STORY_FILE"; then
+    suggest "Active workflow-dev story with no Plan yet ($STORY_FILE). Suggest /workflow-dev:resume, then /workflow-dev:plan."
+    exit 0
+  fi
+
+  # Scoped to the Plan Progress table specifically — the top-level Status field
+  # always contains the literal words "In Progress" too, so grepping the whole
+  # file here would never reach the "all Done" branch below.
+  PLAN_PROGRESS=$(awk '/^### Plan Progress/{flag=1; next} /^## /{flag=0} flag' "$STORY_FILE")
+
+  if printf '%s' "$PLAN_PROGRESS" | grep -q "Not Started\|In Progress"; then
+    suggest "Active workflow-dev story with unfinished task groups ($STORY_FILE). Suggest /workflow-dev:resume to continue."
+  else
+    suggest "This workflow-dev story ($STORY_FILE) shows every task group as Done (already validated). Check for uncommitted changes — if any, review and commit; if not, it may be ready to close out."
+  fi
   exit 0
-fi
+done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
 
-# Scoped to the Plan Progress table specifically — the top-level Status field
-# always contains the literal words "In Progress" too, so grepping the whole
-# file here would never reach the "all Done" branch below.
-PLAN_PROGRESS=$(awk '/^### Plan Progress/{flag=1; next} /^## /{flag=0} flag' "$STORY_FILE")
-
-if printf '%s' "$PLAN_PROGRESS" | grep -q "Not Started\|In Progress"; then
-  suggest "Active workflow-dev story with unfinished task groups. Suggest /workflow-dev:resume to continue."
-else
-  suggest "This workflow-dev story shows every task group as Done (already validated). Check for uncommitted changes — if any, review and commit; if not, it may be ready to close out."
-fi
 exit 0
