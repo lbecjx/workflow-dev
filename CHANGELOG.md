@@ -14,6 +14,24 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.0
+
+- `PreCompact` cannot hand any text to Claude or the human — per Claude
+  Code's own docs it discards `systemMessage` and `additionalContext`
+  entirely on this event, so the 1.0.2 bell was the ceiling of what it could
+  do alone. It now also backs up the raw pre-compaction transcript to
+  `.workflow-dev/context/.compaction-backups/` whenever an in-progress story
+  exists — an automatic action that needs nobody to notice anything — and
+  leaves a marker for a new `UserPromptSubmit` hook, which reliably does
+  reach Claude's context, to run `/workflow-dev:save` on its own initiative
+  on the very next prompt (save still shows its usual summary and asks for
+  confirmation — only the waiting-to-be-asked part is skipped), explicitly
+  warning the human that declining leaves whatever the compaction summary
+  dropped unrecovered. The backups directory is force-added to `.gitignore`
+  since a raw transcript can contain anything pasted into the conversation,
+  credentials included; `save` now deletes a story's backups once its own
+  save completes, since they've served their purpose by then.
+
 ## 1.0.2
 
 - Fixed the `PreCompact` hook to actually reach the human: `systemMessage`
