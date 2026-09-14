@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.1
+
+- The `SessionStart` hook checked a field, `session_start_reason`, that
+  never existed in Claude Code's real input — the actual field is `source`.
+  This silently no-op'd the hook on every real session since it was
+  written; every manual test of the script had "passed" only because each
+  one fed it the same wrong field name the script itself expected.
+
 ## 1.1.0
 
 - `PreCompact` cannot hand any text to Claude or the human — per Claude
