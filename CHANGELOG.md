@@ -14,6 +14,15 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.0.2
+
+- Fixed the `PreCompact` hook to actually reach the human: `systemMessage`
+  and `additionalContext` are only honored on `UserPromptSubmit`,
+  `UserPromptExpansion`, `SessionStart`, and `PostModelSwitch` — on every
+  other event, including `PreCompact`, they go to the debug log only and
+  were never seen. The hook now rings the terminal bell via
+  `terminalSequence`, the one field documented as supported on all events.
+
 ## 1.0.1
 
 - Corrected the React + TypeScript stack standard: plain typed function
