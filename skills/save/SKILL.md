@@ -104,6 +104,18 @@ Confirmed → update both files with the identified changes and bump the "Last u
 
 "No," or wants edits → ask what to remove or change, then save.
 
+### Step 6: Clean up any compaction backup for this story
+
+Immediately after Step 5 writes the story file, run this exact command, substituting the real story ID (never widen the glob — a different story's backup reflects work this save didn't review, and stays until that story's own save runs):
+
+```bash
+rm -f .workflow-dev/context/.compaction-backups/[STORY-ID]-*.jsonl
+```
+
+This is not optional cleanup — do it as part of completing Step 5, not as a "nice to have" afterthought. The backup's only purpose was holding the raw conversation until a human confirmed what needed persisting; that confirmation just happened, so the backup (which can contain anything pasted into the conversation, credentials included) has no reason left to exist on disk. `rm`, never move to Trash — same reasoning that put this directory in `.gitignore` to begin with.
+
+If a backup existed and was deleted, say so explicitly in the confirmation shown to the human (e.g., "Compaction backup for [STORY-ID] deleted."), so they know the recovered information is safe in the story file and the raw copy is gone — not silently, as a line lost among the rest of the save summary.
+
 ## Classification rules
 
 **Repo-level** = true for every story in this repo; useful even on an unrelated feature.
