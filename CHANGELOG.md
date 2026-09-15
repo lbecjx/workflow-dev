@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.4
+
+- Confirmed working end-to-end in a real session, with one gap: the
+  reminder asked Claude to run `/workflow-dev:save` "on your own
+  initiative," but Claude read that loosely and asked the human whether
+  it should run it or wait, instead of just invoking it — an extra layer
+  of asking on top of the confirmation `save` already shows in its own
+  Step 4. The instruction is now explicit: invoke it now, don't ask
+  whether to, the skill's own summary-and-confirm is the only
+  confirmation this needs.
+
 ## 1.1.3
 
 - Both `SessionStart` and `PreCompact` matched the Implementation Status
