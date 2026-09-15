@@ -14,6 +14,19 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.2
+
+- The post-compaction save reminder only fired on `UserPromptSubmit` — the
+  human's next typed message. During a long autonomous run (e.g.
+  `/workflow-dev:implement` chaining tool calls with no human input in
+  between), that assumption doesn't hold: the reminder could sit unseen
+  through many tool calls. The same check now also runs on `PostToolUse`
+  (any tool), so whichever fires first after a compaction — a human prompt
+  or the next tool call — surfaces the reminder. Renamed
+  `user-prompt-compaction-check.sh` to `post-compaction-save-check.sh`
+  since it now serves both events; `hookEventName` in its output is read
+  from the firing event instead of hardcoded.
+
 ## 1.1.1
 
 - The `SessionStart` hook checked a field, `session_start_reason`, that
