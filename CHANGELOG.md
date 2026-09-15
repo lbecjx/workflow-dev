@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.3
+
+- Both `SessionStart` and `PreCompact` matched the Implementation Status
+  line with an exact-text grep — a real `/workflow-dev:init` run
+  paraphrased the template's heading into a different, still-valid
+  wording, and the exact match silently never fired for that story. Now
+  scans the whole section for "In Progress" instead of one exact line.
+  `init/SKILL.md` also now quotes the literal heading to copy instead of
+  restating it in prose, which is the likely reason the wording drifted.
+
 ## 1.1.2
 
 - The post-compaction save reminder only fired on `UserPromptSubmit` — the
