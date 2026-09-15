@@ -117,7 +117,11 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 
 1. Create `.workflow-dev/context/[STORY-ID].md` from `references/template.md`.
 2. Fill in story-specific findings.
-3. Set section 3's **Implementation Status: In Progress** — running `init` is itself the start of work. Never write "Not Started" here: a story that hasn't been init'd yet has no context file to write "Not Started" into in the first place, so by the time this file exists, work has begun. This is separate from section 1.1's `Status` field, which just mirrors whatever the source (Jira, or a local .md) reports — the two can disagree, and that's expected, not a bug.
+3. Set section 3's Implementation Status heading exactly as the template has it — copy this literally, do not rephrase, restructure, or move the value to a separate line, since another workflow-dev hook matches this exact text:
+   ```
+   ### Implementation Status: In Progress
+   ```
+   Running `init` is itself the start of work. Never write "Not Started" here: a story that hasn't been init'd yet has no context file to write "Not Started" into in the first place, so by the time this file exists, work has begun. This is separate from section 1.1's `Status` field, which just mirrors whatever the source (Jira, or a local .md) reports — the two can disagree, and that's expected, not a bug.
 4. Link to REPO.md at the top instead of duplicating repo-level facts.
 5. Map exemplar files to the ACs they inform.
 6. Mark anything unresolved with ⬜ and a note on what's missing.
