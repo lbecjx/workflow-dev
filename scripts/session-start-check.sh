@@ -25,6 +25,25 @@ REASON=$(printf '%s' "$INPUT" | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
+# Tolerant to how the Implementation Status section is actually worded — the
+# template says "### Implementation Status: In Progress" on one line, but a
+# real /workflow-dev:init run paraphrased it as a "## Implementation Status"
+# heading with the value on its own "**Status:** In Progress" line below.
+# Rather than trust the model to reproduce the template byte-for-byte every
+# time, scan the whole section (heading to next heading) for "In Progress".
+is_in_progress() {
+  awk '
+    /^#+[[:space:]].*[Ii]mplementation Status/ {
+      in_section=1
+      if ($0 ~ /In Progress/) { found=1; exit }
+      next
+    }
+    in_section && /^#+[[:space:]]/ { exit }
+    in_section && /In Progress/ { found=1; exit }
+    END { exit !found }
+  ' "$1"
+}
+
 suggest() {
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$1"
 }
@@ -37,8 +56,7 @@ while IFS= read -r STORY_FILE; do
   # different clock (it can say "In Review" while we're Done, or "Done" while
   # we still have task groups left). Done and Won't Do are both closed on our
   # side, nothing to resume.
-  IMPL_STATUS_LINE=$(grep -m1 '^### Implementation Status:' "$STORY_FILE")
-  [[ "$IMPL_STATUS_LINE" == *"In Progress"* ]] || continue
+  is_in_progress "$STORY_FILE" || continue
 
   if ! grep -qE "^## [0-9]+\. Plan" "$STORY_FILE"; then
     suggest "Active workflow-dev story with no Plan yet ($STORY_FILE). Suggest /workflow-dev:resume, then /workflow-dev:plan."
