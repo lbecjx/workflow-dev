@@ -27,7 +27,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/user-prompt-compaction-check.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/post-compaction-save-check.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/post-compaction-save-check.sh",
             "timeout": 5
           }
         ]
