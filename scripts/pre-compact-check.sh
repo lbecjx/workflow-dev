@@ -23,6 +23,25 @@
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
+# Tolerant to how the Implementation Status section is actually worded — the
+# template says "### Implementation Status: In Progress" on one line, but a
+# real /workflow-dev:init run paraphrased it as a "## Implementation Status"
+# heading with the value on its own "**Status:** In Progress" line below.
+# Rather than trust the model to reproduce the template byte-for-byte every
+# time, scan the whole section (heading to next heading) for "In Progress".
+is_in_progress() {
+  awk '
+    /^#+[[:space:]].*[Ii]mplementation Status/ {
+      in_section=1
+      if ($0 ~ /In Progress/) { found=1; exit }
+      next
+    }
+    in_section && /^#+[[:space:]]/ { exit }
+    in_section && /In Progress/ { found=1; exit }
+    END { exit !found }
+  ' "$1"
+}
+
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 
@@ -42,8 +61,7 @@ ensure_gitignored() {
 while IFS= read -r STORY_FILE; do
   # Our own Implementation Status, not the section 1.1 Story `Status` (which
   # just mirrors the source ticket and is a separate, independent clock).
-  IMPL_STATUS_LINE=$(grep -m1 '^### Implementation Status:' "$STORY_FILE")
-  if [[ "$IMPL_STATUS_LINE" == *"In Progress"* ]]; then
+  if is_in_progress "$STORY_FILE"; then
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
       mkdir -p "$BACKUP_DIR"
       ensure_gitignored
