@@ -47,6 +47,10 @@ Load both so you know what's already recorded — this is what keeps you from du
 
 ### Step 3: Review the conversation since the last save
 
+**If `.workflow-dev/context/.compaction-backups/[STORY-ID]-*.jsonl` exists, read it before relying on anything else.** A compaction happened, and the summary Claude Code generated from it — the thing already sitting in your own context right now — is exactly what might have dropped the decisions/discoveries this backup exists to recover; treating that summary as sufficient defeats the entire point of having backed up the raw transcript. Read the backup file(s) and use them, not just the in-context summary, to find what actually needs persisting. If a backup is large enough that reading it whole is impractical, grep it for keywords tied to what the story is actively working on (open questions, the current task group, recent file names) rather than skipping it outright — a partial read of the real transcript beats a full read of a summary that already lost detail once.
+
+State this to the human, at the top of the Step 4 summary, before the per-file changes: which backup file was found and that it was read (or grepped) as the source for this save — e.g. "Source: read compaction backup `EDS-13015-20260915T164222Z.jsonl`." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
+
 Scan everything discussed since the "Last updated" timestamp and classify each item:
 
 **Goes to REPO.md:**
@@ -104,17 +108,19 @@ Confirmed → update both files with the identified changes and bump the "Last u
 
 "No," or wants edits → ask what to remove or change, then save.
 
-### Step 6: Clean up any compaction backup for this story
+### Step 6: Clean up compaction backups this save actually used
 
-Immediately after Step 5 writes the story file, run this exact command, substituting the real story ID (never widen the glob — a different story's backup reflects work this save didn't review, and stays until that story's own save runs):
+Immediately after Step 5 writes the story file, delete only the specific backup file(s) Step 3 actually read (in full or grepped) for this save — never a wildcard over the whole story:
 
 ```bash
-rm -f .workflow-dev/context/.compaction-backups/[STORY-ID]-*.jsonl
+rm -f .workflow-dev/context/.compaction-backups/[EXACT-FILENAME].jsonl
 ```
 
-This is not optional cleanup — do it as part of completing Step 5, not as a "nice to have" afterthought. The backup's only purpose was holding the raw conversation until a human confirmed what needed persisting; that confirmation just happened, so the backup (which can contain anything pasted into the conversation, credentials included) has no reason left to exist on disk. `rm`, never move to Trash — same reasoning that put this directory in `.gitignore` to begin with.
+Never `rm .../[STORY-ID]-*.jsonl` — that deletes every backup for the story regardless of whether this save reviewed it. A backup this save never opened (the human moved on without answering the reminder, or a second compaction created one after this save's review already started) still holds unrecovered content; deleting it here would destroy the only copy of something that was never actually persisted. Delete a backup only at the moment its own content is confirmed captured in the story file — one file at a time, tied to the read, not to "a save happened."
 
-If a backup existed and was deleted, say so explicitly in the confirmation shown to the human (e.g., "Compaction backup for [STORY-ID] deleted."), so they know the recovered information is safe in the story file and the raw copy is gone — not silently, as a line lost among the rest of the save summary.
+This is not optional cleanup — do it as part of completing Step 5, not as a "nice to have" afterthought. Once a specific backup's content is confirmed captured, that file (which can contain anything pasted into the conversation, credentials included) has no reason left to exist on disk. `rm`, never move to Trash — same reasoning that put this directory in `.gitignore` to begin with.
+
+If any backups were deleted, name them explicitly in the confirmation shown to the human (e.g., "Compaction backup `EDS-13015-20260915T164222Z.jsonl` deleted — its content is now in the story file."), so they know exactly which raw copies are gone and that each one's content is actually safe elsewhere — not a blanket "backups deleted" line that doesn't say which.
 
 ## Classification rules
 
