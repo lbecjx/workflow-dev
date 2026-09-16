@@ -120,7 +120,7 @@ Never `rm .../[STORY-ID]-*.jsonl` — that deletes every backup for the story re
 
 This is not optional cleanup — do it as part of completing Step 5, not as a "nice to have" afterthought. Once a specific backup's content is confirmed captured, that file (which can contain anything pasted into the conversation, credentials included) has no reason left to exist on disk. `rm`, never move to Trash — same reasoning that put this directory in `.gitignore` to begin with.
 
-If any backups were deleted, name them explicitly in the confirmation shown to the human (e.g., "Compaction backup `EDS-13015-20260915T164222Z.jsonl` deleted — its content is now in the story file."), so they know exactly which raw copies are gone and that each one's content is actually safe elsewhere — not a blanket "backups deleted" line that doesn't say which.
+If any backups were deleted, name them in the confirmation shown to the human — but not by raw filename. Each filename encodes `[STORY-ID]-[UTC timestamp].jsonl` (e.g., `EDS-13015-20260915T164222Z`); parse that timestamp, convert it from UTC to the human's local timezone, and present it as a date and time, not a filename fragment — e.g. "Backup for EDS-13015, saved 2026-09-15 at 4:42 PM — its content is now in the story file." So they know exactly which raw copies are gone and that each one's content is actually safe elsewhere, in a form they can read at a glance — not a blanket "backups deleted" line, and not the filename verbatim either.
 
 ## Classification rules
 
