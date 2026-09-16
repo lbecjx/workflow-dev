@@ -14,6 +14,42 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.6
+
+- `PreCompact` copied the *entire* transcript into a fresh backup file on
+  every compaction, forever. A real session left uninterrupted across 6
+  compactions produced a single 17MB, 4300+ line backup — the same
+  already-saved history recopied every single time, handed to `save`'s
+  Step 3 as if it were all new. Claude Code's session `.jsonl` files are
+  both append-only within a session (verified empirically — line and
+  byte content stay identical while a live transcript grows) and never
+  deleted (they persist under `~/.claude/projects/...` indefinitely), so
+  there is no need to copy anything at all: the original is always there
+  to read later. Compaction backups are gone entirely, replaced by one
+  small per-story JSON state file (`.workflow-dev/context/.compaction-state/[STORY-ID].json`
+  — `transcriptPath`, `length`, `dateTime`, `pendingSave`) recording how
+  far a prior successful save got into a given transcript file, and
+  whether a reminder is currently owed. Two new scripts do the mechanical
+  work: at Step 3, `save-read-unsaved.sh` reads straight from the live
+  `transcriptPath` and prints only what's past `length` (small in the
+  normal case of saving promptly, only large if several compactions were
+  skipped in a row); at Step 6, `save-mark-saved.sh` — only after Step 5
+  actually writes the story file — advances `length` to precisely where
+  that read stopped and clears `pendingSave`, converting its UTC
+  timestamp to a readable local date/time along the way. Neither
+  calculation is left to the model: get either wrong and a future read
+  could silently skip content nobody actually saved.
+  `post-compaction-save-check.sh` now scans this same state for a
+  `pendingSave: true` story instead of reading a separate marker file —
+  one piece of state per story instead of two. `save-cleanup.sh` is
+  removed; there's no backup file left to clean up. `transcriptPath` is
+  a local absolute filesystem path (it encodes the OS username) that has
+  to be stored somewhere — a plain Bash tool call has no way to learn a
+  session's transcript path on its own, only hooks receive it — so
+  `.compaction-state/` is force-added to `.gitignore`, same as
+  `.compaction-backups/` was, regardless of whether the project tracks
+  `.workflow-dev/` itself.
+
 ## 1.1.5
 
 - 1.1.4's fix worked (confirmed in a real session — Claude invoked save
