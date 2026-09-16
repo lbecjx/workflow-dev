@@ -47,9 +47,15 @@ Load both so you know what's already recorded — this is what keeps you from du
 
 ### Step 3: Review the conversation since the last save
 
-**If `.workflow-dev/context/.compaction-backups/[STORY-ID]-*.jsonl` exists, read it before relying on anything else.** A compaction happened, and the summary Claude Code generated from it — the thing already sitting in your own context right now — is exactly what might have dropped the decisions/discoveries this backup exists to recover; treating that summary as sufficient defeats the entire point of having backed up the raw transcript. Read the backup file(s) and use them, not just the in-context summary, to find what actually needs persisting. If a backup is large enough that reading it whole is impractical, grep it for keywords tied to what the story is actively working on (open questions, the current task group, recent file names) rather than skipping it outright — a partial read of the real transcript beats a full read of a summary that already lost detail once.
+**Run this before relying on anything else, substituting the real story ID:**
 
-State this to the human, at the top of the Step 4 summary, before the per-file changes: which backup file was found and that it was read (or grepped) as the source for this save — e.g. "Source: read compaction backup `EXAMPLE-1234-20260915T164222Z.jsonl`." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-read-unsaved.sh" [STORY-ID]
+```
+
+This prints everything in the live conversation transcript since the last time this story was actually saved — reading directly from the original transcript file, not a copy of it, and only the portion past what's already captured (so it stays small in the normal case of saving promptly, and only large if several compactions were skipped in a row). The in-context compaction summary — the thing already sitting in your own context right now — is exactly what might have smoothed over or dropped the decisions/discoveries this extract exists to recover; treating that summary as sufficient defeats the point of running this. Use the extract, not just the summary, to find what actually needs persisting. If the script says there's nothing unsaved or no watermark exists, that's fine — proceed with just the in-context summary as usual.
+
+If the extract had content, state this at the top of the Step 4 summary, before the per-file changes — e.g. "Source: read N lines of unsaved transcript for [STORY-ID]." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
 
 Scan everything discussed since the "Last updated" timestamp and classify each item:
 
@@ -108,19 +114,17 @@ Confirmed → update both files with the identified changes and bump the "Last u
 
 "No," or wants edits → ask what to remove or change, then save.
 
-### Step 6: Clean up compaction backups this save actually used
+### Step 6: Mark the transcript watermark as caught up
 
-Immediately after Step 5 writes the story file, delete only the specific backup file(s) Step 3 actually read (in full or grepped) for this save — never a wildcard over the whole story:
+Only if Step 3 actually ran `save-read-unsaved.sh` and got a real extract (not "nothing unsaved" or "no watermark"), immediately after Step 5 writes the story file, run this exact command, substituting the real story ID:
 
 ```bash
-rm -f .workflow-dev/context/.compaction-backups/[EXACT-FILENAME].jsonl
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-mark-saved.sh" [STORY-ID]
 ```
 
-Never `rm .../[STORY-ID]-*.jsonl` — that deletes every backup for the story regardless of whether this save reviewed it. A backup this save never opened (the human moved on without answering the reminder, or a second compaction created one after this save's review already started) still holds unrecovered content; deleting it here would destroy the only copy of something that was never actually persisted. Delete a backup only at the moment its own content is confirmed captured in the story file — one file at a time, tied to the read, not to "a save happened."
+This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking the watermark caught up on content that was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the watermark file yourself: it advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.
 
-This is not optional cleanup — do it as part of completing Step 5, not as a "nice to have" afterthought. Once a specific backup's content is confirmed captured, that file (which can contain anything pasted into the conversation, credentials included) has no reason left to exist on disk. `rm`, never move to Trash — same reasoning that put this directory in `.gitignore` to begin with.
-
-If any backups were deleted, name them in the confirmation shown to the human — but not by raw filename. Each filename encodes `[STORY-ID]-[UTC timestamp].jsonl` (e.g., `EXAMPLE-1234-20260915T164222Z`); parse that timestamp, convert it from UTC to the human's local timezone, and present it as a date and time, not a filename fragment — e.g. "Backup for EXAMPLE-1234, saved 2026-09-15 at 4:42 PM — its content is now in the story file." So they know exactly which raw copies are gone and that each one's content is actually safe elsewhere, in a form they can read at a glance — not a blanket "backups deleted" line, and not the filename verbatim either.
+Relay the script's own stdout to the human as part of the save confirmation — it already reports what line the story is now marked saved through, in local time.
 
 ## Classification rules
 
