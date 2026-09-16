@@ -14,6 +14,34 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.5
+
+- 1.1.4's fix worked (confirmed in a real session — Claude invoked save
+  directly, no longer asking permission first), but the same run dropped
+  the "declining loses this" warning it was also asked to add — two
+  instructions folded into one paragraph, and only one got followed.
+  Split into two explicit, numbered, mandatory actions, with the warning
+  given as an exact, verbatim line to append rather than a paraphrased
+  idea to work in.
+- Bigger gap found in the same session: `save` never actually read the
+  compaction backup it kept telling the human it would protect. Asked
+  directly, Claude confirmed it was working entirely from Claude Code's
+  own compaction summary — the exact thing that might have dropped
+  detail — and had never opened the `.jsonl` backup. `save/SKILL.md` now
+  explicitly requires reading a story's compaction backup, when one
+  exists, before relying on the in-context summary, and reporting which
+  backup was used.
+- Step 6's cleanup deleted every backup for a story (`[STORY-ID]-*.jsonl`)
+  on any completed save, including ones this particular save never
+  opened — a backup the human hadn't gotten to yet, or one a second
+  compaction created after this save's review already started, would be
+  destroyed with its content never actually persisted. Now deletes only
+  the specific file(s) Step 3 actually read, one at a time, tied to
+  confirmed capture rather than "a save happened." Also corrected the
+  reminder's warning text, which implied declining causes immediate
+  deletion — it doesn't: nothing is deleted on decline, the backup just
+  stays unintegrated until a future save reads it.
+
 ## 1.1.4
 
 - Confirmed working end-to-end in a real session, with one gap: the
