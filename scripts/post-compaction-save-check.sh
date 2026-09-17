@@ -66,7 +66,20 @@ for STATE_FILE in "$STATE_DIR"/*.json; do
   printf '{"transcriptPath":"%s","length":%s,"dateTime":%s,"pendingSave":false}' \
     "$TRANSCRIPT_PATH" "$LENGTH" "$DATETIME_JSON" > "$STATE_FILE"
 
-  printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"A context compaction happened while %s was In Progress — there may be unsaved conversation history for it. Do both, now, without asking: (1) Invoke /workflow-dev:save immediately, no permission needed beyond its own '\''save all this?'\'' step. (2) In that same confirmation, add this line verbatim: '\''Declining deletes nothing, but leaves this out of the story file until a future save reads it.'\''"}}' "$EVENT_NAME" "$STORY_FILE"
+  # Worded per triggering event: UserPromptSubmit fires alongside a real
+  # human question competing for priority; PostToolUse fires mid-sequence
+  # during an autonomous run (e.g. /workflow-dev:implement), where the
+  # competing pull is "keep going with the current task/next tool call"
+  # instead. Both have been observed losing to a generic "before doing
+  # anything else" phrasing that didn't name the specific thing it needed
+  # to outrank.
+  if [[ "$EVENT_NAME" == "PostToolUse" ]]; then
+    PRIORITY_CLAUSE="Before running the next tool call or continuing whatever task is in progress — do not finish the current step or task first and get to this after"
+  else
+    PRIORITY_CLAUSE="Before answering the question below, or doing anything else this turn"
+  fi
+
+  printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"A context compaction happened while %s was In Progress — there may be unsaved conversation history for it. %s: do both of these, without asking permission first: (1) Invoke /workflow-dev:save; its own '\''save all this?'\'' step is the only confirmation this needs. (2) In that same confirmation, add this line verbatim: '\''Declining deletes nothing, but leaves this out of the story file until a future save reads it.'\'' Only once save is done, proceed with what you were about to do."}}' "$EVENT_NAME" "$STORY_FILE" "$PRIORITY_CLAUSE"
   exit 0
 done
 
