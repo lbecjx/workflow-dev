@@ -14,6 +14,28 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.7
+
+- Confirmed in a real session that delivery works (Claude quoted the
+  reminder verbatim), but it still answered the human's actual question
+  first and only ran `/workflow-dev:save` after being called out —
+  competing with a real, in-the-same-turn question is exactly where an
+  injected reminder is easiest to deprioritize. The same loss to
+  competing priority also happens on the `PostToolUse` path, mid an
+  autonomous run (e.g. `/workflow-dev:implement` chaining tool calls) —
+  the current task/next tool call wins out and save never gets
+  inserted. The reminder now claims priority explicitly, worded per the
+  event that actually fired: "before answering the question below" for
+  `UserPromptSubmit`, "before running the next tool call or continuing
+  whatever task is in progress" for `PostToolUse` — naming the specific
+  thing it needs to outrank, instead of one generic phrasing for both.
+- `save/SKILL.md` still said "watermark" in every user-facing spot
+  (Steps 3 and 6), a name 1.1.6 dropped for the underlying file/directory
+  but never updated in this prose — confirmed in the same real session,
+  where Claude's own save summary literally read "no prior watermark,"
+  parroting the stale term straight back to the human. Replaced with
+  "save point" throughout.
+
 ## 1.1.6
 
 - `PreCompact` copied the *entire* transcript into a fresh backup file on
