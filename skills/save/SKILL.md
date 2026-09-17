@@ -53,7 +53,7 @@ Load both so you know what's already recorded — this is what keeps you from du
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-read-unsaved.sh" [STORY-ID]
 ```
 
-This prints everything in the live conversation transcript since the last time this story was actually saved — reading directly from the original transcript file, not a copy of it, and only the portion past what's already captured (so it stays small in the normal case of saving promptly, and only large if several compactions were skipped in a row). The in-context compaction summary — the thing already sitting in your own context right now — is exactly what might have smoothed over or dropped the decisions/discoveries this extract exists to recover; treating that summary as sufficient defeats the point of running this. Use the extract, not just the summary, to find what actually needs persisting. If the script says there's nothing unsaved or no watermark exists, that's fine — proceed with just the in-context summary as usual.
+This prints everything in the live conversation transcript since the last time this story was actually saved — reading directly from the original transcript file, not a copy of it, and only the portion past what's already captured (so it stays small in the normal case of saving promptly, and only large if several compactions were skipped in a row). The in-context compaction summary — the thing already sitting in your own context right now — is exactly what might have smoothed over or dropped the decisions/discoveries this extract exists to recover; treating that summary as sufficient defeats the point of running this. Use the extract, not just the summary, to find what actually needs persisting. If the script says there's nothing unsaved or no prior save point exists, that's fine — proceed with just the in-context summary as usual.
 
 If the extract had content, state this at the top of the Step 4 summary, before the per-file changes — e.g. "Source: read N lines of unsaved transcript for [STORY-ID]." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
 
@@ -114,15 +114,15 @@ Confirmed → update both files with the identified changes and bump the "Last u
 
 "No," or wants edits → ask what to remove or change, then save.
 
-### Step 6: Mark the transcript watermark as caught up
+### Step 6: Advance the story's save point
 
-Only if Step 3 actually ran `save-read-unsaved.sh` and got a real extract (not "nothing unsaved" or "no watermark"), immediately after Step 5 writes the story file, run this exact command, substituting the real story ID:
+Only if Step 3 actually ran `save-read-unsaved.sh` and got a real extract (not "nothing unsaved" or "no prior save point"), immediately after Step 5 writes the story file, run this exact command, substituting the real story ID:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-mark-saved.sh" [STORY-ID]
 ```
 
-This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking the watermark caught up on content that was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the watermark file yourself: it advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.
+This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking content as caught up when it was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the state file yourself: the save point advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.
 
 Relay the script's own stdout to the human as part of the save confirmation — it already reports what line the story is now marked saved through, in local time.
 
