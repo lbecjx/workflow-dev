@@ -14,6 +14,10 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.9
+
+- Reworded the Step 6 example to use fully generic placeholder values.
+
 ## 1.1.8
 
 - `save`'s Step 6 confirmation showed a wrong "local" save time — visibly
