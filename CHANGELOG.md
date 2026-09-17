@@ -14,6 +14,23 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.9
+
+- Reworded the Step 6 example to use fully generic placeholder values.
+
+## 1.1.8
+
+- `save`'s Step 6 confirmation showed a wrong "local" save time — visibly
+  off from the real local time (a screenshot in a real session showed
+  "3:02 AM" as the reported save point next to Claude Code's own footer
+  timestamp reading "10:02 PM" for the same moment). Instead of relaying
+  `save-mark-saved.sh`'s own already-converted output, Claude paraphrased
+  a shorter summary line, sourcing the raw `dateTime` field from
+  `.compaction-state/[STORY-ID].json` directly — which is stored in UTC
+  specifically for the script to convert, not for display. Step 6 now
+  explicitly warns against re-deriving this value for a reformatted
+  summary line.
+
 ## 1.1.7
 
 - Confirmed in a real session that delivery works (Claude quoted the
