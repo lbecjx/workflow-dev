@@ -50,8 +50,24 @@ fi
 printf '{"transcriptPath":"%s","length":%s,"dateTime":"%s","pendingSave":false}' "$TRANSCRIPT_PATH" "$NEW_LENGTH" "$NOW_UTC" > "$STATE_FILE"
 rm -f "$PENDING_LENGTH_FILE"
 
-LOCAL_TIME=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$NOW_UTC" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null) || \
+# BSD date (macOS): -u on a -f parse also forces UTC on the OUTPUT side,
+# not just the input — a single-step "-j -u -f ... +format" call silently
+# prints the parsed value back out in UTC, never actually converting to
+# local time (confirmed by reproducing it directly: with the real local
+# clock reading 11:19 PM, this one-step form printed "4:19 AM" — the
+# unconverted UTC value). The fix is the standard two-step form: parse to
+# an epoch integer (the one step -u is legitimately needed for, since it
+# tells date to interpret the input string itself as UTC), then format
+# that epoch WITHOUT -u, which is what actually renders in local time.
+EPOCH=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$NOW_UTC" '+%s' 2>/dev/null)
+if [[ -n "$EPOCH" ]]; then
+  LOCAL_TIME=$(date -r "$EPOCH" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null)
+else
+  # GNU date (Linux): -d correctly interprets a Z-suffixed ISO 8601
+  # string as UTC and renders the output in local time by default, with
+  # no equivalent one-step trap — no epoch round-trip needed here.
   LOCAL_TIME=$(date -d "$NOW_UTC" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null)
+fi
 [[ -n "$LOCAL_TIME" ]] || LOCAL_TIME="$NOW_UTC (UTC)"
 
 echo "Marked $STORY_ID as saved through line $NEW_LENGTH ($LOCAL_TIME) — future reads will only include what comes after."

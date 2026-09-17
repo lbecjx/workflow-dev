@@ -14,6 +14,20 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.10
+
+- 1.1.8's fix addressed the wrong layer: it assumed the wrong time was
+  Claude paraphrasing instead of relaying `save-mark-saved.sh`'s output —
+  but a real recurrence, confirmed against the actual local clock, showed
+  the script's own output was wrong. BSD `date`'s `-u` flag, combined with
+  `-f` to parse an ISO 8601 string, also forces the *output* to UTC, not
+  just the input parsing — a single-step `date -j -u -f ... +format` call
+  silently prints the value back out in UTC, never actually converting.
+  Fixed with the standard two-step form: parse to an epoch integer (where
+  `-u` is legitimately needed), then format that epoch without `-u`,
+  which renders in local time. Verified directly against the real system
+  clock, not just visual plausibility.
+
 ## 1.1.9
 
 - Reworded the Step 6 example to use fully generic placeholder values.
