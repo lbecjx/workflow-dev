@@ -124,7 +124,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-mark-saved.sh" [STORY-ID]
 
 This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking content as caught up when it was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the state file yourself: the save point advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.
 
-Relay the script's own stdout to the human as part of the save confirmation — it already reports what line the story is now marked saved through, in local time.
+Relay the script's own stdout to the human as part of the save confirmation — it already reports what line the story is now marked saved through, in local time. Never re-derive this yourself from the `.compaction-state/[STORY-ID].json` file's raw `dateTime` field to build a shorter or differently-formatted summary line — that field is stored in UTC specifically for the script to convert; displaying it directly, even reformatted, shows the wrong (UTC, not local) time.
 
 ## Classification rules
 
