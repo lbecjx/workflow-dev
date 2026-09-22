@@ -48,6 +48,8 @@ Determine the available verification commands:
 
 Build a command map: `{ build: "...", typecheck: "...", lint: "...", format: "...", test: "..." }`. Any command that can't be discovered is skipped, not failed — note it in the report.
 
+For Part 11 (Adversarial Correctness), also read the Acceptance Criteria table from the active `.workflow-dev/context/[STORY-ID].md`, if one exists. If no active story context exists, proceed without ACs and note that in the report — don't block on it.
+
 ### Step 2: Determine scope
 
 `git diff --name-only` (staged + unstaged) defines the validation scope. Only these files are judged — pre-existing issues elsewhere are out of scope, not failures.
@@ -64,6 +66,18 @@ Spawn one independent sub-agent per dimension. Each receives the changed-file li
 | **Testing** | Part 5. Coverage of changes, test quality. |
 | **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
 | **Context hygiene** | Part 10. `.workflow-dev/` state matches `.workflow-dev/config.json`. |
+| **Adversarial correctness** | Part 11. Two sub-agents in sequence, not one — see below. |
+
+**Adversarial correctness is two sub-agents, not one.** Spawn a fresh "hunt"
+sub-agent per §11.1, with no memory of this session's design discussion — give
+it only the changed files and the ACs, not the plan or the reasoning behind
+it. Take its raw output and spawn a second, independent "verify" sub-agent per
+§11.2, with no memory of the hunt agent's own reasoning either — only its
+claims, the same files, and the same ACs. Report only what the verify agent marks CONFIRMED;
+a REJECTED claim never reaches the results table. Report this dimension as
+SKIP — not FAIL, and still shown as its own row — for a change with no logic
+to break (docs, comments, pure config); its Findings column reads
+"— (nothing to test)".
 
 ### Step 4: Collect and present results
 
@@ -80,6 +94,7 @@ Validation Results:
 | Testing           | PASS   | 0        |
 | Architecture      | PASS   | 0        |
 | Context Hygiene    | PASS   | 0        |
+| Adversarial Correctness | PASS | 0    |
 
 Overall: PASS (2 warnings)
 
@@ -96,9 +111,9 @@ Ready to commit.
 |---------|---------|
 | **PASS** | Every dimension passes. Safe to commit. |
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
-| **FAIL** | Blocking issues found — security, a broken build/tests, type errors. Must be fixed before committing. |
+| **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a confirmed adversarial-correctness finding. Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, or `.workflow-dev/` git-tracking drift (Part 10).
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), or a CONFIRMED finding from the adversarial correctness pass (Part 11).
 Non-blocking: code smells, missing edge-case tests, style issues.
 
 ### Step 6: Record the validated diff (only on PASS)
@@ -121,7 +136,7 @@ printf '{"diffHash":"%s","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT
 
 - **Stack-agnostic rules** — the dimensions are universal; only the verification commands are project-specific.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
-- **Parallel** — sub-agents run independently for speed.
+- **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them).
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
-- **Non-blocking by default** — only security, broken builds/tests, and context-hygiene drift block. Everything else is advisory.
+- **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block. Everything else is advisory.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure.

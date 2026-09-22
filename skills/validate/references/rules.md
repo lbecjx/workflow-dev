@@ -182,6 +182,68 @@ Applies only when `.workflow-dev/config.json` exists in the project.
 
 ---
 
+## Part 11: Adversarial Correctness Review
+
+Every other dimension checks compliance against a checklist. This one has a
+different mandate: assume the change has a bug, and try to prove it — rather
+than confirm it looks fine. A single pass done by whoever wrote (or reasoned
+through) the change tends to re-confirm the same assumptions that produced it;
+this dimension exists specifically to not share that context.
+
+Two independent sub-agents, run in sequence, neither with any memory of the
+other or of how the change was designed:
+
+### 11.1 Hunt
+
+Given only: the list of changed files, their current full contents, and the
+acceptance criteria being validated against — nothing about the plan, the
+design discussion, or why the approach was chosen. Inheriting that narrative
+means inheriting its blind spots.
+
+Instructions to give this agent, close to verbatim:
+- Do not report "this looks correct." Your only job is to find the specific
+  input, sequence of calls, or state that breaks this.
+- Prioritize, in this order: concurrent/racing writes to shared state,
+  boundary values (empty, null, zero, negative, max-length, unicode,
+  duplicate), an error path that's assumed handled but never actually
+  exercised, a caller passing data the callee doesn't expect, and any spot
+  where two pieces of code each assume the other one validates something.
+- A finding without a concrete trigger doesn't count. For each one, state:
+  the exact file and line, the exact input/sequence that reaches it, and the
+  exact wrong behavior that results.
+- Ignore: pre-existing issues outside the changed lines, anything a linter or
+  type checker would already catch, and pedantic style points — this
+  dimension hunts for behavior that's actually wrong, not taste.
+
+### 11.2 Verify
+
+A second, independent agent — given the hunt's raw findings, the same changed
+files, and the same acceptance criteria hunt received, but nothing about how
+the hunt agent reasoned its way there.
+
+For each claimed finding, re-derive it from the actual code without trusting
+the hunt agent's framing: does the claimed trigger really reach the claimed
+line, with the claimed effect — and is that effect actually inconsistent with
+the ACs, not just surprising? A hunt agent can misread what the spec actually
+requires; tracing the trigger correctly doesn't make the "bug" real if the
+behavior it found is what the ACs call for. Two outcomes per finding:
+- **CONFIRMED** — independently traced the exact failure, and confirmed the
+  resulting behavior actually violates a requirement (an AC, or an
+  unambiguous correctness expectation if no AC covers it); it's real.
+- **REJECTED** — couldn't reproduce, the trigger doesn't actually reach the
+  code, the case is already handled elsewhere, or the behavior matches what
+  the ACs actually require.
+
+Only CONFIRMED findings are reported upward. A finding that stays REJECTED
+never reaches the human — this is what keeps the dimension high-signal
+instead of a pile of speculative maybes.
+
+**Verdict:** FAIL if any finding is CONFIRMED — a verified, concrete failure
+scenario is a real bug, not a matter of judgment. SKIP if there's nothing to
+adversarially test (a pure docs/config/comment-only change).
+
+---
+
 ## Severity Guide
 
 | Severity | Meaning | Blocks commit? |

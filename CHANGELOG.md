@@ -14,6 +14,19 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0
+
+- Added an "Adversarial Correctness Review" dimension to `/workflow-dev:validate`
+  (`references/rules.md` Part 11). Every other dimension checks compliance
+  against a checklist; this one has an explicit mandate to find a concrete
+  input or sequence that breaks the change, run as two independent sub-agents
+  in sequence — a "hunt" agent given only the changed files and ACs (not the
+  design reasoning that produced them, so it doesn't inherit the same blind
+  spots), then a separate "verify" agent that independently re-derives each
+  claimed finding from the actual code before it's allowed to reach the
+  report. Only a CONFIRMED finding is reported, and a CONFIRMED finding now
+  blocks the commit, same tier as a security or build failure.
+
 ## 1.1.10
 
 - 1.1.8's fix addressed the wrong layer: it assumed the wrong time was
