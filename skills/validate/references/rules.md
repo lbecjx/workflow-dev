@@ -190,8 +190,118 @@ than confirm it looks fine. A single pass done by whoever wrote (or reasoned
 through) the change tends to re-confirm the same assumptions that produced it;
 this dimension exists specifically to not share that context.
 
-Two independent sub-agents, run in sequence, neither with any memory of the
-other or of how the change was designed:
+**This is also, by a wide margin, the most expensive dimension** — the other
+six each run one bounded check (a command, a diff read, a config check) in
+under two minutes combined; the hunt→verify pair below routinely takes longer
+than that on its own, because both agents do open-ended exploration and often
+empirical testing (spinning up a server, firing real concurrent requests,
+corrupting a file on purpose), not a fixed scan. Never spend that cost
+reflexively — see §11.0 before spawning anything.
+
+### 11.0 Deciding whether to run this, and at what depth
+
+The other six dimensions always run — they're cheap enough that skipping them
+saves nothing worth the risk. This one is different: it's expensive enough
+that running the full version by default, on every change regardless of what
+the change actually is, wastes real time and tokens for no real return on a
+change with nothing much to break. There are three levels, not two:
+
+- **SKIP** — nothing spawned. For diffs with nothing worth adversarially
+  testing: docs/comments only, a pure rename or config-value change with no
+  new logic, styling/presentation-only code, or anything else where a wrong
+  result would be immediately obvious on the next normal use.
+- **LITE** — both hunt (§11.1) and verify (§11.2) run, both held to
+  *static-analysis depth*: read the code, trace it by hand — this is what
+  actually saves the time and tokens, not skipping verify. Neither agent runs
+  anything (no server spun up, no real requests fired, no script executed
+  against a scratch file); a hunt-alone cut would still leave the truly
+  expensive part (live, empirical testing) in place, so LITE restricts depth
+  on *both* agents instead. A finding that both agents can trace all the way
+  through on paper still reaches CONFIRMED and still blocks (see Verdict);
+  only a claim that genuinely needs live execution to settle — real
+  concurrency timing, mostly — comes back NEEDS TESTING instead, a WARN. Right
+  for a diff with real new logic worth a fresh pair of eyes, but not touching
+  the highest-risk categories below — a new pure function with some edge
+  cases, a UI component with real conditional logic *that isn't auth-related*
+  (a date picker, a filter panel, a form for non-sensitive data), a data
+  transform.
+- **FULL** — hunt and verify both at full depth (empirical testing expected
+  wherever a claim can be checked that way, per §11.1/§11.2), as originally
+  designed. Right for a diff that touches: a write path (anything that
+  persists, deletes, or mutates state — a database, a file, `localStorage`/
+  `sessionStorage`/a cookie, an in-memory store), concurrency (anything that
+  can run more than once at the same time — request handlers, background
+  jobs, shared files, or a UI component that can be triggered twice before
+  its first call resolves), security-relevant surface (auth in any form —
+  a login/signup/password-reset component is security-relevant even if the
+  diff is pure frontend calling an already-existing endpoint; also token/
+  session storage or transmission, input trusted from outside the process,
+  anything newly network- or filesystem-reachable), or a genuinely new
+  invariant the rest of the codebase now has to hold (a new closed set, a
+  new "exactly one of" guarantee, a new atomicity claim). These are exactly
+  the cases where a claim needing live execution to be fully sure —
+  something LITE can only mark NEEDS TESTING — would actually matter enough
+  to pay for resolving it outright, so the extra depth earns its cost.
+  **None of this is backend-specific** — "write path," "concurrency," and
+  "security-relevant surface" apply the same way to frontend code (state
+  writes, double-submit races, auth UI) as to a server.
+
+**SKIP is the only depth decided directly, without asking** — it's for a
+narrow case: genuinely zero logic (docs, a pure rename, a config-value
+change), where there's nothing to adversarially test either way, so asking
+would just be friction with no real choice behind it. For anything else,
+picking a depth is a real judgment call — LITE and FULL trade off cost
+against how settled a finding can get — and that call belongs to the human,
+not the model. LITE is the default *suggestion* whenever there's real logic
+but nothing hits the FULL criteria above; FULL is the default suggestion once
+it does. Either way, present the suggestion with a one-line reason and ask
+which depth to actually run.
+
+**Mixed diff:** judge by the highest-risk file touched, not the average — one
+write-path file in an otherwise-docs change still calls for suggesting FULL.
+
+Before spawning anything, look at the scope from Step 2 and decide SKIP
+directly — the one case that never asks, since there's nothing to test
+either way. For anything else, present the suggested depth with its reason
+and ask the human to pick LITE or FULL:
+
+```
+Adversarial correctness (Part 11): SKIP
+This diff is a folder rename across skill docs plus one path change in a
+shell script; no new logic to break.
+```
+
+```
+Adversarial correctness (Part 11) — recommend: LITE
+This diff adds a pure formatting function with several edge cases; no
+write/concurrency/security surface. Run at LITE, or escalate to FULL?
+```
+
+```
+Adversarial correctness (Part 11) — recommend: FULL
+This diff adds a write endpoint with concurrent access and a rollback path —
+exactly the shape this dimension exists for. Downgrade to LITE instead?
+```
+
+```
+Adversarial correctness (Part 11) — recommend: FULL
+This diff is a pure-frontend login form — auth is security-relevant surface
+regardless of layer, even calling an endpoint that already exists.
+Downgrade to LITE instead?
+```
+
+If the human doesn't answer (asynchronous review, CI, batch mode): default
+to LITE regardless of which depth was suggested — never silently escalate to
+FULL just because that's what was recommended and nobody was there to
+confirm it. A human choosing a different depth than what was suggested or
+decided — up, down, or to skip — is always honored; SKIP is a stated
+decision, not a gate the human can't override, and LITE/FULL are
+recommendations, not requirements.
+
+Both depths run two independent sub-agents (hunt then verify), never with any
+memory of each other or of how the change was designed — LITE and FULL differ
+in what those two agents are allowed to do (§11.1, §11.2), not in how many of
+them run:
 
 ### 11.1 Hunt
 
@@ -215,9 +325,35 @@ Instructions to give this agent, close to verbatim:
   type checker would already catch, and pedantic style points — this
   dimension hunts for behavior that's actually wrong, not taste.
 
+**Depth is set here, not just by whether verify runs afterward** — running
+real code (spinning up a server, firing actual concurrent requests,
+corrupting a file on disk and re-running the script against it) is what makes
+a FULL-depth hunt take minutes and burn six figures of tokens; a LITE-depth
+hunt skips all of that and stays on the page:
+
+- **LITE:** static analysis only — read the code and trace it by hand. Cite
+  the exact line and reason through what the input/sequence you're describing
+  would do, but never actually run anything: no starting a server, no real
+  HTTP/socket calls, no executing the script against a scratch file, no
+  process spawned to "just check." A claim traced correctly on paper still
+  counts as a finding here — it just isn't empirically confirmed, which is
+  exactly what makes LITE cheap. §11.2's verify pass still runs at LITE — at
+  the same static depth — so a LITE finding isn't unverified in the sense of
+  "nobody checked it twice," only in the sense of "nobody actually ran it."
+- **FULL:** the same mandate, but empirical testing is not just allowed, it's
+  expected wherever a claim can be checked that way — a hunt agent that could
+  have spun up the actual server and fired the actual request, but instead
+  only reasoned about what "should" happen, is doing LITE-depth work under a
+  FULL label. Reserve this depth for exactly the diffs that earn it (§11.0).
+
+Tell the agent explicitly which depth it's running at — this isn't something
+it infers from context.
+
 ### 11.2 Verify
 
-A second, independent agent — given the hunt's raw findings, the same changed
+Runs at both depths — LITE gets a real verify pass too, not none; it's just
+verify held to the same no-execution rule as a LITE hunt (see below). A
+second, independent agent — given the hunt's raw findings, the same changed
 files, and the same acceptance criteria hunt received, but nothing about how
 the hunt agent reasoned its way there.
 
@@ -226,21 +362,55 @@ the hunt agent's framing: does the claimed trigger really reach the claimed
 line, with the claimed effect — and is that effect actually inconsistent with
 the ACs, not just surprising? A hunt agent can misread what the spec actually
 requires; tracing the trigger correctly doesn't make the "bug" real if the
-behavior it found is what the ACs call for. Two outcomes per finding:
-- **CONFIRMED** — independently traced the exact failure, and confirmed the
-  resulting behavior actually violates a requirement (an AC, or an
-  unambiguous correctness expectation if no AC covers it); it's real.
+behavior it found is what the ACs call for.
+
+Same depth rule as hunt (§11.1), told explicitly, not inferred:
+- **LITE:** static only — re-derive by reading, never by running. Most false
+  positives (the trigger doesn't actually reach that line, the case is
+  already handled elsewhere, the behavior matches what the ACs actually
+  require) are just as catchable by careful reading as by execution — that's
+  what still makes a LITE verify pass worth running instead of skipping it.
+  What static reading *can't* fully settle — genuine timing/concurrency
+  behavior, anything whose outcome depends on real execution order — gets the
+  **NEEDS TESTING** outcome below instead of CONFIRMED.
+- **FULL:** empirical — actually reproduce the claim (run the server, fire the
+  request, corrupt the file, whatever the claim calls for) rather than only
+  reasoning about it.
+
+Three outcomes per finding:
+- **CONFIRMED** — independently traced (LITE) or reproduced (FULL) the exact
+  failure, with enough certainty at the depth actually run that this isn't a
+  judgment call, and confirmed the resulting behavior actually violates a
+  requirement (an AC, or an unambiguous correctness expectation if no AC
+  covers it); it's real.
+- **NEEDS TESTING** — the trigger and reasoning check out on inspection, but
+  settling it for certain would need something this depth doesn't do (typically:
+  live execution, at LITE depth, for a genuinely timing/order-dependent claim
+  that reading alone can't fully resolve — rare at FULL depth, where
+  execution is already on the table, but not impossible for something that's
+  hard to reproduce reliably even running it, like a narrow race window).
 - **REJECTED** — couldn't reproduce, the trigger doesn't actually reach the
   code, the case is already handled elsewhere, or the behavior matches what
   the ACs actually require.
 
-Only CONFIRMED findings are reported upward. A finding that stays REJECTED
-never reaches the human — this is what keeps the dimension high-signal
-instead of a pile of speculative maybes.
+Only CONFIRMED and NEEDS TESTING findings are reported upward. A finding that
+stays REJECTED never reaches the human — this is what keeps the dimension
+high-signal instead of a pile of speculative maybes.
 
-**Verdict:** FAIL if any finding is CONFIRMED — a verified, concrete failure
-scenario is a real bug, not a matter of judgment. SKIP if there's nothing to
-adversarially test (a pure docs/config/comment-only change).
+**Verdict:**
+- **SKIP** — decided directly per §11.0 for a diff with no real logic
+  (Findings column reads `— (skipped, low risk)`), or it ran anyway (LITE or
+  FULL) and there was nothing to adversarially test (`— (nothing to test)`).
+- **CONFIRMED → FAIL**, at either depth. A verify pass that reached CONFIRMED
+  — whether by careful static tracing (LITE) or live reproduction (FULL) — is
+  reporting a real bug, not a matter of judgment. Depth changes how much a
+  finding *can* reach CONFIRMED (some claims are only fully settleable by
+  running them), not what CONFIRMED itself means once reached.
+- **NEEDS TESTING → WARN**, at either depth. Verify traced the reasoning and it
+  holds up, but couldn't rule out every alternative without doing something
+  this depth doesn't do — most often live execution at LITE depth, for a
+  timing/order-dependent claim reading alone can't fully settle. A judgment
+  call for the human, not a verified bug — the human reads it and decides.
 
 ---
 

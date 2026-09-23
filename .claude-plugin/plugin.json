@@ -1,7 +1,7 @@
 {
   "name": "workflow-dev",
   "description": "Human-piloted, agent-executed development workflow. Bootstraps a persistent per-project context from Jira, Confluence, and GitHub via MCP \u2014 or from a local Markdown file when no issue tracker is available \u2014 then decomposes it into a task plan, executes it with enforced quality rules, and runs a multi-dimensional gate before commit. Context survives compaction and new sessions, saved explicitly on request \u2014 never automatically.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": {
     "name": "lbecjx"
   }
