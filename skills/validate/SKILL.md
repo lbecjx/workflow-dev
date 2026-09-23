@@ -66,18 +66,34 @@ Spawn one independent sub-agent per dimension. Each receives the changed-file li
 | **Testing** | Part 5. Coverage of changes, test quality. |
 | **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
 | **Context hygiene** | Part 10. `.workflow-dev/` state matches `.workflow-dev/config.json`. |
-| **Adversarial correctness** | Part 11. Two sub-agents in sequence, not one — see below. |
 
-**Adversarial correctness is two sub-agents, not one.** Spawn a fresh "hunt"
-sub-agent per §11.1, with no memory of this session's design discussion — give
-it only the changed files and the ACs, not the plan or the reasoning behind
-it. Take its raw output and spawn a second, independent "verify" sub-agent per
-§11.2, with no memory of the hunt agent's own reasoning either — only its
-claims, the same files, and the same ACs. Report only what the verify agent marks CONFIRMED;
-a REJECTED claim never reaches the results table. Report this dimension as
-SKIP — not FAIL, and still shown as its own row — for a change with no logic
-to break (docs, comments, pure config); its Findings column reads
-"— (nothing to test)".
+These six always run together, in parallel — they're cheap. **Adversarial
+correctness (Part 11) has a depth, decided per diff, not a fixed shape.**
+Apply §11.0's criteria to the scope from Step 2:
+
+- **No real logic in the diff** (docs, a pure rename, a config-value change)
+  → **SKIP**. Decide this directly, don't ask — state it plainly in the
+  results (`SKIP — (skipped, low risk)`), not silently omitted. This is the
+  only depth that never asks.
+- **Anything else** → pick a suggested depth per §11.0's FULL criteria
+  (writes, concurrency, security-relevant surface — including a pure-frontend
+  auth component, or a new invariant → suggest **FULL**; otherwise → suggest
+  **LITE**), state the one-line reason, and ask the human to pick LITE or
+  FULL. Don't decide this one yourself and move on — the choice is the
+  human's, not just a notification. Default to **LITE** if unattended/CI and
+  no answer is possible — never silently run FULL just because that's what
+  was suggested.
+
+Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
+what differs is whether those agents may actually execute anything (FULL) or
+must stay on the page (LITE, §11.1/§11.2's depth rules). Neither agent ever
+gets the design discussion, only the changed files and the ACs — inheriting
+that narrative means inheriting its blind spots, at either depth.
+
+Report only what verify marks CONFIRMED or NEEDS TESTING upward — a REJECTED
+claim never reaches the results table. Report this dimension as SKIP — not
+FAIL — if it ran (LITE or FULL) and there turned out to be no logic to break
+once looked at closely (`— (nothing to test)`).
 
 ### Step 4: Collect and present results
 
@@ -111,10 +127,10 @@ Ready to commit.
 |---------|---------|
 | **PASS** | Every dimension passes. Safe to commit. |
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
-| **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a confirmed adversarial-correctness finding. Must be fixed before committing. |
+| **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a CONFIRMED adversarial-correctness finding (either depth). Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), or a CONFIRMED finding from the adversarial correctness pass (Part 11).
-Non-blocking: code smells, missing edge-case tests, style issues.
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (LITE) or reproduced live (FULL).
+Non-blocking: code smells, missing edge-case tests, style issues, and any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell.
 
 ### Step 6: Record the validated diff (only on PASS)
 
@@ -137,6 +153,7 @@ printf '{"diffHash":"%s","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT
 - **Stack-agnostic rules** — the dimensions are universal; only the verification commands are project-specific.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them).
+- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (LITE or FULL, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
-- **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block. Everything else is advisory.
+- **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure.

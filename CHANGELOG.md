@@ -14,6 +14,38 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.0
+
+- The Adversarial Correctness dimension (Part 11) no longer always runs at
+  full depth — its full hunt→verify pair, both agents doing live empirical
+  testing, is by a wide margin the most expensive part of
+  `/workflow-dev:validate` (routinely longer, and more tokens, than the
+  other six dimensions combined). A new §11.0 now picks one of three
+  depths per diff:
+  - **SKIP** — nothing spawned; decided directly, no need to ask, for diffs
+    with no real logic (docs, a pure rename, a config-value change) — the
+    only depth with nothing to actually choose between.
+  - **LITE** — two independent agents (hunt then verify), both held to
+    static-analysis depth: read the code and trace it by hand, never
+    actually run anything.
+  - **FULL** — hunt and verify both run empirically (spin up a server, fire
+    real requests, corrupt a file and re-run the script against it).
+
+  For anything other than SKIP, the dimension suggests LITE or FULL (LITE
+  by default; FULL when the diff touches writes, concurrency,
+  security-relevant surface — including a pure-frontend auth component, not
+  just backend endpoints — or a new invariant), states the reason in one
+  line, and the human picks which one actually runs. Depth is never decided
+  for the human past SKIP; unattended runs (CI, batch mode, no reply
+  possible) fall back to LITE regardless of which depth was suggested.
+
+  Verify's outcomes are now CONFIRMED, NEEDS TESTING, or REJECTED — NEEDS TESTING is
+  new, for a claim that traces correctly but needs live execution to settle
+  for certain (most common at LITE depth, where that execution never
+  happens). CONFIRMED still blocks the commit at either depth; NEEDS TESTING is
+  a WARN-level judgment call for the human, same tier as a code smell. The
+  other six dimensions are unaffected and still always run.
+
 ## 1.2.0
 
 - Added an "Adversarial Correctness Review" dimension to `/workflow-dev:validate`
