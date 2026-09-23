@@ -14,6 +14,18 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.1
+
+- The `PreToolUse` hook that warns before a `git commit` with no matching
+  `/workflow-dev:validate` marker used `permissionDecision: "allow"` — it
+  injected an advisory string but let the commit through regardless,
+  leaving the gate entirely dependent on an agent reading that text and
+  acting on it. Changed to `"ask"`: the commit now requires an explicit
+  human decision instead of passing through silently. Still not a hard
+  deny — the human can approve committing unvalidated changes — but the
+  decision now actually reaches them instead of being an easy-to-miss
+  string in tool output.
+
 ## 1.3.0
 
 - The Adversarial Correctness dimension (Part 11) no longer always runs at
