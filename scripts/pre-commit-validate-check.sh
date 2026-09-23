@@ -6,12 +6,16 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
-# PreToolUse hook (matcher: Bash) — advisory reminder to run
-# /workflow-dev:validate before a git commit, when this project uses
-# workflow-dev and no matching "already validated" marker exists for the
-# current diff. Never blocks the commit — only injects a heads-up Claude can
-# act on. Committing without validating stays the human's call, matching
-# validate/SKILL.md: "Doesn't commit or push... leaves the call to the human."
+# PreToolUse hook (matcher: Bash) — requires explicit human confirmation
+# before a git commit, when this project uses workflow-dev and no matching
+# "already validated" marker exists for the current diff. Never denies the
+# commit outright — the human can still approve it — but an injected
+# advisory string is easy for an agent to read and then commit past anyway
+# without acting on it, especially in an unattended/auto-accept mode where
+# nothing forces the moment to actually register. "Committing without
+# validating stays the human's call" (validate/SKILL.md: "Doesn't commit or
+# push... leaves the call to the human.") now means the human is actually
+# asked, not just theoretically free to have noticed an advisory string.
 
 INPUT=$(cat)
 COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*: *"(.*)"/\1/')
@@ -45,5 +49,5 @@ if [[ -f "$MARKER_FILE" ]]; then
   [[ "$SAVED_HASH" == "$CURRENT_HASH" ]] && exit 0
 fi
 
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":"This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm validate passed before this commit, or note if this intentionally skips it."}}'
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate."}}'
 exit 0
