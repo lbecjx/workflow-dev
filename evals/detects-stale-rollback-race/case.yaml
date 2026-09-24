@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: detects-stale-rollback-race
+description: >
+  Regression guard for the Adversarial Correctness dimension — checks that
+  /workflow-dev:validate still catches the exact class of bug found in a
+  real session (a rollback that restores a status value captured before a
+  concurrent write, silently discarding that write). If a future edit to
+  rules.md/SKILL.md weakens hunt/verify, this should start failing.
+tags: [adversarial-correctness, regression]
+context:
+  scaffold_script: fixture.sh
