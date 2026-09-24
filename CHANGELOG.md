@@ -14,6 +14,27 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.2
+
+- `/workflow-dev:validate`'s Step 1 (discovering build/test/lint commands)
+  used a fixed, short list of manifest files (`package.json` → npm scripts,
+  `pyproject.toml` → pytest, and nothing else) — a project shaped any other
+  way was invisible to it. Confirmed against a real project using
+  `pytest.ini`/`requirements-dev.txt` with no `pyproject.toml`: Verification
+  would have reported the test suite as "not discovered" and skipped it
+  entirely, never actually running it.
+
+  Replaced with two sub-agents in sequence: a stack-survey agent identifies
+  every language/framework in the repo and lists the realistic full set of
+  conventional test/build/typecheck/lint/format tools for each — its own
+  ecosystem knowledge merged with the examples already named in this file,
+  neither one trusted alone — then a confirmation agent checks the repo for
+  each candidate and, independently, always also runs a generic "test"/
+  "spec" name search as a catch-all for anything neither source named. A
+  command still not found is skipped, not failed, but the report now says
+  what was actually searched for, distinguishing "looked and found nothing"
+  from "never looked."
+
 ## 1.3.1
 
 - The `PreToolUse` hook that warns before a `git commit` with no matching
