@@ -17,3 +17,6 @@ __pycache__/
 
 # Ignore local-backlog plugin files (https://github.com/lbecjx/local-backlog)
 backlog/
+
+# claude plugin eval output — regenerated on every run
+evals/results/
