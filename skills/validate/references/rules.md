@@ -119,7 +119,7 @@ These rules are language- and stack-agnostic; they apply to any codebase. Each d
 
 ## Part 6: Verification Commands
 
-Run whatever the project provides. Map to these categories:
+Run whatever the project provides — discovered per SKILL.md's Step 1 (a stack-survey sub-agent enumerates conventional tools for whatever language/framework the repo actually uses, a confirmation sub-agent checks which of those exist here plus a generic "test"/"spec" catch-all), not a fixed list of manifest files. Map to these categories:
 
 | Category | What it proves | Blocking? |
 |----------|---------------|-----------|
