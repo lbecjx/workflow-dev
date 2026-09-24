@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.0
+
+- Added `/workflow-dev:summarize-changes` to draft and review the commit
+  message, PR title, and PR description — split out of `implement` and
+  `validate`, which now only handles `CHANGELOG.md` entries.
+- Part 12.3 now hard-blocks any AI/agent/LLM attribution or co-authorship
+  in a commit or PR — enforced by both scripts, not just reviewed.
+- Fixed: a 12.3 (personal/internal exposure) violation now blocks on its
+  own, same tier as 12.2, instead of only when a secret was also named.
+
 ## 1.4.0
 
 - Added Part 12 (Git History Disclosure & Tone) to `/workflow-dev:validate`:

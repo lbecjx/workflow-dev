@@ -13,13 +13,22 @@
 # drafted, but "the skill was told to" isn't certainty it happened — this
 # hook fires on every `git commit` / `gh pr create` / `gh pr edit` command
 # regardless of which skill produced it (or whether any workflow-dev skill
-# was involved at all), and asks for confirmation unless the exact message
-# text already has a matching reviewed-marker from
-# git-message-mark-reviewed.sh. Same non-blocking "ask" pattern as
-# pre-commit-validate-check.sh: never denies the command outright, but an
-# advisory string alone is easy to read past in an auto-accept session —
-# this makes the human (or the agent acting for them) actually confront the
-# question at the moment it matters.
+# was involved at all).
+#
+# Two different enforcement levels, not one:
+# - Most of Part 12 (tone, length, disclosure framing) is a judgment call,
+#   so an unreviewed message gets a non-blocking "ask" — same pattern as
+#   pre-commit-validate-check.sh, never denies outright, but an advisory
+#   string alone is easy to read past in an auto-accept session, so this
+#   makes the human (or the agent acting for them) actually confront the
+#   question at the moment it matters.
+# - AI/agent/LLM attribution (Part 12.3's hard rule) is not a judgment
+#   call, so it's checked separately and **denied outright** — the only
+#   rule in this file that is — regardless of whether the text carries a
+#   reviewed-marker. `git-message-mark-reviewed.sh` already refuses to
+#   mark text containing it, so reaching this point means that step got
+#   bypassed somehow; deny is the backstop for that, not the first line
+#   of defense.
 #
 # Message extraction is best-effort, not a real shell parser. It handles the
 # one shape this session's own git/gh conventions actually produce — a
@@ -50,6 +59,18 @@ case "$COMMAND" in
   *"git commit"*|*"gh pr create"*|*"gh pr edit"*) ;;
   *) exit 0 ;;
 esac
+
+# Kept byte-identical to git-message-mark-reviewed.sh's AI_ATTRIBUTION_PATTERN
+# — if you change one, change the other, or a message could get marked
+# reviewed under a pattern this hook doesn't also enforce. Checked against
+# the whole raw command, not just the extracted body below, so it still
+# catches attribution even if heredoc/-m extraction fails for some reason.
+AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
+
+if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."}}'
+  exit 0
+fi
 
 # Pulls the body of the first heredoc in the command: everything between a
 # `<<[-]['"]DELIM['"]` opener and the next line that is exactly DELIM.
@@ -82,7 +103,19 @@ fi
 
 [[ -n "$BODY" ]] || exit 0
 
-MESSAGE_HASH=$(printf '%s' "$BODY" | shasum | cut -d' ' -f1)
+# For a PR, the reviewed text is title+description concatenated — same
+# convention summarize-changes/SKILL.md uses when marking it
+# (`printf '%s\n\n%s' "<title>" "<description>"`). A commit has no separate
+# title, so HASH_TEXT is just the message body.
+HASH_TEXT="$BODY"
+case "$COMMAND" in
+  *"gh pr create"*|*"gh pr edit"*)
+    TITLE=$(printf '%s' "$COMMAND" | grep -oE -- '--title[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^--title[[:space:]]+"(.*)"$/\1/')
+    [[ -n "$TITLE" ]] && HASH_TEXT=$(printf '%s\n\n%s' "$TITLE" "$BODY")
+    ;;
+esac
+
+MESSAGE_HASH=$(printf '%s' "$HASH_TEXT" | shasum | cut -d' ' -f1)
 MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/messages/$MESSAGE_HASH.json"
 
 [[ -f "$MARKER_FILE" ]] && exit 0

@@ -18,11 +18,25 @@
 # deliberate: a marker that survived a later edit would let an unreviewed
 # rewrite slip through silently.
 #
+# Refuses to mark a message containing AI/agent/LLM attribution or
+# co-authorship, per rules.md Part 12.3's hard rule: every commit/PR in a
+# workflow-dev-managed repo is attributed to the human alone, no exceptions
+# for what actually wrote or assisted with the change. Kept byte-identical
+# to pre-commit-message-check.sh's AI_ATTRIBUTION_PATTERN — if you change
+# one, change the other, or a message can get marked here under a pattern
+# the commit-time hook doesn't also enforce.
+AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
+
 # Usage: printf '%s' "<final message text>" | git-message-mark-reviewed.sh
 
 MESSAGE=$(cat)
 if [[ -z "$MESSAGE" ]]; then
   echo "No message text on stdin — nothing to mark." >&2
+  exit 1
+fi
+
+if printf '%s' "$MESSAGE" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
+  echo "Refusing to mark: this text contains AI/agent/LLM attribution or co-authorship (rules.md Part 12.3). Remove it — every commit/PR here is attributed to the human alone — and mark the rewritten text instead." >&2
   exit 1
 fi
 

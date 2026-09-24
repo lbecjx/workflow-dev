@@ -485,6 +485,17 @@ was fixed — worse than saying nothing.
       ("Add `.workflow-dev/` to `.gitignore`") instead of narrating the
       motive behind it
 - [ ] Does not mention specific people, blame, or internal disagreement
+- [ ] **No AI/agent/LLM attribution or co-authorship of any kind** — no
+      `Co-Authored-By: <any AI tool>`, no "Generated with [tool]", no 🤖,
+      no mention of Claude, Anthropic, GPT, Copilot, Gemini, Codex, or any
+      other agent/model/assistant, and no phrasing like "AI-generated" or
+      "written with the help of AI." This applies regardless of what
+      actually wrote or assisted with the change, and regardless of any
+      default attribution convention a tool or harness would otherwise
+      add — every commit and PR in a `workflow-dev`-managed repo is
+      attributed to the human alone. This is a hard rule, not a judgment
+      call: unlike the rest of 12.3, it doesn't depend on tone or
+      framing — the mere presence of the attribution fails it
 
 ### 12.4 Length & Conciseness
 
@@ -498,6 +509,8 @@ summarizing, not just softening in tone.
 - [ ] Commit message: a one-line summary, optionally followed by **at most
       two short paragraphs** of body — not a changelog, not a step-by-step
       of the implementation
+- [ ] PR title: **one line**, no exceptions — same role as the commit
+      summary, not a place for a second sentence
 - [ ] PR description: **at most a couple of short paragraphs** (a brief
       summary plus, if genuinely useful, a short bulleted list) — not a
       full narrative of the work session, not one bullet per commit
@@ -541,6 +554,14 @@ for it to matter: a 12.3 violation with no security content in it still
 FAILs on its own, exactly like a 12.2 violation with no personal reasoning
 in it does. WARN for 12.1 (formality) and 12.4 (length) alone — these are
 quality-of-writing issues, not disclosure.
+
+**AI/agent attribution is stricter than the rest of 12.3**: every other
+check here is reviewed by a sub-agent and can be rewritten — this one is
+also enforced mechanically, with no ask/confirm step. `git-message-mark-
+reviewed.sh` refuses to mark a message containing it, and
+`pre-commit-message-check.sh` **denies** the commit/PR outright (not
+"ask," the only rule in this file that does) if attribution slips through
+some other way. See both scripts' source for the exact patterns matched.
 
 ---
 
