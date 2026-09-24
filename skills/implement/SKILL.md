@@ -87,7 +87,23 @@ When all tasks in the group are done:
 1. Show completion summary
 2. Run `/workflow-dev:validate` (or tell human to run it)
 3. If FAIL → fix issues, re-validate
-4. If PASS → suggest commit message, update plan progress in story.md
+4. If PASS → draft a commit message, then run it through validate's Git
+   History Disclosure dimension (`references/rules.md` Part 12) as an
+   independent sub-agent — not a self-review by whoever just drafted it,
+   same reasoning as adversarial correctness's hunt/verify split. If it
+   doesn't pass, rewrite per §12.5 and re-check. Once it passes, mark it
+   reviewed (`scripts/git-message-mark-reviewed.sh`) and only then suggest
+   it to the human. Update plan progress in story.md.
+
+   This isn't optional because the message was generated inside this same
+   skill — the `pre-commit-message-check.sh` hook will ask for
+   confirmation at actual `git commit` time regardless of whether this
+   step ran, but running it here means that confirmation is a formality
+   instead of a real "is this okay?" moment. If this task group's work
+   later becomes a PR, that's `validate/SKILL.md`'s **PR mode** — it
+   triggers on its own the moment a PR is created/edited (a "create the
+   PR" request, a "yes" confirming one, filling in a template), it isn't
+   something this skill needs to hand off explicitly.
 
 ### Step 6: Update story.md and suggest saving
 

@@ -414,6 +414,136 @@ high-signal instead of a pile of speculative maybes.
 
 ---
 
+## Part 12: Git History Disclosure & Tone
+
+Every other dimension judges code. This one judges the *record* — the
+commit message and, when one exists, the PR title/description — because
+that text outlives the diff it describes. Once committed (and especially
+once a PR is opened) it's effectively permanent and effectively public,
+even in a private repo: every future contributor, every `git log`, every
+notification and search index sees it as-is. Nothing here is about the
+code being wrong; it's about the *story told around the code* being one
+that shouldn't be told in public, in this tone, at all.
+
+**Scope:** the drafted commit message and/or PR title/description, **and**
+any new or edited entries in `CHANGELOG.md` (or equivalent) that appear in
+the changed-file list from Step 2 — not the diff of the actual code. A
+changelog entry is exactly as permanent and public as a commit message
+(often more visible — it's the one artifact meant to be read end-to-end by
+someone who wasn't there), so 12.1–12.4 apply to it the same way; it isn't
+a lower-scrutiny cousin of the commit message just because it's committed
+as a regular file edit instead of passed via `-m`.
+
+If none of these exist yet — no drafted message and `CHANGELOG.md` isn't
+in the changed-file list — report `SKIP — (nothing drafted yet)`; it
+re-runs once a draft exists or `CHANGELOG.md` is touched (see
+validate/SKILL.md and implement/SKILL.md for exactly when that is).
+
+### 12.1 Formality
+
+- [ ] Reads like professional technical writing: what changed and why, in
+      neutral third-person or imperative mood — not a chat message, not a
+      diary entry
+- [ ] No first-person narration of the *process* of writing the code
+      ("I noticed", "I realized", "oops", "mi bad")
+- [ ] No casual filler, apologies, or hedging ("sorry about this", "not
+      sure if this is right but")
+
+### 12.2 No Security Disclosure
+
+A commit/PR that narrates a security incident turns the git history
+itself into a timestamped, attributed index of what to attack and when it
+was fixed — worse than saying nothing.
+
+- [ ] Does not describe a leaked secret, credential, or sensitive file as
+      having been leaked/exposed — states the resulting change only
+      ("Add `.env` to `.gitignore`", never "Remove the API key that leaked
+      in commit abc123")
+- [ ] Does not narrate a history rewrite as cleanup of a mistake — e.g.
+      "este commit limpia del historial algunos documentos que no
+      debieron subirse al repo, por lo que se corrió un force push" is
+      exactly what this blocks. If history had to be rewritten, the
+      message describes the current state, not the incident behind it
+- [ ] Does not name a vulnerability class, exploit, or attack vector that
+      was present in a previous version, even to say it's now fixed — a
+      fix commit states what the code now does, not what it used to be
+      vulnerable to
+- [ ] Does not reference internal security tooling, scan results,
+      incident IDs, or timelines
+
+### 12.3 No Personal/Internal-Behavior Exposure
+
+- [ ] Does not explain a change via the developer's or team's private
+      reasoning, preferences, or internal discussion — e.g. "metiendo
+      .workflow-dev al gitignore porque no queremos que la información
+      del plugin de workflow dev se suba al repo" exposes internal intent
+      that doesn't belong in the public record. The *what* belongs in the
+      message; the internal *why* usually doesn't
+- [ ] Does not reveal internal tooling, workflows, or plugins not meant
+      for an external audience, framed as a reason for the change — if
+      something needs to be gitignored, state that fact plainly
+      ("Add `.workflow-dev/` to `.gitignore`") instead of narrating the
+      motive behind it
+- [ ] Does not mention specific people, blame, or internal disagreement
+
+### 12.4 Length & Conciseness
+
+A long commit message or PR description is usually long because it's
+narrating the process (what was tried, what went wrong, why a decision was
+made) instead of stating the outcome — and process narration is exactly
+what 12.1–12.3 already flag for other reasons. Length is a useful signal
+on its own even when nothing else trips: it means the draft needs
+summarizing, not just softening in tone.
+
+- [ ] Commit message: a one-line summary, optionally followed by **at most
+      two short paragraphs** of body — not a changelog, not a step-by-step
+      of the implementation
+- [ ] PR description: **at most a couple of short paragraphs** (a brief
+      summary plus, if genuinely useful, a short bulleted list) — not a
+      full narrative of the work session, not one bullet per commit
+- [ ] If the underlying change needs more explanation than that to be
+      understood, that explanation belongs in code comments, the PR's
+      inline diff comments, or linked documentation — not in the message
+      itself
+- [ ] Summarize, don't transcribe: state the net effect of the change, not
+      a chronological account of how it was reached
+
+**Verdict:** WARN — rewrite to fit before marking reviewed (§12.5); length
+alone is never FAIL the way 12.2/12.3 always are, but a message failing
+length nearly always also carries some of what 12.1–12.3 flag, so check
+those again after trimming it.
+
+### 12.5 Rewriting when this fails
+
+Don't just reject and stop — rewrite toward the plain, factual version and
+re-check: state what changed, present/imperative tense, with no narrative
+about *why* it had to change if that narrative is the sensitive part. If
+the underlying technical reason isn't itself sensitive, keep it; only the
+disclosure and the tone are being flagged, not documentation in general.
+
+Once a rewritten message/description passes, mark it reviewed so the
+commit-time hook recognizes it and doesn't ask again:
+
+```bash
+printf '%s' "<final message text>" | "$CLAUDE_PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
+```
+
+The marker is keyed by exact content hash — editing the text by even one
+character after marking it invalidates the marker, same as the diff-hash
+marker in `pre-commit-validate-check.sh` (Part 10's mechanism, reused
+here for the same reason: no marker match means "not confirmed as
+reviewed," not "assume it's fine").
+
+**Verdict:** FAIL if any 12.2 (security disclosure) **or** 12.3
+(personal/internal-behavior exposure) check fails — the two are equally
+blocking, same tier as Part 2, and neither needs the other to also trip
+for it to matter: a 12.3 violation with no security content in it still
+FAILs on its own, exactly like a 12.2 violation with no personal reasoning
+in it does. WARN for 12.1 (formality) and 12.4 (length) alone — these are
+quality-of-writing issues, not disclosure.
+
+---
+
 ## Severity Guide
 
 | Severity | Meaning | Blocks commit? |

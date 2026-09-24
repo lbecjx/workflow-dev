@@ -14,6 +14,19 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.0
+
+- Added Part 12 (Git History Disclosure & Tone) to `/workflow-dev:validate`:
+  reviews the drafted commit message/PR description and any `CHANGELOG.md`
+  entries for formality, length, security-incident disclosure, and
+  personal/internal-behavior exposure.
+
+  Enforced two ways so it can't be skipped: `implement/SKILL.md` runs it
+  as an independent sub-agent before suggesting a commit message, and a
+  new `pre-commit-message-check.sh` hook asks for confirmation on every
+  `git commit`/`gh pr create`/`gh pr edit` unless the exact text was
+  already marked reviewed.
+
 ## 1.3.2
 
 - `/workflow-dev:validate`'s Step 1 (discovering build/test/lint commands)
