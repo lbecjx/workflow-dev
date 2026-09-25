@@ -16,7 +16,10 @@ __pycache__/
 .claude/settings.local.json
 
 # Ignore local-backlog plugin files (https://github.com/lbecjx/local-backlog)
-backlog/
+local-backlog/
 
 # claude plugin eval output — regenerated on every run
 evals/results/
+
+# Ignore workflow-dev plugin's own persistent context (per-machine agent state)
+.workflow-dev/
