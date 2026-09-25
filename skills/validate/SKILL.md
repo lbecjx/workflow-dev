@@ -30,6 +30,11 @@ Runs a structured quality gate over the current uncommitted changes, using paral
 - Doesn't commit or push
 - Doesn't auto-fix issues — it reports them and leaves the call to the human
 - Doesn't validate business logic — that's manual testing / AC verification
+- Doesn't draft or review a commit message or PR title/description — that's
+  `/workflow-dev:summarize-changes`. This skill's Git History Disclosure
+  dimension (Part 12) only covers `CHANGELOG.md` entries that happen to be
+  in the diff scope (see Step 3) — text that isn't part of this scope's
+  diff at all doesn't belong to this skill.
 
 ## Execution
 
@@ -62,6 +67,19 @@ Spawn one independent sub-agent per dimension. Each receives the changed-file li
 | **Testing** | Part 5. Coverage of changes, test quality. |
 | **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
 | **Context hygiene** | Part 10. `.workflow-dev/` state matches `.workflow-dev/config.json`. |
+| **Git history disclosure** | Part 12. Reviews any new/edited `CHANGELOG.md` entries in scope — not the rest of the diff — for formality, length, security-incident disclosure, and personal/internal-behavior exposure. |
+
+Conditional, not always-run like the other five: it only fires when
+`CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list. When it
+is, this sub-agent reads the new/edited entries and runs the same
+12.1–12.4 checks against them — a changelog entry is ordinary committed
+file content with no commit-time hook backstop the way a commit message
+has, so this run, inside `/workflow-dev:validate`, is the enforcement for
+it. If `CHANGELOG.md` isn't in scope, report `SKIP — (not touched)`.
+
+The commit message and PR title/description are a different artifact
+reviewed at a different moment — that's `/workflow-dev:summarize-changes`,
+not this dimension.
 
 These six always run together, in parallel — they're cheap. **Adversarial
 correctness (Part 11) has a depth, decided per diff, not a fixed shape.**
@@ -106,6 +124,7 @@ Validation Results:
 | Testing           | PASS   | 0        |
 | Architecture      | PASS   | 0        |
 | Context Hygiene    | PASS   | 0        |
+| Git History Disclosure | SKIP | — (CHANGELOG.md not touched) |
 | Adversarial Correctness | PASS | 0    |
 
 Overall: PASS (2 warnings)
@@ -125,7 +144,7 @@ Ready to commit.
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
 | **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a CONFIRMED adversarial-correctness finding (either depth). Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (LITE) or reproduced live (FULL).
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (LITE) or reproduced live (FULL).
 Non-blocking: code smells, missing edge-case tests, style issues, and any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell.
 
 ### Step 6: Record the validated diff (only on PASS)
@@ -153,3 +172,4 @@ printf '{"diffHash":"%s","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
+- **Git history disclosure is enforced, not just suggested** — this skill's slice of it (CHANGELOG.md entries in scope) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed. Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.

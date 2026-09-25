@@ -87,7 +87,20 @@ When all tasks in the group are done:
 1. Show completion summary
 2. Run `/workflow-dev:validate` (or tell human to run it)
 3. If FAIL → fix issues, re-validate
-4. If PASS → suggest commit message, update plan progress in story.md
+4. If PASS → run `/workflow-dev:summarize-changes` for the commit message,
+   then suggest it to the human. Update plan progress in story.md.
+
+   This isn't handled inline here on purpose: drafting-and-reviewing the
+   commit message is a distinct action from validating the diff, and
+   `summarize-changes` is its one owner regardless of what triggered
+   it — the same skill also handles a PR's title/description if this task
+   group's work becomes one later (a "create the PR" request, a "yes"
+   confirming one, filling in a template — none of that needs this skill
+   to hand anything off explicitly, `summarize-changes` triggers on its
+   own). The `pre-commit-message-check.sh` hook still fires at actual
+   `git commit` time regardless of whether this step ran; running it here
+   just means that's a formality instead of the first real look at the
+   text.
 
 ### Step 6: Update story.md and suggest saving
 
