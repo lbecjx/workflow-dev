@@ -14,6 +14,15 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.1
+
+- Fixed the `/workflow-dev:validate` marker (used to skip re-asking at
+  commit time): it hashed `git diff` + `git status --porcelain`, which
+  changes format across a plain `git add` with zero content change — so
+  validating before staging, then staging before commit (the normal
+  order), invalidated the marker on every single commit. Now hashes each
+  touched file's on-disk content directly, which staging never alters.
+
 ## 1.5.0
 
 - Added `/workflow-dev:summarize-changes` to draft and review the commit
