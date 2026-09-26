@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.6.0
+
+- Validation can now be deferred to story end instead of running after
+  every task group — `/workflow-dev:plan` asks once, up front, and
+  `/workflow-dev:implement` follows that choice silently for the rest of
+  the story. Commit-time enforcement stays intact either way (a new
+  marker state distinguishes "deferred" from "unvalidated").
+
 ## 1.5.1
 
 - Fixed the `/workflow-dev:validate` marker (used to skip re-asking at

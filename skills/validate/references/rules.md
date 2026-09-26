@@ -298,6 +298,24 @@ decided — up, down, or to skip — is always honored; SKIP is a stated
 decision, not a gate the human can't override, and LITE/FULL are
 recommendations, not requirements.
 
+**One scoped exception to that unattended fallback:** the batched/story-end
+scope (`validate/SKILL.md` Step 2) — the single validate pass a story
+running in "once, at the end" mode gets, per `implement/SKILL.md` Step 5 —
+does **not** default to LITE when unattended. It uses whatever depth this
+section's own criteria actually recommend for that cumulative diff (LITE or
+FULL). Reasoning: for an ordinary single call, defaulting to LITE when
+nobody's there to confirm FULL is the safe, cheap choice, because another
+validate call can always happen later. For the batched story-end pass, that
+assumption doesn't hold — it may be the *only* check the deferred work ever
+receives, since the whole point of deferring was to avoid paying for
+per-task-group validation along the way. Forcibly capping depth there for
+cost reasons would undercut the very check being batched, on a diff that
+already earned FULL by this section's own risk criteria. This exception is
+scoped narrowly to that one batched-run case; every other unattended
+validate call — a normal single-diff scope, whether from a story in
+"after every task group" mode or a one-off ad-hoc run — still defaults to
+LITE exactly as above.
+
 Both depths run two independent sub-agents (hunt then verify), never with any
 memory of each other or of how the change was designed — LITE and FULL differ
 in what those two agents are allowed to do (§11.1, §11.2), not in how many of
