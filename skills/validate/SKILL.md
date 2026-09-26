@@ -156,12 +156,29 @@ REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
 MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate"
 mkdir -p "$MARKER_DIR"
 DIFF_HASH=$(
-  { git diff -- . ':!.workflow-dev'; git status --porcelain -- . ':!.workflow-dev'; } | shasum | cut -d' ' -f1
+  { git diff --name-only HEAD -- . ':!.workflow-dev';
+    git ls-files --others --exclude-standard -- . ':!.workflow-dev';
+  } | sort -u | while IFS= read -r f; do
+    [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
+  done | shasum | cut -d' ' -f1
 )
 printf '{"diffHash":"%s","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
 ```
 
 `.workflow-dev/` is excluded from the hash on purpose — a later `/workflow-dev:save` writing to the story file must never invalidate a validation that already passed on the actual code changes. Only `diffHash` matters for comparison; `validatedAt` is display-only metadata, never part of what gets hashed. This file is pure ephemeral machine state — it lives outside the repo, is never committed, and is safe to lose (worst case, the next commit attempt just doesn't find a match and asks the human to confirm validation happened).
+
+**Why content, not `git diff`'s text:** the obvious formula — `git diff` plus
+`git status --porcelain` — looked right and even matched between this file
+and the hook byte-for-byte, but broke on the single most common sequence
+there is: validate while everything is still unstaged, then `git add`
+before committing. Staging alone changes a file's porcelain status line
+(`?? f` → `A  f`, ` M f` → `M  f`) and makes `git diff` (no `--cached`) go
+silent for anything fully staged — so the hash changed on every commit
+that staged anything, unconditionally, even with zero actual content
+change. Hashing each touched path's on-disk content directly — file list
+from `git diff --name-only HEAD` (stable across staged/unstaged for
+tracked files) plus `git ls-files --others` (untracked files) — is immune
+to this, because `git add` never touches what's actually on disk.
 
 ## Principles
 

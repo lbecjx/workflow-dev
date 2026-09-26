@@ -40,8 +40,26 @@ MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/$REPO_HASH.json"
 # Same formula validate/SKILL.md uses to write the marker — .workflow-dev/ is
 # excluded so a /workflow-dev:save write to the story file never invalidates
 # a validation that already passed on the actual code changes.
+#
+# Fingerprints file CONTENT read straight off disk, not `git diff`'s text —
+# confirmed the hard way: the previous formula (`git diff` + `git status
+# --porcelain`) changed hash across a plain `git add` with zero content
+# change, because a file's porcelain status line ("?? f" / " M f" vs "A  f"
+# / "M  f") differs between untracked/unstaged and staged even though
+# nothing in the file itself changed, and `git diff` alone goes silent for
+# a file the instant it's fully staged. Net effect: validating before
+# staging (the normal order) and then running `git add` before commit
+# invalidated the marker on every single commit, unconditionally. Listing
+# touched paths via `git diff --name-only HEAD` (stable across staged vs.
+# unstaged for tracked files) plus `git ls-files --others` (untracked
+# files) and hashing each path's actual on-disk content sidesteps the
+# staging state entirely — `git add` never changes what's on disk.
 CURRENT_HASH=$(
-  { git diff -- . ':!.workflow-dev'; git status --porcelain -- . ':!.workflow-dev'; } | shasum | cut -d' ' -f1
+  { git diff --name-only HEAD -- . ':!.workflow-dev';
+    git ls-files --others --exclude-standard -- . ':!.workflow-dev';
+  } | sort -u | while IFS= read -r f; do
+    [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
+  done | shasum | cut -d' ' -f1
 )
 
 if [[ -f "$MARKER_FILE" ]]; then
