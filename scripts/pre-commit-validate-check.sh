@@ -64,7 +64,20 @@ CURRENT_HASH=$(
 
 if [[ -f "$MARKER_FILE" ]]; then
   SAVED_HASH=$(grep -o '"diffHash"[[:space:]]*:[[:space:]]*"[^"]*"' "$MARKER_FILE" | sed -E 's/.*: *"(.*)"/\1/')
-  [[ "$SAVED_HASH" == "$CURRENT_HASH" ]] && exit 0
+  if [[ "$SAVED_HASH" == "$CURRENT_HASH" ]]; then
+    # Three-tier, not two: a marker can now record "validated" (a real PASS)
+    # or "deferred" (deliberately skipped, per WD-0003 — the human/implement
+    # chose to batch this task group's check at story end instead of
+    # skipping it entirely). A marker with no status field at all predates
+    # this field and is treated as "validated" for backward compatibility.
+    STATUS=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$MARKER_FILE" | sed -E 's/.*: *"(.*)"/\1/')
+    [[ -z "$STATUS" ]] && STATUS="validated"
+    if [[ "$STATUS" == "deferred" ]]; then
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Validation deferred for this task group, as planned — will run once at story end."}}'
+      exit 0
+    fi
+    exit 0
+  fi
 fi
 
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate."}}'

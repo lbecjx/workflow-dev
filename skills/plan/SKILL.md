@@ -81,7 +81,55 @@ Validates: AC #Z
 
 Ask: "Approve this plan, or adjust something?"
 
-### Step 5: Write to story file
+### Step 5: Choose validation mode (once per story, never re-asked)
+
+Once the plan is approved — before writing anything, and before
+`/workflow-dev:implement` runs any task group — ask this exactly once for
+the whole story:
+
+```
+AskUserQuestion:
+  question: "Before starting: the full validation (multiple sub-agents, plus
+    Adversarial Correctness — minutes on FULL) will run at some point.
+    Should it run once at the end of the story, or after every task group?"
+  header: "Validation mode"
+  options:
+    - label: "Once, at the end (recommended)"
+      description: "Pay that cost once, not per task group."
+    - label: "After every task group"
+      description: "Pay that same cost repeatedly — catches issues sooner,
+        costs more overall."
+```
+
+Both options name the same underlying mechanism explicitly — they differ
+only in *frequency* of when it runs, never in *what* runs or *whether* it
+runs. Don't substitute a cost figure (a dollar amount, a token count) for
+either option's description — a number derived from one measurement isn't
+representative across diffs, models, or pricing, and goes stale; "pay once
+vs. repeatedly" is the fact that's always true regardless.
+
+**Unattended/non-interactive** (no human available to answer): skip the
+tool call entirely, default to "once, at the end" silently — same
+fallback philosophy as Adversarial Correctness's own §11.0 unattended
+default (`rules.md`), just applied to *frequency* instead of *depth*.
+
+Record the answer in the story's Working Memory → Decisions table (Step 6
+writes the Plan section; add this as its own row in the same pass):
+
+```markdown
+| Date | Decision | Decided by |
+|-------|----------|---------------|
+| YYYY-MM-DD | Validation mode for this story: <"once at the end" | "after every task group"> | Human |
+```
+
+This is what lets `/workflow-dev:implement`'s Step 5 read the choice
+silently later, with no question of its own, ever, during execution — see
+its own docs. The choice is sticky for the whole story, not re-asked, but
+not an irreversible lock-in either: the human can still say "validate this
+one now" for a specific task group at any point as a normal instruction,
+without changing what's recorded here.
+
+### Step 6: Write to story file
 
 If human approves, write the plan as a new section in the story.md file:
 
@@ -118,3 +166,4 @@ Tell the human the plan is saved and suggest running `/workflow-dev:implement` t
 5. **Ordered by dependency** — if Task B needs Task A's output, A comes first.
 6. **Tests are explicit** — never assume tests will "just happen." Make them a task or a task group.
 7. **Commit boundaries** — each task group = one potential commit. Don't mix unrelated changes.
+8. **Validation mode is decided once, up front** — asked right after plan approval (Step 5), never per task group and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads this choice; it doesn't decide it.

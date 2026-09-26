@@ -80,15 +80,53 @@ Task Group N: <Title>
 
 During implementation, STOP and ask the human when any condition from `references/decision-points.md` is met. Never proceed silently past a decision point.
 
-### Step 5: Task group complete → validate
+### Step 5: Task group complete → validate (per the story's validation mode)
 
 When all tasks in the group are done:
 
-1. Show completion summary
-2. Run `/workflow-dev:validate` (or tell human to run it)
-3. If FAIL → fix issues, re-validate
-4. If PASS → run `/workflow-dev:summarize-changes` for the commit message,
-   then suggest it to the human. Update plan progress in story.md.
+1. Show completion summary.
+
+2. Check the story's Working Memory → Decisions for the "Validation mode
+   for this story" row — written once by `/workflow-dev:plan`'s Step 5,
+   right after the plan was approved. This step never asks that question
+   itself; it only reads what was already decided.
+
+   - **"After every task group"** (or no such row at all — an older story
+     from before this mode existed): unchanged from before. Run
+     `/workflow-dev:validate`. If FAIL → fix issues, re-validate. Once it
+     PASSes, continue to point 4.
+   - **"Once, at the end"**: defer this task group's validation instead of
+     running it. Call `scripts/validate-mark-deferred.sh` — this marks the
+     current diff so the commit-time hook (`pre-commit-validate-check.sh`)
+     lets the commit through with a visible note instead of asking. Add
+     one line to the completion summary: "Validation: deferred (story
+     default)." No question, no separate notice — the choice was already
+     made once, at plan time; don't re-litigate it here. Continue to
+     point 4.
+   - **Ad-hoc override, either mode:** if the human explicitly says
+     something like "validate this one now" for this specific task group,
+     run `/workflow-dev:validate` for it regardless of the stored mode,
+     then continue to point 4 once it PASSes. This doesn't change the
+     stored mode for the rest of the story — the next task group still
+     follows whatever was recorded in Step 2 above.
+
+3. **If this was the last task group in the plan** (every other one
+   already Done) **and** the story's mode is "once, at the end": this is
+   the trigger for the story-end batched validation — see
+   `/workflow-dev:validate`'s batched/story-end mode (its own SKILL.md).
+   Run it now, against the full accumulated diff since the story started,
+   before considering the story finished — this is the actual validation
+   all the deferred task groups have been waiting for, not optional at
+   this point. If the mode was "after every task group" instead, skip
+   this entirely: every task group was already fully validated on its
+   own, so there's nothing left pending to batch — running another pass
+   here would just re-pay the cost this mode never deferred in the first
+   place.
+
+4. Once this task group is validated, deferred, or overridden (not
+   FAILed) → run `/workflow-dev:summarize-changes` for the commit
+   message, then suggest it to the human. Update plan progress in
+   story.md.
 
    This isn't handled inline here on purpose: drafting-and-reviewing the
    commit message is a distinct action from validating the diff, and
@@ -113,5 +151,5 @@ After successful validation:
 All principles from `references/coding-standards.md` and `references/decision-points.md` apply. The three non-negotiable ones:
 
 1. **Human-in-the-loop** — explain and wait after every task. No silent batching.
-2. **Validate before commit** — always run `/workflow-dev:validate` after completing a task group.
+2. **Validate before commit — or defer it deliberately, per the story's chosen mode.** Every task group's changes get checked, one way or another: either `/workflow-dev:validate` runs right after it (marked "validated"), or it's marked "deferred" and folded into the one batched pass at story end (Step 5) — never silently skipped with no marker at all.
 3. **Zero-inference** — read code or ask. Never assume.

@@ -53,7 +53,33 @@ For Part 11 (Adversarial Correctness), also read the Acceptance Criteria table f
 
 ### Step 2: Determine scope
 
-`git diff --name-only` (staged + unstaged) defines the validation scope. Only these files are judged — pre-existing issues elsewhere are out of scope, not failures.
+Two scopes, not one — which applies depends on why this is running:
+
+- **Single-diff scope (default).** `git diff --name-only` (staged +
+  unstaged) defines the validation scope. Only these files are judged —
+  pre-existing issues elsewhere are out of scope, not failures. This is
+  what a normal, one-off call uses — including a task group validated
+  immediately under a story's "after every task group" mode, or an ad-hoc
+  "validate this one now" override (see `implement/SKILL.md` Step 5).
+
+- **Batched/story-end scope.** Triggered when `implement`'s Step 5 reaches
+  the last task group of a story running in "once, at the end" mode, or
+  when the human explicitly asks to validate/wrap up the whole story.
+  Scope is `git diff --name-only <merge-base-with-the-story's-base-branch>...HEAD`
+  **union** any currently staged/unstaged changes — the full accumulated
+  diff since the story's branch forked off its base, not just the latest
+  task group (use the branch's actual PR-target base — typically `main`;
+  ask if genuinely ambiguous). Every dimension and rule below applies
+  unchanged to this larger scope — §11.0's "judge by the highest-risk file
+  touched" already handles a diff spanning many files, no new logic
+  needed for that.
+
+  **Known, accepted simplification:** this scope doesn't exclude a task
+  group that was already individually validated via an ad-hoc override
+  earlier in the story — it re-validates the whole branch diff regardless.
+  Excluding it would need tracking validated-vs-deferred state at the
+  per-commit or per-hunk level; not worth that complexity for marginal
+  savings next to the actual win here (one pass instead of many).
 
 ### Step 3: Run validation dimensions in parallel
 
@@ -162,10 +188,12 @@ DIFF_HASH=$(
     [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
   done | shasum | cut -d' ' -f1
 )
-printf '{"diffHash":"%s","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
+printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
 ```
 
 `.workflow-dev/` is excluded from the hash on purpose — a later `/workflow-dev:save` writing to the story file must never invalidate a validation that already passed on the actual code changes. Only `diffHash` matters for comparison; `validatedAt` is display-only metadata, never part of what gets hashed. This file is pure ephemeral machine state — it lives outside the repo, is never committed, and is safe to lose (worst case, the next commit attempt just doesn't find a match and asks the human to confirm validation happened).
+
+`status` is written explicitly as `"validated"` here rather than left implicit — `pre-commit-validate-check.sh` also accepts a marker with no `status` field at all as `"validated"` (backward compatible with markers written before this field existed), but a marker this skill writes fresh always states it plainly. The only other value the hook recognizes is `"deferred"`, written by `scripts/validate-mark-deferred.sh` when `/workflow-dev:implement` defers a task group's validation instead of running it — see that script and `implement/SKILL.md` Step 5 for when that path is taken instead of this one.
 
 **Why content, not `git diff`'s text:** the obvious formula — `git diff` plus
 `git status --porcelain` — looked right and even matched between this file
