@@ -48,6 +48,7 @@ Available skills:
   /workflow-dev:plan      — Decompose a story into task groups
   /workflow-dev:implement — Execute the next task group under the quality rules
   /workflow-dev:validate  — Run the quality gate on uncommitted changes
+  /workflow-dev:manual-qa — Verify ACs in a real browser/device (offered by validate)
   /workflow-dev:save      — Persist discoveries and progress
   /workflow-dev:resume    — Load context at the start of a new session
   /workflow-dev:help      — This screen
@@ -82,7 +83,8 @@ Available skills:
 ┌────────────────────────────────────────────────────────┐
 │  /workflow-dev:validate                                   │
 │  Quality gate: security, types, tests, code quality       │
-│  PASS → commit    FAIL → fix → re-validate                │
+│  PASS → (offer manual QA) → commit                        │
+│  FAIL → fix → re-validate                                 │
 └─────────────────────┬────────────────────────────────────┘
                        │
                        ▼ (anytime during work)
@@ -114,6 +116,7 @@ One way to produce such files without hand-writing them is the separate **`local
 | Story is complex, needs structure | `/workflow-dev:plan` |
 | Ready to code | `/workflow-dev:implement` (or direct it manually) |
 | Done coding, want a quality check | `/workflow-dev:validate` |
+| Want UI/mobile work verified in a real browser/device | `/workflow-dev:validate` offers a manual-QA pass (the `manual-qa` skill) |
 | Want to save progress before a break or compaction | `/workflow-dev:save` |
 | New session, picking up where you left off | `/workflow-dev:resume` |
 | Not sure what's next | `/workflow-dev:help` |
@@ -135,7 +138,7 @@ This workflow exists for implementation work on stories. For everything else, ju
 |---|-----------|
 | 1 | **Living context** — survives compaction and new sessions |
 | 2 | **The human is the architect** — the agent executes, the human decides |
-| 3 | **Validate before commit** — the quality gate is not optional |
+| 3 | **Validate before commit** — the quality gate is not optional; the manual-QA pass it can offer is opt-in |
 | 4 | **Zero inference** — read the code or ask; never guess |
 | 5 | **Scope discipline** — touch only what's needed |
 | 6 | **Stack-agnostic rules, stack-specific knowledge** — universal standards plus what's been learned about this repo |
