@@ -41,6 +41,12 @@
 #     project — but only if it was written in the last 15 minutes).
 #   --session <id> — OpenCode only; without it, the newest session for the
 #     current directory is used.
+#   --sessions <id,id,…> — OpenCode: sum exactly these sessions. A session can
+#     mix several stories, so this is the per-story attribution path: the story
+#     records each sub-agent's session id and this totals just those.
+#   --transcripts <path,path,…> — Claude Code: sum these transcripts plus each
+#     one's side-chain sub-agents. The analogue of --sessions, for a story that
+#     spanned several Claude sessions (the transcript path is the id there).
 #   OPENCODE_DB env var overrides the OpenCode database path (testing).
 
 set -u
@@ -48,12 +54,17 @@ set -u
 have_jq() { command -v jq >/dev/null 2>&1; }
 have_sqlite3() { command -v sqlite3 >/dev/null 2>&1; }
 g() { printf '%s' "$1" | jq -r "$2"; }   # get a field from an AGG result
+sqlq() { printf '%s' "${1//\'/\'\'}"; }  # quote a value for a SQL literal
 
 TRANSCRIPT_ARG=""
 SESSION_ARG=""
+SESSIONS_ARG=""
+TRANSCRIPTS_ARG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --session) SESSION_ARG="${2:-}"; shift 2 ;;
+    --sessions) SESSIONS_ARG="${2:-}"; shift 2 ;;
+    --transcripts) TRANSCRIPTS_ARG="${2:-}"; shift 2 ;;
     *) TRANSCRIPT_ARG="$1"; shift ;;
   esac
 done
@@ -114,6 +125,25 @@ elapsed() {
     '($a+"Z"|fromdateiso8601) as $x | ($b+"Z"|fromdateiso8601) as $y | ($y-$x)' 2>/dev/null || printf '?'
 }
 
+# One row per Agent/Task call: label<TAB>output_file. Shared by the
+# single-transcript report and the multi-transcript totals.
+SIDECHAINS_JQ='
+  . as $all
+  | [ $all[] | .message.content? // empty | .[]?
+      | select(.type? == "tool_use")
+      | select(.name == "Agent" or .name == "Task")
+      | { id: .id, label: (.input.description // .input.subagent_type // .name) } ] as $uses
+  | [ $all[] | .message.content? // empty | .[]?
+      | select(.type? == "tool_result")
+      | { id: .tool_use_id,
+          txt: (if (.content|type) == "string" then .content
+                else ([ .content[]? | (.text? // "") ] | join("\n")) end) } ] as $res
+  | $uses[]
+  | . as $u
+  | ( [ $res[] | select(.id == $u.id) | .txt ][0] // "" ) as $t
+  | [ $u.label, ( ( $t | capture("output_file: (?<p>[^\\s]+)") | .p ) // "" ) ]
+  | @tsv'
+
 claude_report() {
   local TRANSCRIPT="$1"
   echo "Workflow usage (Claude Code)"
@@ -133,22 +163,7 @@ claude_report() {
   echo
 
   local ROWS
-  ROWS=$(jq -s -r '
-    . as $all
-    | [ $all[] | .message.content? // empty | .[]?
-        | select(.type? == "tool_use")
-        | select(.name == "Agent" or .name == "Task")
-        | { id: .id, label: (.input.description // .input.subagent_type // .name) } ] as $uses
-    | [ $all[] | .message.content? // empty | .[]?
-        | select(.type? == "tool_result")
-        | { id: .tool_use_id,
-            txt: (if (.content|type) == "string" then .content
-                  else ([ .content[]? | (.text? // "") ] | join("\n")) end) } ] as $res
-    | $uses[]
-    | . as $u
-    | ( [ $res[] | select(.id == $u.id) | .txt ][0] // "" ) as $t
-    | [ $u.label, ( ( $t | capture("output_file: (?<p>[^\\s]+)") | .p ) // "" ) ]
-    | @tsv' "$TRANSCRIPT")
+  ROWS=$(jq -s -r "$SIDECHAINS_JQ" "$TRANSCRIPT")
 
   echo "Sub-agents (Agent/Task)"
   printf '  %-3s %-46s %6s %9s %9s %11s %13s %8s\n' "#" label turns input output cache_read cache_create 'wall(s)'
@@ -179,13 +194,80 @@ claude_report() {
   [[ "$lost" -gt 0 ]] && printf '  (lower bound — excludes %s sub-agent(s) whose usage is unavailable)\n' "$lost"
 }
 
+# A transcript's totals INCLUDING its side-chain sub-agents: "in out cr cc n".
+claude_totals() {
+  local path="$1" MAIN ROWS
+  MAIN=$(jq -s "$AGG" "$path")
+  ROWS=$(jq -s -r "$SIDECHAINS_JQ" "$path")
+  local GI=0 GO=0 GCR=0 GCC=0 n=0 A
+  while IFS=$'\t' read -r label of; do
+    [[ -z "$label$of" ]] && continue
+    n=$((n + 1))
+    A=""
+    if [[ -n "$of" && -f "$of" ]]; then A=$(jq -s "$AGG" "$of" 2>/dev/null) || A=""; fi
+    if [[ -n "$A" ]]; then
+      GI=$((GI + $(g "$A" .input))); GO=$((GO + $(g "$A" .output)))
+      GCR=$((GCR + $(g "$A" .cr)));  GCC=$((GCC + $(g "$A" .cc)))
+    fi
+  done <<< "$ROWS"
+  printf '%s %s %s %s %s\n' \
+    "$(( $(g "$MAIN" .input) + GI ))" "$(( $(g "$MAIN" .output) + GO ))" \
+    "$(( $(g "$MAIN" .cr) + GCR ))" "$(( $(g "$MAIN" .cc) + GCC ))" "$n"
+}
+
+# Sum an explicit set of transcripts plus each one's side-chain sub-agents —
+# the Claude Code analogue of OpenCode's `--sessions`, for attributing cost to
+# a story that spanned several Claude sessions. (Claude Code has no per-session
+# row to point at, so the transcript path is the identifier.)
+transcripts_report() {
+  local list="$1" path in out cr cc s
+  echo "Workflow usage (Claude Code — explicit transcripts)"
+  printf '  %-40s %9s %9s %11s %13s %8s\n' transcript input output cache_read cache_create 'sub-agts'
+  local TI=0 TO=0 TCR=0 TCC=0 TS=0
+  local OLDIFS="$IFS"; IFS=','
+  for path in $list; do
+    [[ -z "$path" ]] && continue
+    if [[ ! -f "$path" ]]; then printf '  %-40s %s\n' "$(basename "$path")" "(not found)"; continue; fi
+    IFS=$' \t' read -r in out cr cc s <<< "$(claude_totals "$path")"
+    TI=$((TI + in)); TO=$((TO + out)); TCR=$((TCR + cr)); TCC=$((TCC + cc)); TS=$((TS + s))
+    printf '  %-40s %9s %9s %11s %13s %8s\n' "$(basename "$path" | cut -c1-40)" "$in" "$out" "$cr" "$cc" "$s"
+  done
+  IFS="$OLDIFS"
+  printf '  %-40s %9s %9s %11s %13s %8s\n' TOTAL "$TI" "$TO" "$TCR" "$TCC" "$TS"
+}
+
 # ---------------------------------------------------------------------------
 # OpenCode: SQLite (session_v2)
 # ---------------------------------------------------------------------------
 
+# Explicit session list — the per-story attribution path: the story context
+# records the session id of each sub-agent it spawned, and this sums exactly
+# those, so cost is attributable to a story even when it spans sessions or
+# harnesses (a session alone can mix several stories).
+sessions_report() {
+  local db="$1" list="$2" id row
+  echo "Workflow usage (OpenCode — explicit sessions)"
+  echo "Database: $db"
+  printf '  %-46s %9s %8s %10s %11s %9s\n' session input output reasoning cache_read cost
+  local TI=0 TO=0 TR=0 TCR=0 TC=0
+  local OLDIFS="$IFS"; IFS=','
+  for id in $list; do
+    [[ -z "$id" ]] && continue
+    row=$(sqlite3 -separator "$(printf '\t')" "$db" \
+      "SELECT substr(id,1,44), tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, round(cost,4) FROM session_v2 WHERE id='$(sqlq "$id")';")
+    if [[ -z "$row" ]]; then printf '  %-46s %s\n' "$id" "(not found)"; continue; fi
+    local sid i o r cr c
+    IFS=$'\t' read -r sid i o r cr c <<< "$row"
+    TI=$((TI + i)); TO=$((TO + o)); TR=$((TR + r)); TCR=$((TCR + cr))
+    TC=$(awk -v a="$TC" -v b="$c" 'BEGIN{printf "%.4f", a+b}')
+    printf '  %-46s %9s %8s %10s %11s %9s\n' "$sid" "$i" "$o" "$r" "$cr" "$c"
+  done
+  IFS="$OLDIFS"
+  printf '  %-46s %9s %8s %10s %11s %9s\n' TOTAL "$TI" "$TO" "$TR" "$TCR" "$TC"
+}
+
 opencode_report() {
-  local db="$1" dir="${PWD}" sid sqlq
-  sqlq() { printf '%s' "${1//\'/\'\'}"; }
+  local db="$1" dir="${PWD}" sid
   if [[ -n "$SESSION_ARG" ]]; then
     sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE id='$(sqlq "$SESSION_ARG")' LIMIT 1;")
     if [[ -z "$sid" ]]; then echo "No such session: $SESSION_ARG" >&2; exit 1; fi
@@ -270,6 +352,20 @@ if [[ -n "$SOURCE" ]]; then
 fi
 
 OPENCODE_DB_PATH="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
+if [[ -n "$TRANSCRIPTS_ARG" ]]; then
+  have_jq || { echo "session-usage.sh --transcripts needs jq." >&2; exit 1; }
+  transcripts_report "$TRANSCRIPTS_ARG"
+  exit 0
+fi
+if [[ -n "$SESSIONS_ARG" ]]; then
+  if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
+    sessions_report "$OPENCODE_DB_PATH" "$SESSIONS_ARG"
+    exit 0
+  fi
+  echo "session-usage.sh --sessions needs sqlite3 and the OpenCode database ($OPENCODE_DB_PATH)." >&2
+  exit 1
+fi
+
 if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
   opencode_report "$OPENCODE_DB_PATH"
   exit 0

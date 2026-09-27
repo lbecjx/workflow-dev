@@ -125,6 +125,19 @@ assert_contains "Sub A" "$OUT6" "child session listed as sub-agent"
 assert_contains "input: 150  output: 15  reasoning: 7  cache_read: 1500" "$OUT6" "OpenCode grand total sums parent + child"
 assert_contains "cost: \$2.0000" "$OUT6" "OpenCode grand total includes cost"
 
+# --- 6c: --sessions sums an explicit set (per-story attribution) -----------
+OUT7=$( cd "$TMP/proj" && OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_child1 2>/dev/null )
+assert_contains "2.0000" "$OUT7" "--sessions sums the explicit session list"
+assert_contains "ses_bogus" "$( cd "$TMP/proj" && OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_bogus 2>/dev/null )" "--sessions reports unknown ids"
+
+# --- 6d: --transcripts sums an explicit set (Claude per-story attribution) --
+printf '{"type":"assistant","message":{"id":"a1","usage":{"input_tokens":10,"output_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}\n' > "$TMP/tx1.jsonl"
+printf '{"type":"assistant","message":{"id":"a2","usage":{"input_tokens":20,"output_tokens":2,"cache_read_input_tokens":200,"cache_creation_input_tokens":0}}}\n' > "$TMP/tx2.jsonl"
+OUT8=$(bash "$SCRIPT" --transcripts "$TMP/tx1.jsonl,$TMP/tx2.jsonl")
+TOT8=$(printf '%s' "$OUT8" | grep TOTAL)
+assert_contains "300" "$TOT8" "--transcripts sums cache_read across transcripts"
+assert_contains "30" "$TOT8" "--transcripts sums input across transcripts"
+
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before
 # any other external tool, so this is portable (unlike assuming /bin has no jq).

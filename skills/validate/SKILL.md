@@ -230,6 +230,14 @@ savings from a reduced run measurable rather than estimated (WD-0007). The
 script is best-effort: when the harness's side-chain files have been purged it
 reports `unavailable`, never a misleading zero.
 
+**Attribute it to the story.** A session can mix several stories (and a story
+can span sessions and harnesses), so a bare per-session number isn't the
+story's cost. When the harness hands you an id for each sub-agent you spawned
+(OpenCode's `subagent sessionID`; Claude Code's transcript path), record it in
+the story's context — then the run can be totalled **per story** with
+`session-usage.sh --sessions <ids>` (OpenCode) or `--transcripts <paths>`
+(Claude Code).
+
 ### Step 5: Verdict
 
 | Overall | Meaning |
