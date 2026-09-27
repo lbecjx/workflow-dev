@@ -14,6 +14,15 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.7.1
+
+- `/workflow-dev:help` and the README now describe the manual-QA step added in
+  1.7.0: `manual-qa` is listed, the workflow diagram shows the optional
+  PASS-path QA branch, and the end-of-story next step points at `validate`
+  instead of "ready to commit". Both surfaces also now list every skill
+  (`summarize-changes`, `refresh` included), and the README's Hooks section
+  matches the shipped hooks.
+
 ## 1.7.0
 
 - `/workflow-dev:validate` can now run a **manual QA** pass — exercising the
