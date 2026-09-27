@@ -97,12 +97,32 @@ bash "$SCRIPT" "$TMP/nope.jsonl" >/dev/null 2>"$TMP/err"
 [[ $? -eq 1 ]] && assert_contains "Not a file" "$(cat "$TMP/err")" "explicit bad path exits 1 with a message" \
               || no "explicit bad path exits 1 with a message"
 
-# --- 6: no transcript resolvable → graceful message, exit 0 -----------------
+# --- 6: no source resolvable → graceful message, exit 0 ---------------------
 mkdir -p "$TMP/empty" "$TMP/nohome"
 ( cd "$TMP/empty" && HOME="$TMP/nohome" bash "$SCRIPT" >/dev/null 2>"$TMP/err2" )
 rc=$?
-[[ $rc -eq 0 ]] && assert_contains "No transcript found" "$(cat "$TMP/err2")" "no transcript → exit 0 with message" \
-              || no "no transcript → exit 0 with message"
+[[ $rc -eq 0 ]] && assert_contains "No usage source found" "$(cat "$TMP/err2")" "no source → exit 0 with message" \
+              || no "no source → exit 0 with message"
+
+# --- 6b: OpenCode backend — parent + child session, cost/tokens/wall ---------
+mkdir -p "$TMP/proj"
+PROJDIR="$(cd "$TMP/proj" && pwd -P)"
+DBF="$TMP/fixture.db"
+sqlite3 "$DBF" <<SQL
+CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
+  agent text, model text, cost real, tokens_input integer, tokens_output integer,
+  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
+  time_created integer, time_updated integer);
+CREATE TABLE session_message (session_id text, time_created integer);
+INSERT INTO session_v2 VALUES ('ses_parent',NULL,'$PROJDIR','Main run','build','{"id":"m1"}',1.5,100,10,5,1000,0,0,0);
+INSERT INTO session_v2 VALUES ('ses_child1','ses_parent','$PROJDIR','Sub A','general','{"id":"m1"}',0.5,50,5,2,500,0,0,0);
+INSERT INTO session_message VALUES ('ses_parent',0),('ses_parent',10000),('ses_child1',0),('ses_child1',30000);
+SQL
+OUT6=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBF" bash "$SCRIPT" 2>/dev/null )
+assert_contains "Workflow usage (OpenCode)" "$OUT6" "OpenCode backend selected"
+assert_contains "Sub A" "$OUT6" "child session listed as sub-agent"
+assert_contains "input: 150  output: 15  reasoning: 7  cache_read: 1500" "$OUT6" "OpenCode grand total sums parent + child"
+assert_contains "cost: \$2.0000" "$OUT6" "OpenCode grand total includes cost"
 
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before
