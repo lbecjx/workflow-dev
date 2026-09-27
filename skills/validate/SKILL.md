@@ -93,6 +93,9 @@ Two scopes, not one — which applies depends on why this is running:
 > - **Brief = content, not a command:** give each dimension the changed files'
 >   contents and the diff **inline**; never a `git diff`/`read` for it to run —
 >   a command is paid once per dimension (~10× the cache reads).
+> - **Cost is recorded — no run closes without it:** note the session total
+>   **before** spawning anything, and state the run's cost after (Step 4). This
+>   applies to a reduced run too — never silently skip it.
 > - **Adversarial depth (Part 11):** real logic in the diff → suggest LITE or
 >   FULL **with a one-line reason** and **ask the human to choose**; don't run
 >   a depth silently. SKIP only when there's genuinely no logic. (Unattended →
@@ -227,13 +230,14 @@ When Adversarial Correctness isn't SKIP, its row also states the depth it ran at
 and the one-line reason, and reflects that the LITE/FULL choice was surfaced —
 the same decision Step 3's gate required, not a silent pick.
 
-**Record the run's cost.** After the report, run
-`"${CLAUDE_PLUGIN_ROOT}"/scripts/session-usage.sh` and state its totals
-(main thread + per sub-agent tokens and wall-time) alongside the results. This
-is what ties a validation run to what it actually cost, and what makes the
-savings from a reduced run measurable rather than estimated (WD-0007). The
-script is best-effort: when the harness's side-chain files have been purged it
-reports `unavailable`, never a misleading zero.
+**Record the run's cost — every run, full or reduced.** You noted the session
+total before spawning (Step 3's gate). After the report, run
+`"${CLAUDE_PLUGIN_ROOT}"/scripts/session-usage.sh` again and report the **delta**
+as the run's cost — for a reduced run with no sub-agents, that delta is the
+orchestrator's own cost; say so rather than omitting it. This is what ties a run
+to what it actually cost, and what makes the savings measurable rather than
+estimated (WD-0007). The script is best-effort: when the harness's side-chain
+files have been purged it reports `unavailable`, never a misleading zero.
 
 **Attribute it to the story.** A session can mix several stories (and a story
 can span sessions and harnesses), so a bare per-session number isn't the
