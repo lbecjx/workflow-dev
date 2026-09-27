@@ -67,11 +67,20 @@ since the PR's base branch for PR text. Draft:
   summary, no separate length allowance
 - **PR description**: at most a couple of short paragraphs (§12.4)
 
-### Step 3: Review — independent sub-agent
+### Step 3: Review — one independent pass per change-set
 
-For each piece drafted, run it through Part 12 as a fresh sub-agent with
-no memory of drafting it — same reasoning as Part 11's hunt/verify split:
-whoever wrote the text tends to re-confirm it reads fine.
+Run **one** independent review over the text this change-set produces — not a
+fresh sub-agent per artifact. A plain commit reviews its single message; a commit
+drafted together with a PR reviews both in the same pass. What matters is the
+independence (the reviewer never wrote the draft — same reasoning as Part 11's
+hunt/verify split: whoever wrote the text tends to re-confirm it); the
+per-artifact fan-out does not, and a 1–3 line message does not need its own
+session.
+
+This review is a bounded checklist, not open-ended reasoning, so run it on the
+**cheapest model the harness lets you pick per sub-agent** — see
+`../validate/SKILL.md`'s model-tiering note. If the harness cannot choose a
+model per sub-agent, run it on the default and say so; don't pretend.
 
 - **FAIL** (12.2 security disclosure, 12.3 personal/internal exposure —
   including any AI/agent/LLM attribution) → rewrite and re-check. Never
@@ -116,6 +125,8 @@ the first real look at the text.
   description all go through the same review, because they're the same
   kind of artifact (text describing a change for the permanent git
   record), just used at different moments in the same change's life.
+- **One pass, not one session per artifact** — the review is per change-set;
+  independence is preserved without paying for a sub-agent per line of text.
 - **Independent review, not self-review** — the agent that reviews a
   draft is never the one that wrote it.
 - **Nothing is final until marked** — a draft that hasn't been marked
