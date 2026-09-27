@@ -81,7 +81,7 @@ Validates: AC #Z
 
 Ask: "Approve this plan, or adjust something?"
 
-### Step 5: Choose validation mode (once per story, never re-asked)
+### Step 5: Choose validation mode and manual QA (once per story, never re-asked)
 
 Once the plan is approved — before writing anything, and before
 `/workflow-dev:implement` runs any task group — ask this exactly once for
@@ -129,6 +129,43 @@ not an irreversible lock-in either: the human can still say "validate this
 one now" for a specific task group at any point as a normal instruction,
 without changing what's recorded here.
 
+#### Manual QA — the second one-time question
+
+Immediately after the validation-mode answer (same sitting, same tool), ask
+once more for the whole story:
+
+```
+AskUserQuestion:
+  question: "Should /workflow-dev:validate run a manual QA pass (a real
+    browser / device against the running app) before commit for this story?"
+  header: "Manual QA"
+  options:
+    - label: "Yes — run it"
+      description: "On validate's PASS path, exercise the app in a real
+        browser/emulator and check each Acceptance Criterion. Costs tokens."
+    - label: "No — skip for this story"
+      description: "Validate stays pure static analysis; no browser/device pass."
+```
+
+This is a plain **Yes/No** — it does not carry its own timing. When QA runs,
+it follows the validation mode decided just above: "once, at the end" → QA
+runs on the single end-of-story validate; "after every task group" → QA runs
+on each PASS. (A change with no UI/mobile surface, or any the human doesn't
+want browser-verified, is a normal "No".)
+
+**Unattended/non-interactive:** skip the tool call and default to
+**"No — skip"** silently — manual QA is the expensive, opt-in pass, so the
+safe default with no one to answer is not to run it.
+
+Record alongside the validation-mode row:
+
+```markdown
+| YYYY-MM-DD | Manual QA for this story: <"yes" | "no"> | Human |
+```
+
+`/workflow-dev:validate` reads this on its PASS path (its Step 7): "yes" runs
+`../manual-qa/SKILL.md`; "no" (or no row) skips it. It never re-asks.
+
 ### Step 6: Write to story file
 
 If human approves, write the plan as a new section in the story.md file:
@@ -166,4 +203,4 @@ Tell the human the plan is saved and suggest running `/workflow-dev:implement` t
 5. **Ordered by dependency** — if Task B needs Task A's output, A comes first.
 6. **Tests are explicit** — never assume tests will "just happen." Make them a task or a task group.
 7. **Commit boundaries** — each task group = one potential commit. Don't mix unrelated changes.
-8. **Validation mode is decided once, up front** — asked right after plan approval (Step 5), never per task group and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads this choice; it doesn't decide it.
+8. **Validation mode and manual QA are decided once, up front** — both asked together right after plan approval (Step 5), never per task group, never re-asked, and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads the validation mode; `/workflow-dev:validate` reads the manual-QA choice; neither decides its own.
