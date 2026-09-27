@@ -147,6 +147,8 @@ issue, severity):
 | **Code quality** | Part 4. Smells, conventions, patterns. |
 | **Testing** | Part 5. Coverage of changes, test quality. |
 | **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
+| **Scope** | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
+| **CI/CD** | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
 
 **Git history disclosure** (Part 12) is conditional, not always-run: it fires
 only when `CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list,
@@ -174,6 +176,10 @@ FULL**:
   no answer → **LITE**, except the batched/story-end pass, which uses §11.0's
   recommended depth; never silently escalate to FULL on your own.
 - **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
+
+**If this dimension is ever reduced for cost, drop to LITE — never drop
+`verify`.** Verify is what rejects a wrongly-reasoned hunt claim; a measured run
+showed it catching a false positive that would otherwise have blocked the commit.
 
 Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
 what differs is whether those agents may actually execute anything (FULL) or
@@ -214,14 +220,19 @@ Validation Results (set: full — the diff carries logic):
 
 Overall: PASS (2 warnings)
 
-Warnings:
-1. src/foo.ts:45 — function exceeds 50 lines (62 lines)
-2. src/foo.ts:12 — magic number 1000 could be a named constant
+Warnings — each needs a disposition before the run closes:
+1. src/foo.ts:45 — function exceeds 50 lines (62 lines)          → new story
+2. src/foo.ts:12 — magic number 1000 could be a named constant    → accepted
 ```
 
 **State the set.** The header names whether this ran the **reduced** or **full**
 set (Step 3). A reduced run lists only the checks it actually ran — it does not
 print the skipped judgment/adversarial dimensions as if they had passed.
+
+**Close every WARN.** Before the run ends, give each warning a **disposition** —
+*fixed here*, *spun into a new story*, or *accepted* (with why). A WARN with no
+disposition is a dropped finding, which is how a non-blocking one quietly
+survives the gate.
 
 The report ends at the warnings — don't print a "ready to commit" verdict here
 for a run that still has Step 7 (manual QA + the next-step offer) ahead of it.

@@ -24,12 +24,22 @@
 # The old Claude-only shape (`transcriptPath`/`length`) is read as the Claude
 # fields, so existing states keep working.
 #
-# Usage: save-read-unsaved.sh <STORY-ID>
-# Prints the unsaved extract (or an explanatory message) to stdout.
+# Usage: save-read-unsaved.sh [--digest|--raw] <STORY-ID>
+# Prints the unsaved extract to stdout. `--digest` (what the save skill uses)
+# prints a readable line per message — channel + text, tool-calls/reasoning
+# stripped; `--raw` (the default) prints the harness's raw content.
 
-STORY_ID="$1"
+STORY_ID=""
+DIGEST=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --digest) DIGEST=1; shift ;;
+    --raw)    DIGEST=0; shift ;;
+    *) STORY_ID="$1"; shift ;;
+  esac
+done
 if [[ -z "$STORY_ID" ]]; then
-  echo "Usage: save-read-unsaved.sh <STORY-ID>" >&2
+  echo "Usage: save-read-unsaved.sh [--digest|--raw] <STORY-ID>" >&2
   exit 1
 fi
 
@@ -45,7 +55,29 @@ json_get_number() {
   printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9]*" | head -1 | grep -o '[0-9]*$'
 }
 have_sqlite3() { command -v sqlite3 >/dev/null 2>&1; }
+have_jq() { command -v jq >/dev/null 2>&1; }
 sqlq() { printf '%s' "${1//\'/\'\'}"; }
+
+# A readable line per message — channel + text, with tool-call payloads and
+# reasoning stripped. This is what the save step actually reviews; emitting it
+# instead of raw JSON keeps a huge transcript dump out of the orchestrator's
+# context (a measured main-thread cost driver). Best-effort: if jq can't parse
+# the line, nothing is printed for it.
+digest_text() { # stdin: one JSON message (either harness's shape)
+  jq -r '
+    def textof:
+      if (.text? | type) == "string" and .text != "" then .text
+      else ( (.message.content? // .content?) ) as $c
+        | if ($c | type) == "array"
+            then [ $c[]? | select(.type? == "text") | .text? // empty ] | join("\n")
+          elif ($c | type) == "string" then $c
+          else "" end
+      end;
+    (.message.role? // .type? // "?") as $r
+    | (textof) as $t
+    | select($t != "")
+    | "[\($r)] \($t)"' 2>/dev/null
+}
 
 # The state dir holds absolute paths and session ids — machine state that must
 # never reach git, whatever the project's choice for .workflow-dev/ itself.
@@ -119,8 +151,15 @@ if [[ "$H" == "opencode" ]]; then
   mkdir -p "$STATE_DIR"; ensure_gitignored
   printf '{"harness":"opencode","sessionId":"%s","seq":%s}' "$SID" "$MAX_SEQ" > "$PENDING_FILE"
   echo "--- OpenCode session $SID — messages seq $((OSEQ + 1))..$MAX_SEQ ---"
-  sqlite3 -separator "$(printf '\t')" "$DB" \
-    "SELECT seq, type, data FROM session_message WHERE session_id='$(sqlq "$SID")' AND seq > $OSEQ ORDER BY seq;"
+  if [[ "$DIGEST" == "1" ]] && have_jq; then
+    while IFS=$'\t' read -r _seq _type _data; do
+      printf '%s' "$_data" | digest_text
+    done < <(sqlite3 -separator "$(printf '\t')" "$DB" \
+      "SELECT seq, type, data FROM session_message WHERE session_id='$(sqlq "$SID")' AND seq > $OSEQ ORDER BY seq;")
+  else
+    sqlite3 -separator "$(printf '\t')" "$DB" \
+      "SELECT seq, type, data FROM session_message WHERE session_id='$(sqlq "$SID")' AND seq > $OSEQ ORDER BY seq;"
+  fi
   exit 0
 fi
 
@@ -140,4 +179,8 @@ if [[ "$CURRENT_TOTAL" -le "$CLEN" ]]; then
 fi
 mkdir -p "$STATE_DIR"; ensure_gitignored
 printf '{"harness":"claude","length":%s}' "$CURRENT_TOTAL" > "$PENDING_FILE"
-tail -n "+$((CLEN + 1))" "$CPATH"
+if [[ "$DIGEST" == "1" ]] && have_jq; then
+  tail -n "+$((CLEN + 1))" "$CPATH" | digest_text
+else
+  tail -n "+$((CLEN + 1))" "$CPATH"
+fi

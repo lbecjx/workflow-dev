@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.12.0
+
+- `save-read-unsaved.sh --digest` prints a readable line per message (channel +
+  text, tool-call payloads and reasoning stripped) instead of raw JSON, so a save
+  no longer pulls a transcript dump into context.
+- `validate` owns **every** rulebook part — Part 1 (Scope Compliance) and Part 7
+  (CI/CD Anticipation) now have a home in Step 3's table.
+- A validation run ends with a **disposition per WARN** (fixed / new story /
+  accepted), and guidance records that an adversarial cost cut goes to LITE,
+  never dropping verify.
+
 ## 1.11.0
 
 - Recording a run's cost is now a **gate** in `validate`, not just prose: no run
