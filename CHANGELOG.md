@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.7.0
+
+- `/workflow-dev:validate` can now run a **manual QA** pass — exercising the
+  app in a real browser or device — when the story chose it. `/workflow-dev:plan`
+  asks once, up front; a new `manual-qa` skill does the work on validate's PASS
+  path, then hands back to the normal commit/PR step.
+
 ## 1.6.0
 
 - Validation can now be deferred to story end instead of running after
