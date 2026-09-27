@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.14.0
+
+- Renamed the Adversarial Correctness depths to what they actually are — **Skip**,
+  **`no-repro`** (without reproduction), **`complete`** — so they no longer read as
+  a cost choice; the depth is about **confidence** (can a claim be reproduced), not
+  time, and the docs say so.
+- Bounded both active levels: a **scope ceiling** (work only from the brief, no
+  executing/cloning/exploring outside) and a **stop rule** (return NEEDS TESTING
+  rather than iterate open-endedly). `verify` still runs at both and is never dropped.
+
 ## 1.13.0
 
 - Clarified three decision points: `plan` asks for approval on its own before the
