@@ -86,6 +86,13 @@ Two scopes, not one — which applies depends on why this is running:
 
 ### Step 3: Run validation dimensions in parallel
 
+> **Gates for this step** — the moves that leave no artifact, so nothing
+> downstream catches a miss. Do them, don't just read them:
+> - **Adversarial depth (Part 11):** real logic in the diff → suggest LITE or
+>   FULL **with a one-line reason** and **ask the human to choose**; **never
+>   run a depth inline**. SKIP only when there's genuinely no logic.
+>   → `references/rules.md` §11.0
+
 Spawn one independent sub-agent per dimension. Each receives the changed-file list and the relevant section of `references/rules.md`, and reports findings as a structured list (file, line, issue, severity).
 
 | Sub-agent | Dimensions (from rules.md) |
@@ -111,21 +118,21 @@ reviewed at a different moment — that's `/workflow-dev:summarize-changes`,
 not this dimension.
 
 These six always run together, in parallel — they're cheap. **Adversarial
-correctness (Part 11) has a depth, decided per diff, not a fixed shape.**
-Apply §11.0's criteria to the scope from Step 2:
+correctness (Part 11) is the exception: it starts with a question, not a
+run.** For anything with real logic, suggest a depth per §11.0 — with a
+one-line reason — and **ask the human to pick LITE or FULL**. Never run a
+depth inline on your own.
 
-- **No real logic in the diff** (docs, a pure rename, a config-value change)
-  → **SKIP**. Decide this directly, don't ask — state it plainly in the
-  results (`SKIP — (skipped, low risk)`), not silently omitted. This is the
-  only depth that never asks.
-- **Anything else** → pick a suggested depth per §11.0's FULL criteria
-  (writes, concurrency, security-relevant surface — including a pure-frontend
-  auth component, or a new invariant → suggest **FULL**; otherwise → suggest
-  **LITE**), state the one-line reason, and ask the human to pick LITE or
-  FULL. Don't decide this one yourself and move on — the choice is the
-  human's, not just a notification. Default to **LITE** if unattended/CI and
-  no answer is possible — never silently run FULL just because that's what
-  was suggested.
+- **Anything with real logic** → suggest **LITE** or **FULL** per §11.0's
+  FULL criteria (writes, concurrency, security-relevant surface — including a
+  pure-frontend auth component — or a new invariant → suggest **FULL**;
+  otherwise → suggest **LITE**), state the one-line reason, and **ask which
+  to run**. The choice is the human's, not a notification. Unattended/CI with
+  no answer → **LITE**; never silently escalate to FULL just because it was
+  suggested.
+- **Genuinely zero logic** (docs, a pure rename, a config-value change) →
+  **SKIP** — the one case decided directly: state it plainly in the results
+  (`SKIP — (skipped, low risk)`), never silently omit it.
 
 Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
 what differs is whether those agents may actually execute anything (FULL) or
