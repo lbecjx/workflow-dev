@@ -84,44 +84,72 @@ Two scopes, not one — which applies depends on why this is running:
   per-commit or per-hunk level; not worth that complexity for marginal
   savings next to the actual win here (one pass instead of many).
 
-### Step 3: Run validation dimensions in parallel
+### Step 3: Run validation dimensions
 
 > **Gates for this step** — the moves that leave no artifact of their own, so
 > a miss is easy to overlook. Do them, don't just read them:
+> - **Gate depth:** decide the *set* first (below) and state it in the report —
+>   a no-logic diff runs the reduced set, not the full one.
 > - **Adversarial depth (Part 11):** real logic in the diff → suggest LITE or
 >   FULL **with a one-line reason** and **ask the human to choose**; don't run
 >   a depth silently. SKIP only when there's genuinely no logic. (Unattended →
 >   §11.0's depth defaults, not a silent pick.) → `references/rules.md` §11.0
 
-Spawn one independent sub-agent per dimension. Each receives the changed-file list and the relevant section of `references/rules.md`, and reports findings as a structured list (file, line, issue, severity).
+**Decide the gate's depth first — the set, not just the adversarial depth.**
+This is §11.0's idea (spend where the risk is) applied to the whole dimension
+list, and it is the **default**, not an opt-in:
+
+- **Reduced set — no real logic in the diff** (docs/comments only, a pure
+  rename, a config-value change, a version bump). Run only checks the
+  orchestrator performs itself: the discovered commands, the `.workflow-dev/`
+  ↔ `config.json` drift check, and a direct read of any in-scope `CHANGELOG.md`
+  entry. The judgment dimensions (Code quality, Testing, Architecture) and
+  Adversarial are **SKIP** — with nothing to judge or break, a fresh pair of
+  eyes adds cost and no signal. State the set plainly in the report.
+- **Full set — anything else.** The dimensions below, in parallel, plus the
+  adversarial decision.
+
+**Give each dimension a scoped brief, never the whole rulebook.** Each receives
+only what applies to it: the relevant section(s) of `references/rules.md`, the
+changed files' contents, and the story's ACs. Never hand it "read `rules.md`"
+wholesale — every dimension re-reading all 554 lines is the single biggest
+avoidable cost here, and a dimension scoped to its own rules section is also
+less likely to wander.
+
+**Mechanical checks run inline, no sub-agent.** Anything that is a script or a
+check rather than a judgment — running the discovered commands, the
+`.workflow-dev/` ↔ `config.json` drift check — the orchestrator runs directly.
+Don't spend a sub-agent on it.
+
+Then, for a **full set**, spawn one independent sub-agent per dimension, each
+with its scoped brief, reporting findings as a structured list (file, line,
+issue, severity):
 
 | Sub-agent | Dimensions (from rules.md) |
 |-----------|-----------------------------|
-| **Verification** | Run the discovered commands (build, typecheck, lint, test); report failures. |
+| **Verification** | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite) — a diff that changes tests is executed, not reasoned about. |
 | **Security** | Parts 2–3. Read the changed files for vulnerabilities. |
 | **Code quality** | Part 4. Smells, conventions, patterns. |
 | **Testing** | Part 5. Coverage of changes, test quality. |
 | **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
-| **Context hygiene** | Part 10. `.workflow-dev/` state matches `.workflow-dev/config.json`. |
-| **Git history disclosure** | Part 12. Reviews any new/edited `CHANGELOG.md` entries in scope — not the rest of the diff — for formality, length, security-incident disclosure, and personal/internal-behavior exposure. |
 
-Conditional, not always-run like the other five: it only fires when
-`CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list. When it
-is, this sub-agent reads the new/edited entries and runs the same
-12.1–12.4 checks against them — a changelog entry is ordinary committed
-file content with no commit-time hook backstop the way a commit message
-has, so this run, inside `/workflow-dev:validate`, is the enforcement for
-it. If `CHANGELOG.md` isn't in scope, report `SKIP — (not touched)`.
+**Git history disclosure** (Part 12) is conditional, not always-run: it fires
+only when `CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list,
+and then reviews the new/edited entries — formality, length, security-incident
+disclosure, personal/internal-behavior exposure. A changelog entry is ordinary
+committed file content with no commit-time hook backstop the way a commit
+message has, so this run is its enforcement. If `CHANGELOG.md` isn't in scope,
+report `SKIP — (not touched)`.
 
-The commit message and PR title/description are a different artifact
-reviewed at a different moment — that's `/workflow-dev:summarize-changes`,
-not this dimension.
+**Context hygiene** (Part 10) is one of the inline checks above, not a
+sub-agent. The commit message and PR title/description are a different
+artifact, reviewed at a different moment — that's
+`/workflow-dev:summarize-changes`, not this step.
 
-These six always run together, in parallel — they're cheap. **Adversarial
-correctness (Part 11) is the exception: it starts with a question, not a
-run.** For anything with real logic, suggest a depth per §11.0 — with a
-one-line reason — and **ask the human to pick LITE or FULL**; don't run a
-depth without surfacing the choice (unattended runs follow §11.0's defaults).
+**Adversarial correctness (Part 11) is the exception even within a full set:
+it starts with a question, not a run.** For anything with real logic, suggest a
+depth per §11.0 — with a one-line reason — and **ask the human to pick LITE or
+FULL**:
 
 - **Anything with real logic** → suggest **LITE** or **FULL** per §11.0's
   FULL criteria (writes, concurrency, security-relevant surface — including a
@@ -130,9 +158,7 @@ depth without surfacing the choice (unattended runs follow §11.0's defaults).
   to run**. The choice is the human's, not a notification. Unattended/CI with
   no answer → **LITE**, except the batched/story-end pass, which uses §11.0's
   recommended depth; never silently escalate to FULL on your own.
-- **Genuinely zero logic** (docs, a pure rename, a config-value change) →
-  **SKIP** — the one case decided directly: state it plainly in the results
-  (`SKIP — (skipped, low risk)`), never silently omit it.
+- **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
 
 Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
 what differs is whether those agents may actually execute anything (FULL) or
@@ -145,12 +171,20 @@ claim never reaches the results table. Report this dimension as SKIP — not
 FAIL — if it ran (LITE or FULL) and there turned out to be no logic to break
 once looked at closely (`— (nothing to test)`).
 
+**Re-checking after a fix — scope it.** When a confirmed finding is fixed, do
+**not** re-run the whole set, and never a fresh `hunt` + `verify` over the whole
+diff. Re-check the **specific dimension(s) the fix touches, against the changed
+files**, plus the Verification commands — a `verify`-only pass over the claimed
+fix is enough. This is the difference between paying once and paying for the
+whole gate twice; the reflexive second full pass is exactly where a "small fix"
+turns into a second validation run.
+
 ### Step 4: Collect and present results
 
 Once every sub-agent returns, present a unified report:
 
 ```
-Validation Results:
+Validation Results (set: full — the diff carries logic):
 
 | Dimension        | Result | Findings |
 |-------------------|--------|----------|
@@ -169,6 +203,10 @@ Warnings:
 1. src/foo.ts:45 — function exceeds 50 lines (62 lines)
 2. src/foo.ts:12 — magic number 1000 could be a named constant
 ```
+
+**State the set.** The header names whether this ran the **reduced** or **full**
+set (Step 3). A reduced run lists only the checks it actually ran — it does not
+print the skipped judgment/adversarial dimensions as if they had passed.
 
 The report ends at the warnings — don't print a "ready to commit" verdict here
 for a run that still has Step 7 (manual QA + the next-step offer) ahead of it.
@@ -277,7 +315,9 @@ a QA finding is a new, separate signal for the human).
 
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
-- **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them).
+- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
+- **Scoped, not repeated** — each dimension gets only the rules it needs (not all 554 lines), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
+- **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
 - **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (LITE or FULL, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
