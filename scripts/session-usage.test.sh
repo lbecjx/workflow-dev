@@ -114,12 +114,13 @@ CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, ti
   tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
   time_created integer, time_updated integer);
 CREATE TABLE session_message (session_id text, time_created integer);
-INSERT INTO session_v2 VALUES ('ses_parent',NULL,'$PROJDIR','Main run','build','{"id":"m1"}',1.5,100,10,5,1000,0,0,0);
-INSERT INTO session_v2 VALUES ('ses_child1','ses_parent','$PROJDIR','Sub A','general','{"id":"m1"}',0.5,50,5,2,500,0,0,0);
+INSERT INTO session_v2 VALUES ('ses_parent',NULL,'$PROJDIR','Main run','build','{"id":"m1"}',1.5,100,10,5,1000,0,0,100);
+INSERT INTO session_v2 VALUES ('ses_child1','ses_parent','$PROJDIR','Sub A','general','{"id":"m1"}',0.5,50,5,2,500,0,0,999);
 INSERT INTO session_message VALUES ('ses_parent',0),('ses_parent',10000),('ses_child1',0),('ses_child1',30000);
 SQL
 OUT6=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBF" bash "$SCRIPT" 2>/dev/null )
 assert_contains "Workflow usage (OpenCode)" "$OUT6" "OpenCode backend selected"
+assert_contains "Session: ses_parent" "$OUT6" "OpenCode resolves the top-level session, not a newer child"
 assert_contains "Sub A" "$OUT6" "child session listed as sub-agent"
 assert_contains "input: 150  output: 15  reasoning: 7  cache_read: 1500" "$OUT6" "OpenCode grand total sums parent + child"
 assert_contains "cost: \$2.0000" "$OUT6" "OpenCode grand total includes cost"

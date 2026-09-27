@@ -193,10 +193,13 @@ opencode_report() {
     # `directory` is stored as typed when the session started; a case-only
     # difference ($PWD can be lowercase where the DB has Projects) must still
     # match — SQLite's = is case-sensitive, so compare case-folded.
-    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') ORDER BY time_updated DESC LIMIT 1;")
+    # The run's session is the **top-level** one (parent_id IS NULL); sub-agents
+    # are child sessions in the same directory with their own time_updated, so
+    # without this filter a just-finished sub-agent can be picked as the session.
+    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
     if [[ -z "$sid" ]]; then
       dir=$(pwd -P)
-      sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') ORDER BY time_updated DESC LIMIT 1;")
+      sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
     fi
   fi
   if [[ -z "$sid" ]]; then
