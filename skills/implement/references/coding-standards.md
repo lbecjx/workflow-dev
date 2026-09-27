@@ -107,6 +107,12 @@ These are ALWAYS blocking. No exceptions:
 ## Testing
 
 - New behavior needs tests — either in the same task or explicitly planned
+- **Every new input boundary ships its edge-case tests in the same task group.**
+  A new external input, a parser, a persistence/write path, or a new interface
+  is where malformed, empty, oversized, and out-of-range input — and the failure
+  path of the write itself — must be covered. Deferring them to a later task (or
+  leaving them for validation to discover) is the expensive path; these are the
+  cheapest bugs to catch while the boundary is being written.
 - Tests verify outcomes, not implementation details
 - Tests are isolated — no shared mutable state between tests
 - Each test has at least one meaningful assertion
