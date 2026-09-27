@@ -28,7 +28,14 @@ Check for `.workflow-dev/context/` in the current project:
 3. **Story file exists, no Plan section** → "Story loaded. Run `/workflow-dev:plan` to decompose it, or direct the work step by step."
 4. **Story file has a Plan with task groups Not Started** → "Plan ready. Run `/workflow-dev:implement`, or direct it manually."
 5. **Story file has a Plan with task groups In Progress** → "Work in progress. Run `/workflow-dev:implement` to continue, or `/workflow-dev:validate` to check the current state."
-6. **Every task group Done** → "Implementation complete. Ready for commit/PR."
+6. **Every task group Done** → "Implementation complete. Next: `/workflow-dev:validate` — on PASS it runs an optional manual-QA pass (if the story opted in) before the commit/PR step."
+
+On state 6, before writing the "Next:" text, read the story's Working Memory →
+Decisions for the **"Manual QA for this story"** row — never report "nothing
+left to do" while the validate/manual-QA step is still ahead:
+
+- **"yes"** → "…`/workflow-dev:validate` runs a manual-QA pass (this story opted in) before commit/PR."
+- **"no", or no row** → "…`/workflow-dev:validate` — it skips manual QA unless you ask."
 
 ### Step 2: Show status and suggestions
 
@@ -48,7 +55,7 @@ Available skills:
   /workflow-dev:plan      — Decompose a story into task groups
   /workflow-dev:implement — Execute the next task group under the quality rules
   /workflow-dev:validate  — Run the quality gate on uncommitted changes
-  /workflow-dev:manual-qa — Verify ACs in a real browser/device (offered by validate)
+  /workflow-dev:manual-qa — Verify ACs in a real browser/device (run by validate when opted in)
   /workflow-dev:save      — Persist discoveries and progress
   /workflow-dev:resume    — Load context at the start of a new session
   /workflow-dev:help      — This screen
@@ -83,7 +90,7 @@ Available skills:
 ┌────────────────────────────────────────────────────────┐
 │  /workflow-dev:validate                                   │
 │  Quality gate: security, types, tests, code quality       │
-│  PASS → (offer manual QA) → commit                        │
+│  PASS → (optional manual QA) → commit                     │
 │  FAIL → fix → re-validate                                 │
 └─────────────────────┬────────────────────────────────────┘
                        │
@@ -116,7 +123,7 @@ One way to produce such files without hand-writing them is the separate **`local
 | Story is complex, needs structure | `/workflow-dev:plan` |
 | Ready to code | `/workflow-dev:implement` (or direct it manually) |
 | Done coding, want a quality check | `/workflow-dev:validate` |
-| Want UI/mobile work verified in a real browser/device | `/workflow-dev:validate` offers a manual-QA pass (the `manual-qa` skill) |
+| Want UI/mobile work verified in a real browser/device | `/workflow-dev:validate` can run a manual-QA pass (the `manual-qa` skill) |
 | Want to save progress before a break or compaction | `/workflow-dev:save` |
 | New session, picking up where you left off | `/workflow-dev:resume` |
 | Not sure what's next | `/workflow-dev:help` |
@@ -138,7 +145,7 @@ This workflow exists for implementation work on stories. For everything else, ju
 |---|-----------|
 | 1 | **Living context** — survives compaction and new sessions |
 | 2 | **The human is the architect** — the agent executes, the human decides |
-| 3 | **Validate before commit** — the quality gate is not optional; the manual-QA pass it can offer is opt-in |
+| 3 | **Validate before commit** — the quality gate is not optional; the manual-QA pass it can run is opt-in |
 | 4 | **Zero inference** — read the code or ask; never guess |
 | 5 | **Scope discipline** — touch only what's needed |
 | 6 | **Stack-agnostic rules, stack-specific knowledge** — universal standards plus what's been learned about this repo |
