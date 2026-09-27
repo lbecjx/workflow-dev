@@ -50,8 +50,13 @@ Load both so you know what's already recorded — this is what keeps you from du
 **Run this before relying on anything else, substituting the real story ID:**
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-read-unsaved.sh" [STORY-ID]
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/save-read-unsaved.sh" --digest [STORY-ID]
 ```
+
+The `--digest` flag prints a **readable line per message** (channel + text, with
+tool-call payloads and reasoning stripped) — the raw JSON is available with
+`--raw`, but the digest is what you review, and pulling raw JSON into context is
+itself a cost.
 
 This prints everything in the live conversation transcript since the last time this story was actually saved — reading directly from the original transcript file, not a copy of it, and only the portion past what's already captured (so it stays small in the normal case of saving promptly, and only large if several compactions were skipped in a row). The in-context compaction summary — the thing already sitting in your own context right now — is exactly what might have smoothed over or dropped the decisions/discoveries this extract exists to recover; treating that summary as sufficient defeats the point of running this. Use the extract, not just the summary, to find what actually needs persisting. If the script says there's nothing unsaved or no prior save point exists, that's fine — proceed with just the in-context summary as usual.
 

@@ -111,6 +111,23 @@ assert_contains '"opencodeSeq":3' "$ST3" "switch: the OpenCode position is advan
 assert_contains "Nothing unsaved" "$( cd "$PROJ3" && as_claude "$READ" "$STORY" )" "switch: back in Claude, position preserved"
 
 # ---------------------------------------------------------------------------
+# Digest: readable lines, tool payloads/reasoning stripped
+# ---------------------------------------------------------------------------
+PROJ5="$TMP/digest"; mkdir -p "$PROJ5/.workflow-dev/context/.compaction-state"
+DIG="$TMP/digest.jsonl"
+cat > "$DIG" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"hello there"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the answer"},{"type":"tool_use","name":"Bash","input":{"command":"SECRET_TOOL_PAYLOAD"}}]}}
+JSONL
+printf '{"current":"claude","claudePath":"%s","claudeLength":0,"opencodeSession":"","opencodeSeq":0}' "$DIG" \
+  > "$PROJ5/.workflow-dev/context/.compaction-state/$STORY.json"
+DGOUT=$( cd "$PROJ5" && as_claude "$READ" --digest "$STORY" )
+assert_contains "[user] hello there" "$DGOUT" "digest: user text"
+assert_contains "[assistant] the answer" "$DGOUT" "digest: assistant text"
+assert_absent "SECRET_TOOL_PAYLOAD" "$DGOUT" "digest: tool payload stripped"
+assert_contains "SECRET_TOOL_PAYLOAD" "$( cd "$PROJ5" && as_claude "$READ" --raw "$STORY" )" "raw: tool payload present"
+
+# ---------------------------------------------------------------------------
 # No source at all → honest message
 # ---------------------------------------------------------------------------
 PROJ4="$TMP/none"; mkdir -p "$PROJ4"
