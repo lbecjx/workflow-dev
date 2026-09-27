@@ -6,14 +6,18 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
-# Invoked by the save skill's Step 6, only after Step 5 has actually
-# written the story file. Advances the story's compaction-state to exactly
-# the point save-read-unsaved.sh last extracted up to — never recomputed
-# fresh, so a transcript that kept growing during the save's own execution
-# can't cause drift. This is bookkeeping with correctness stakes (get the
-# number wrong and a future read silently skips content nobody actually
-# saved) — exactly the kind of exact, mechanical task that belongs in a
-# script, not in prose a model re-derives by hand on every run.
+# Invoked by the save skill's Step 6, only after Step 5 has actually written
+# the story file. Advances the story's save point to exactly what
+# save-read-unsaved.sh last extracted — never recomputed fresh, so a source
+# that kept growing during the save can't cause drift. Bookkeeping with
+# correctness stakes (get the position wrong and a future read silently skips
+# content nobody saved), so it lives in a script, not prose.
+#
+# Source-aware (WD-0007 AC 13): the state keeps a position **per source** —
+# Claude Code's `claudePath`/`claudeLength`, OpenCode's `opencodeSession`/
+# `opencodeSeq` — and marks which is `current`. This save advances only the
+# current source and preserves the other, so a story that moved Claude→OpenCode
+# (or into a new session) resumes correctly and switching back is cheap.
 #
 # Usage: save-mark-saved.sh <STORY-ID>
 
@@ -25,49 +29,68 @@ fi
 
 STATE_DIR=".workflow-dev/context/.compaction-state"
 STATE_FILE="$STATE_DIR/${STORY_ID}.json"
-PENDING_LENGTH_FILE="$STATE_DIR/.pending-length-${STORY_ID}"
+PENDING_FILE="$STATE_DIR/.pending-save-${STORY_ID}"
 
 json_get_string() {
   printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed -E 's/.*: *"(.*)"/\1/'
 }
+json_get_number() {
+  printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9]*" | head -1 | grep -o '[0-9]*$'
+}
 
-if [[ ! -f "$PENDING_LENGTH_FILE" ]]; then
+NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# BSD date (macOS): -u on a -f parse also forces UTC on the OUTPUT side, so the
+# one-step "-j -u -f ... +format" form prints the value back in UTC instead of
+# local time (reproduced: local 11:19 PM printed as "4:19 AM"). Two steps:
+# parse to an epoch with -u, then format that epoch WITHOUT -u.
+local_time() {
+  local epoch
+  epoch=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$NOW_UTC" '+%s' 2>/dev/null)
+  if [[ -n "$epoch" ]]; then
+    date -r "$epoch" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null
+  else
+    date -d "$NOW_UTC" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null
+  fi
+}
+WHEN=$(local_time); [[ -n "$WHEN" ]] || WHEN="$NOW_UTC (UTC)"
+
+if [[ ! -f "$PENDING_FILE" ]]; then
   echo "No pending unsaved-read for $STORY_ID to mark — nothing to do."
   exit 0
 fi
 
-NEW_LENGTH=$(cat "$PENDING_LENGTH_FILE")
-NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-TRANSCRIPT_PATH=""
+# Preserve the other source's position, and read the old shape if that's what
+# the existing state is.
+CUR=""; CPATH=""; CLEN=""; OSID=""; OSEQ=""
 if [[ -f "$STATE_FILE" ]]; then
-  TRANSCRIPT_PATH=$(json_get_string "$(cat "$STATE_FILE")" "transcriptPath")
+  SJ=$(cat "$STATE_FILE")
+  CUR=$(json_get_string "$SJ" current)
+  CPATH=$(json_get_string "$SJ" claudePath); [[ -n "$CPATH" ]] || CPATH=$(json_get_string "$SJ" transcriptPath)
+  CLEN=$(json_get_number "$SJ" claudeLength); [[ -n "$CLEN" ]] || CLEN=$(json_get_number "$SJ" length); [[ -n "$CLEN" ]] || CLEN=0
+  OSID=$(json_get_string "$SJ" opencodeSession)
+  OSEQ=$(json_get_number "$SJ" opencodeSeq); [[ -n "$OSEQ" ]] || OSEQ=0
 fi
 
-# pendingSave is always false here regardless of what it was before: a
-# save just completed, and the reminder that would have set it true again
-# only fires on the NEXT compaction, past this point.
-printf '{"transcriptPath":"%s","length":%s,"dateTime":"%s","pendingSave":false}' "$TRANSCRIPT_PATH" "$NEW_LENGTH" "$NOW_UTC" > "$STATE_FILE"
-rm -f "$PENDING_LENGTH_FILE"
+PJ=$(cat "$PENDING_FILE")
+H=$(json_get_string "$PJ" harness)
 
-# BSD date (macOS): -u on a -f parse also forces UTC on the OUTPUT side,
-# not just the input — a single-step "-j -u -f ... +format" call silently
-# prints the parsed value back out in UTC, never actually converting to
-# local time (confirmed by reproducing it directly: with the real local
-# clock reading 11:19 PM, this one-step form printed "4:19 AM" — the
-# unconverted UTC value). The fix is the standard two-step form: parse to
-# an epoch integer (the one step -u is legitimately needed for, since it
-# tells date to interpret the input string itself as UTC), then format
-# that epoch WITHOUT -u, which is what actually renders in local time.
-EPOCH=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$NOW_UTC" '+%s' 2>/dev/null)
-if [[ -n "$EPOCH" ]]; then
-  LOCAL_TIME=$(date -r "$EPOCH" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null)
+if [[ "$H" == "opencode" ]]; then
+  OSID=$(json_get_string "$PJ" sessionId)
+  OSEQ=$(json_get_number "$PJ" seq)
+  CUR="opencode"
+  OUT="message seq $OSEQ"
+elif [[ "$H" == "claude" ]]; then
+  CLEN=$(json_get_number "$PJ" length)
+  CUR="claude"
+  OUT="line $CLEN"
 else
-  # GNU date (Linux): -d correctly interprets a Z-suffixed ISO 8601
-  # string as UTC and renders the output in local time by default, with
-  # no equivalent one-step trap — no epoch round-trip needed here.
-  LOCAL_TIME=$(date -d "$NOW_UTC" '+%Y-%m-%d at %-I:%M %p' 2>/dev/null)
+  echo "Pending marker for $STORY_ID names no known source — nothing to do." >&2
+  exit 0
 fi
-[[ -n "$LOCAL_TIME" ]] || LOCAL_TIME="$NOW_UTC (UTC)"
 
-echo "Marked $STORY_ID as saved through line $NEW_LENGTH ($LOCAL_TIME) — future reads will only include what comes after."
+printf '{"current":"%s","claudePath":"%s","claudeLength":%s,"opencodeSession":"%s","opencodeSeq":%s,"dateTime":"%s","pendingSave":false}' \
+  "$CUR" "$CPATH" "$CLEN" "$OSID" "$OSEQ" "$NOW_UTC" > "$STATE_FILE"
+rm -f "$PENDING_FILE"
+
+echo "Marked $STORY_ID as saved through $OUT ($WHEN) — future reads will only include what comes after."

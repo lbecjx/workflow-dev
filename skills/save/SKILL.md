@@ -57,6 +57,8 @@ This prints everything in the live conversation transcript since the last time t
 
 If the extract had content, state this at the top of the Step 4 summary, before the per-file changes — e.g. "Source: read N lines of unsaved transcript for [STORY-ID]." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
 
+**Source-aware save point (WD-0007 AC 13).** A story can be worked across harnesses and sessions — started costly in Claude Code, continued in OpenCode, or picked up in a fresh session of either. So `.workflow-dev/context/.compaction-state/[STORY-ID].json` keeps a position **per source** — Claude Code: a transcript path + line count; OpenCode: a session id + message `seq` — plus which is `current`. Switching to a source that has no saved position yet reads it from the start (nothing in it was saved), and the other source's position is kept, so switching back resumes cheaply instead of re-reading everything. The same commands work on both; the script detects the harness and updates the right position.
+
 Scan everything discussed since the "Last updated" timestamp and classify each item:
 
 **Goes to REPO.md:**
