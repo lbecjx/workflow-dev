@@ -82,11 +82,11 @@ During implementation, STOP and ask the human when any condition from `reference
 
 ### Step 5: Task group complete → validate (per the story's validation mode)
 
-> **Gates for this step** — the moves that leave no artifact, so nothing
-> downstream catches a miss. Do them, don't just read them:
-> - **Read, never re-ask:** the stored validation mode and manual-QA decision
->   are already in the story's Decisions table — read them; never ask them
->   again here.
+> **Gates for this step and the commit/PR it leads to** — the moves that leave
+> no artifact of their own, so a miss is easy to overlook. Do them, don't just
+> read them:
+> - **Read, never re-ask:** the stored validation mode is already in the
+>   story's Decisions table — read it; never ask it again here.
 > - **`summarize-changes` runs before the commit/PR, never after:** its Part
 >   12 review and "mark reviewed" step only mean anything ahead of
 >   `git commit` / `gh pr create` / `gh pr edit`.

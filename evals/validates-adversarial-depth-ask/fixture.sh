@@ -5,6 +5,10 @@
 # LITE and asking, not by running a depth inline: real logic means it isn't a
 # SKIP, and the absence of any write path / concurrency / security surface
 # means FULL isn't called for either.
+#
+# The change modifies a *tracked* file (rather than adding an untracked one) so
+# it is unambiguously inside validate's single-diff scope — `git diff --name-only`
+# lists tracked modifications, but not untracked files.
 set -e
 
 git init -q
@@ -19,13 +23,23 @@ A throwaway repo. No stack, no build step, no test suite — so
 this case is about.
 MD
 
-git add README.md
+# Baseline version, committed — the stub the diff below replaces.
+cat > page_window.js <<'JS'
+// Returns the zero-based slice bounds [start, end) for one page of items.
+function pageWindow(page, perPage, total) {
+  return [0, Math.min(perPage, total)];
+}
+
+module.exports = { pageWindow };
+JS
+
+git add README.md page_window.js
 git commit -q -m "chore: baseline"
 
-# The diff under review — uncommitted on purpose. A pure function with real
-# edge cases (zero per-page, out-of-range page, partial last page) and no side
-# effects: real logic, so not SKIP; nothing write/concurrency/security-related,
-# so §11.0's suggestion is LITE and the human is asked to confirm.
+# The diff under review — uncommitted on purpose. Adds the real page-window
+# logic: edge cases (zero per-page, out-of-range page, partial last page) and no
+# side effects. Real logic, so not SKIP; nothing write/concurrency/security-
+# related, so §11.0's suggestion is LITE and the human is asked to confirm.
 cat > page_window.js <<'JS'
 // Returns the zero-based slice bounds [start, end) for one page of items.
 function pageWindow(page, perPage, total) {
