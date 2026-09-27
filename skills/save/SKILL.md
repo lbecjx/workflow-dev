@@ -19,6 +19,15 @@ the Free Software Foundation, either version 3 of the License, or
 
 Forces a review of everything that happened since the last context update, and persists what matters. It's a manual trigger for "save now" without the human having to specify exactly what.
 
+**Auto vs manual — what's automatic and what isn't.** Mechanical story state
+(Plan Progress, Files Touched, the next step) is updated **directly as work
+proceeds**, by `implement`'s own step — not here, and without asking. This skill
+covers the rest: decisions, discoveries, and progress that live **only** in the
+conversation. It runs **on request**, shows what it will write before writing,
+and never saves silently — so the human always sees what gets persisted. (The
+*compaction-state save point* is a separate, automatic thing: it only tracks how
+far the last save read, so a future save doesn't re-read or skip content.)
+
 Context lives in **two files**:
 - **REPO.md** — repo-level knowledge: stack, conventions, good practices, prohibitions, infra, integrations. Shared across every story.
 - **[STORY-ID].md** — story-specific working memory: decisions, discoveries, progress, files touched. One per active story.

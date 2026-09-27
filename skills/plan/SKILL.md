@@ -81,6 +81,12 @@ Validates: AC #Z
 
 Ask: "Approve this plan, or adjust something?"
 
+**This is its own moment.** Ask for approval on its own — do **not** bundle it
+with Step 5's two one-time questions in one prompt. The human must be able to
+approve (or adjust) the plan *before* being asked to choose a validation mode;
+mixing them lets a mode be picked for a plan that isn't approved yet, and it
+reads as one long form instead of a decision.
+
 ### Step 5: Choose validation mode and manual QA (once per story, never re-asked)
 
 > **Gates for this step** — the two one-time questions below, asked here and
@@ -109,6 +115,11 @@ AskUserQuestion:
       description: "Pay that same cost repeatedly — catches issues sooner,
         costs more overall."
 ```
+
+> `(recommended)` marks the plugin's **default suggestion** — it is **not** the
+> recorded answer. Whatever the human picks is what's written to Decisions and
+> read downstream; the label only surfaces the cheaper default. Don't let a
+> reader mistake "the plugin suggests X" for "I chose X".
 
 Both options name the same underlying mechanism explicitly — they differ
 only in *frequency* of when it runs, never in *what* runs or *whether* it
