@@ -83,6 +83,15 @@ Ask: "Approve this plan, or adjust something?"
 
 ### Step 5: Choose validation mode and manual QA (once per story, never re-asked)
 
+> **Gates for this step** — the two one-time questions below, asked here and
+> never again for this story; a miss here is easy to overlook. Do them, don't
+> just read them:
+> - **Validation mode:** "once at the end" or "after every task group"? →
+>   record it in the Decisions table; `implement` reads it, never re-asks.
+> - **Manual QA:** "yes" or "no" for this story? → record it; `validate`
+>   reads it, never re-asks.
+> Unattended → both default silently (once at the end / no).
+
 Once the plan is approved — before writing anything, and before
 `/workflow-dev:implement` runs any task group — ask this exactly once for
 the whole story:

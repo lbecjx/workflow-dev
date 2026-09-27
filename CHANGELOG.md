@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.8.0
+
+- Surfaced the workflow's procedural gates as short, prominent checklists in the
+  skills that act on them — `validate` (the Adversarial Correctness LITE/FULL
+  ask), `implement` (read the stored validation mode; summarize before commit;
+  one commit per task group; repo-first, post-merge plugin updates), and `plan`
+  (the two one-time questions). A new eval guards the adversarial-depth ask.
+
 ## 1.7.1
 
 - `/workflow-dev:help` and the README now describe the manual-QA step added in

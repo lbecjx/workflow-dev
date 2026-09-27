@@ -82,6 +82,21 @@ During implementation, STOP and ask the human when any condition from `reference
 
 ### Step 5: Task group complete → validate (per the story's validation mode)
 
+> **Gates for this step and the commit/PR it leads to** — the moves that leave
+> no artifact of their own, so a miss is easy to overlook. Do them, don't just
+> read them:
+> - **Read, never re-ask:** the stored validation mode is already in the
+>   story's Decisions table — read it; never ask it again here.
+> - **`summarize-changes` runs before the commit/PR, never after:** its Part
+>   12 review and "mark reviewed" step only mean anything ahead of
+>   `git commit` / `gh pr create` / `gh pr edit`.
+> - **One commit per task group** — don't fold unrelated task groups into one
+>   commit.
+> - **Plugin updates are repo-first and post-merge:** change the **repo** →
+>   PR → merge → *then* update the installed copy (Claude Code **and**
+>   OpenCode). Never edit an installed copy, and never update ahead of the
+>   merge.
+
 When all tasks in the group are done:
 
 1. Show completion summary.
