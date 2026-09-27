@@ -14,22 +14,26 @@ Context survives compaction and new sessions. It's saved explicitly on request �
 
 | Skill | What it does |
 |---|---|
-| `/workflow-dev:init` | Bootstraps persistent context for a story — from Jira, Confluence, GitHub, or a local `.md` file |
+| `/workflow-dev:init` | Bootstraps persistent context for a story — from Jira, Confluence, GitHub, the repo, or a local `.md` file |
 | `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
 | `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
 | `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, an adversarial correctness pass) before commit |
+| `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
+| `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
-| `/workflow-dev:refresh` | Checks Jira/Confluence/GitHub for drift since the last save |
+| `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
 ## Hooks
 
-This plugin also ships three hooks that make the workflow above easier to keep up with — all advisory, none of them ever act without your confirmation:
+This plugin also ships hooks that keep the workflow above easy to follow — none of them act on their own (they ask first), with one hard exception: AI/agent attribution in a commit or PR message is blocked outright.
 
 - **`SessionStart`** — suggests the right next skill (`resume`, `plan`, `implement`...) based on the active story's real state, at the start of a new session.
 - **`PreCompact`** — warns before context gets compacted if there's an in-progress story, since decisions made purely in conversation (no file changes) can otherwise be lost.
-- **`PreToolUse`** (on `git commit`) — a non-blocking reminder to confirm `/workflow-dev:validate` passed on the current changes, if no matching record is found.
+- **`UserPromptSubmit` / `PostToolUse`** — reminds you to `/workflow-dev:save` when there are pending changes to persist.
+- **`PreToolUse`** (before `git commit`) — asks you to confirm `/workflow-dev:validate` passed on the current changes, or lets a deliberate deferral through with a visible note.
+- **`PreToolUse`** (before `git commit` / `gh pr create` / `gh pr edit`) — asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution.
 
 ## Installation
 
