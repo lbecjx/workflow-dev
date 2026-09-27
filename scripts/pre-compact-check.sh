@@ -67,6 +67,10 @@ STATE_DIR="$CONTEXT_DIR/.compaction-state"
 # project tracks .workflow-dev/ itself.
 ensure_gitignored() {
   local pattern="$CONTEXT_DIR/.compaction-state/"
+  local probe="$CONTEXT_DIR/.compaction-state/.probe"
+  # Already covered by an ancestor pattern (e.g. `.workflow-dev/`)? Adding this
+  # line adds nothing and would only dirty a tracked .gitignore on every run.
+  if git check-ignore -q "$probe" 2>/dev/null; then return 0; fi
   [[ -f .gitignore ]] || touch .gitignore
   grep -qxF "$pattern" .gitignore || printf '%s\n' "$pattern" >> .gitignore
 }
