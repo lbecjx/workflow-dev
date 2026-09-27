@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.11.0
+
+- Recording a run's cost is now a **gate** in `validate`, not just prose: no run
+  (full or reduced) closes without stating what it cost, measured **per run**
+  rather than as a session total. `implement` records each sub-agent's id, so
+  cost is attributable **per story**.
+
 ## 1.10.0
 
 - `validate`'s per-dimension brief must carry the changed files' contents and the
