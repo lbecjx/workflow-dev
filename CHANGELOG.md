@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.9.1
+
+- Fixed the save point's `.gitignore` helper: it no longer appends its state
+  directory when an ancestor pattern (e.g. `.workflow-dev/`) already ignores it,
+  so a save no longer dirties a tracked `.gitignore`.
+
 ## 1.9.0
 
 - Validation now scales to the diff: a change with no logic runs inline checks
