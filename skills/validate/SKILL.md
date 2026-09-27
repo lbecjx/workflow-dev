@@ -96,8 +96,8 @@ Two scopes, not one — which applies depends on why this is running:
 > - **Cost is recorded — no run closes without it:** note the session total
 >   **before** spawning anything, and state the run's cost after (Step 4). This
 >   applies to a reduced run too — never silently skip it.
-> - **Adversarial depth (Part 11):** real logic in the diff → suggest LITE or
->   FULL **with a one-line reason** and **ask the human to choose**; don't run
+> - **Adversarial depth (Part 11):** real logic in the diff → suggest no-repro or
+>   complete **with a one-line reason** and **ask the human to choose**; don't run
 >   a depth silently. SKIP only when there's genuinely no logic. (Unattended →
 >   §11.0's depth defaults, not a silent pick.) → `references/rules.md` §11.0
 
@@ -165,31 +165,34 @@ artifact, reviewed at a different moment — that's
 
 **Adversarial correctness (Part 11) is the exception even within a full set:
 it starts with a question, not a run.** For anything with real logic, suggest a
-depth per §11.0 — with a one-line reason — and **ask the human to pick LITE or
-FULL**:
+depth per §11.0 — with a one-line reason — and **ask the human to pick no-repro or
+complete**:
 
-- **Anything with real logic** → suggest **LITE** or **FULL** per §11.0's
-  FULL criteria (writes, concurrency, security-relevant surface — including a
-  pure-frontend auth component — or a new invariant → suggest **FULL**;
-  otherwise → suggest **LITE**), state the one-line reason, and **ask which
+- **Anything with real logic** → suggest **no-repro** or **complete** per §11.0's
+  complete criteria (writes, concurrency, security-relevant surface — including a
+  pure-frontend auth component — or a new invariant → suggest **complete**;
+  otherwise → suggest **no-repro**), state the one-line reason, and **ask which
   to run**. The choice is the human's, not a notification. Unattended/CI with
-  no answer → **LITE**, except the batched/story-end pass, which uses §11.0's
-  recommended depth; never silently escalate to FULL on your own.
+  no answer → **no-repro**, except the batched/story-end pass, which uses §11.0's
+  recommended depth; never silently escalate to complete on your own.
 - **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
 
-**If this dimension is ever reduced for cost, drop to LITE — never drop
-`verify`.** Verify is what rejects a wrongly-reasoned hunt claim; a measured run
-showed it catching a false positive that would otherwise have blocked the commit.
+**Depth is about confidence, not cost — and `verify` is never dropped.**
+`no-repro` and `complete` cost about the same; `complete` only buys the ability
+to *reproduce* a timing/concurrency claim (raise it to CONFIRMED). If a run is
+too slow, apply §11.0's **bound** (scope ceiling + stop rule), not a shallower
+depth — and keep `verify` at either depth: a measured run showed it rejecting a
+wrongly-reasoned hunt claim that would otherwise have blocked the commit.
 
 Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
-what differs is whether those agents may actually execute anything (FULL) or
-must stay on the page (LITE, §11.1/§11.2's depth rules). Neither agent ever
+what differs is whether those agents may actually execute anything (complete) or
+must stay on the page (no-repro, §11.1/§11.2's depth rules). Neither agent ever
 gets the design discussion, only the changed files and the ACs — inheriting
 that narrative means inheriting its blind spots, at either depth.
 
 Report only what verify marks CONFIRMED or NEEDS TESTING upward — a REJECTED
 claim never reaches the results table. Report this dimension as SKIP — not
-FAIL — if it ran (LITE or FULL) and there turned out to be no logic to break
+FAIL — if it ran (no-repro or complete) and there turned out to be no logic to break
 once looked at closely (`— (nothing to test)`).
 
 **Re-checking after a fix — scope it.** When a confirmed finding is fixed, do
@@ -216,7 +219,7 @@ Validation Results (set: full — the diff carries logic):
 | Architecture      | PASS   | 0        |
 | Context Hygiene    | PASS   | 0        |
 | Git History Disclosure | SKIP | — (CHANGELOG.md not touched) |
-| Adversarial Correctness | PASS | 0 — ran at LITE (recommended LITE: real logic, no write/concurrency/security surface; choice surfaced) |
+| Adversarial Correctness | PASS | 0 — ran at no-repro (recommended no-repro: real logic, no write/concurrency/security surface; choice surfaced) |
 
 Overall: PASS (2 warnings)
 
@@ -238,7 +241,7 @@ The report ends at the warnings — don't print a "ready to commit" verdict here
 for a run that still has Step 7 (manual QA + the next-step offer) ahead of it.
 
 When Adversarial Correctness isn't SKIP, its row also states the depth it ran at
-and the one-line reason, and reflects that the LITE/FULL choice was surfaced —
+and the one-line reason, and reflects that the no-repro/complete choice was surfaced —
 the same decision Step 3's gate required, not a silent pick.
 
 **Record the run's cost — every run, full or reduced.** You noted the session
@@ -266,7 +269,7 @@ the story's context — then the run can be totalled **per story** with
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
 | **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a CONFIRMED adversarial-correctness finding (either depth). Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (LITE) or reproduced live (FULL).
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (no-repro) or reproduced live (complete).
 Non-blocking: code smells, missing edge-case tests, style issues, and any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell.
 
 ### Step 6: Record the validated diff (only on PASS)
@@ -354,7 +357,7 @@ a QA finding is a new, separate signal for the human).
 - **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not all 554 lines), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
-- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (LITE or FULL, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
+- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
