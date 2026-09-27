@@ -177,6 +177,14 @@ When Adversarial Correctness isn't SKIP, its row also states the depth it ran at
 and the one-line reason, and reflects that the LITE/FULL choice was surfaced —
 the same decision Step 3's gate required, not a silent pick.
 
+**Record the run's cost.** After the report, run
+`"${CLAUDE_PLUGIN_ROOT}"/scripts/session-usage.sh` and state its totals
+(main thread + per sub-agent tokens and wall-time) alongside the results. This
+is what ties a validation run to what it actually cost, and what makes the
+savings from a reduced run measurable rather than estimated (WD-0007). The
+script is best-effort: when the harness's side-chain files have been purged it
+reports `unavailable`, never a misleading zero.
+
 ### Step 5: Verdict
 
 | Overall | Meaning |
