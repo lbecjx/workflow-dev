@@ -62,7 +62,7 @@ fi
 
 # Preserve the other source's position, and read the old shape if that's what
 # the existing state is.
-CUR=""; CPATH=""; CLEN=""; OSID=""; OSEQ=""
+CUR=""; CPATH=""; CLEN=0; OSID=""; OSEQ=0
 if [[ -f "$STATE_FILE" ]]; then
   SJ=$(cat "$STATE_FILE")
   CUR=$(json_get_string "$SJ" current)

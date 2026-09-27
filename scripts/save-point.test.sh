@@ -26,6 +26,9 @@ ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 assert_contains() { case "$2" in *"$1"*) ok "$3" ;; *) no "$3 (missing: $1)" ;; esac; }
 assert_absent()   { case "$2" in *"$1"*) no "$3 (unexpected: $1)" ;; *) ok "$3" ;; esac; }
+assert_valid_json() { # $1 content, $2 label
+  if printf '%s' "$1" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then ok "$2"; else no "$2"; fi
+}
 
 STORY="TEST-1"
 as_claude()   { env -u OPENCODE_TERMINAL -u OPENCODE CLAUDECODE=1 bash "$@"; }
@@ -46,6 +49,7 @@ assert_contains '{"n":2}' "$OUT" "claude: reads only after the saved line"
 assert_absent '{"n":1}' "$OUT" "claude: must not re-read the saved line"
 ( cd "$PROJ" && as_claude "$MARK" "$STORY" >/dev/null )
 assert_contains '"claudeLength":3' "$(STATE_OF "$PROJ")" "claude: mark advances the line count"
+assert_valid_json "$(STATE_OF "$PROJ")" "claude: state is valid JSON"
 assert_contains "Nothing unsaved" "$( cd "$PROJ" && as_claude "$READ" "$STORY" )" "claude: nothing unsaved after marking"
 
 # ---------------------------------------------------------------------------
@@ -71,6 +75,7 @@ assert_contains '{"m":1}' "$OUT3" "opencode: reads the messages"
 ST=$(STATE_OF "$PROJ2")
 assert_contains '"opencodeSession":"ses_x"' "$ST" "opencode: state stores the session id"
 assert_contains '"opencodeSeq":3' "$ST" "opencode: mark advances the seq"
+assert_valid_json "$ST" "opencode: state is valid JSON"
 assert_contains "Nothing unsaved" "$( cd "$PROJ2" && as_opencode "$READ" "$STORY" )" "opencode: nothing unsaved after marking"
 sqlite3 "$DBF" "INSERT INTO session_message VALUES ('ses_x',4,'assistant','{\"m\":4}');"
 OUT5=$( cd "$PROJ2" && as_opencode "$READ" "$STORY" )
