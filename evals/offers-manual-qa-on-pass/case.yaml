@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: offers-manual-qa-on-pass
+description: >
+  Guard for the manual-QA wiring added in WD-0004. With an active story whose
+  Working Memory records the manual-QA decision as "yes", /workflow-dev:validate
+  must, on its PASS path, (a) run the manual-qa skill and (b) still offer the
+  next step (draft the commit message/PR) so the flow never dead-ends. If a
+  future edit drops or reorders validate's Step 7, this should start failing.
+tags: [manual-qa, regression]
+context:
+  scaffold_script: fixture.sh
