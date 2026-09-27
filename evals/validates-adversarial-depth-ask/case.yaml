@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: validates-adversarial-depth-ask
+description: >
+  Guard for the Adversarial Correctness depth gate surfaced in WD-0006. On a
+  logic-bearing diff (real new logic, but no write/concurrency/security
+  surface, so §11.0 recommends LITE), /workflow-dev:validate must present the
+  LITE/FULL choice — a recommended depth with a one-line reason — instead of
+  silently running a depth inline. If a future edit drops or buries that ask,
+  this should start failing.
+tags: [adversarial-correctness, regression]
+context:
+  scaffold_script: fixture.sh
