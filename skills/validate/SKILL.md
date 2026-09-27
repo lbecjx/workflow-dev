@@ -121,6 +121,13 @@ check rather than a judgment — running the discovered commands, the
 `.workflow-dev/` ↔ `config.json` drift check — the orchestrator runs directly.
 Don't spend a sub-agent on it.
 
+**Model tiering, when the harness allows it.** The mechanical work — Verification,
+Git history disclosure, the inline checks above, and `summarize-changes`' Part 12
+review — is a checklist; run it on a **cheaper/faster model**. Adversarial
+Correctness and Architecture are judgment; keep them on the strongest model on
+hand. If the harness cannot select a model per sub-agent, run everything on the
+default and say so — don't silently pretend the tiering happened.
+
 Then, for a **full set**, spawn one independent sub-agent per dimension, each
 with its scoped brief, reporting findings as a structured list (file, line,
 issue, severity):
