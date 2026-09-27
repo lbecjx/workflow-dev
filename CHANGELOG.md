@@ -14,6 +14,21 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.9.0
+
+- Validation now scales to the diff: a change with no logic runs inline checks
+  only, a logic-bearing change the full set, and each dimension gets a scoped
+  brief instead of the whole rulebook; a fix is re-checked without re-running
+  the whole gate. `summarize-changes` reviews a change-set once, on a cheaper
+  model.
+- `session-usage.sh` reports token usage and wall-time per main thread and per
+  sub-agent, from a Claude Code transcript or OpenCode's store, and totals cost
+  per story (`--sessions` / `--transcripts`).
+- The save point works on OpenCode too and is source-aware, so a story can move
+  between Claude Code and OpenCode without re-reading or skipping content.
+- `implement` requires edge-case tests for every new input boundary, and skills
+  reference their scripts via `${CLAUDE_PLUGIN_ROOT}`.
+
 ## 1.8.0
 
 - Surfaced the workflow's procedural gates as short, prominent checklists in the
