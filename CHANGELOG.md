@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.13.0
+
+- Clarified three decision points: `plan` asks for approval on its own before the
+  two one-time questions (not bundled); the validation-mode `(recommended)` is
+  labelled as the plugin's suggestion, not the recorded answer; and `save`'s
+  auto-vs-manual split is documented — mechanical state is kept current
+  automatically, decisions/discoveries are saved on request with review.
+
 ## 1.12.0
 
 - `save-read-unsaved.sh --digest` prints a readable line per message (channel +
