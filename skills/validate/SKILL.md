@@ -90,6 +90,9 @@ Two scopes, not one — which applies depends on why this is running:
 > a miss is easy to overlook. Do them, don't just read them:
 > - **Gate depth:** decide the *set* first (below) and state it in the report —
 >   a no-logic diff runs the reduced set, not the full one.
+> - **Brief = content, not a command:** give each dimension the changed files'
+>   contents and the diff **inline**; never a `git diff`/`read` for it to run —
+>   a command is paid once per dimension (~10× the cache reads).
 > - **Adversarial depth (Part 11):** real logic in the diff → suggest LITE or
 >   FULL **with a one-line reason** and **ask the human to choose**; don't run
 >   a depth silently. SKIP only when there's genuinely no logic. (Unattended →
@@ -109,12 +112,14 @@ list, and it is the **default**, not an opt-in:
 - **Full set — anything else.** The dimensions below, in parallel, plus the
   adversarial decision.
 
-**Give each dimension a scoped brief, never the whole rulebook.** Each receives
-only what applies to it: the relevant section(s) of `references/rules.md`, the
-changed files' contents, and the story's ACs. Never hand it "read `rules.md`"
-wholesale — every dimension re-reading all 554 lines is the single biggest
-avoidable cost here, and a dimension scoped to its own rules section is also
-less likely to wander.
+**Give each dimension the content, not the whole rulebook — and not a command.**
+The brief carries, **inline**: the changed files' contents and the diff, the
+relevant section(s) of `references/rules.md`, and the story's ACs. Paste the diff
+in — never hand the sub-agent a `git diff …` (or a file path to `read`) and let
+it fetch them: a command is paid **once per dimension**, which is exactly the
+~10× cache-read amplification seen when four dimensions each re-fetched the same
+diff. Never hand it "read `rules.md`" wholesale either — a dimension scoped to
+its own rules section is also less likely to wander.
 
 **Mechanical checks run inline, no sub-agent.** Anything that is a script or a
 check rather than a judgment — running the discovered commands, the
