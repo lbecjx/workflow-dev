@@ -92,6 +92,10 @@ During implementation, STOP and ask the human when any condition from `reference
 >   `git commit` / `gh pr create` / `gh pr edit`.
 > - **One commit per task group** — don't fold unrelated task groups into one
 >   commit.
+> - **Record the run's ids:** when you spawn a sub-agent, note its id in the
+>   story's context (OpenCode's `subagent sessionID`; Claude Code's transcript
+>   path), so `validate` can total cost **per story**, not just per session
+>   (`session-usage.sh --sessions` / `--transcripts`).
 > - **Plugin updates are repo-first and post-merge:** change the **repo** →
 >   PR → merge → *then* update the installed copy (Claude Code **and**
 >   OpenCode). Never edit an installed copy, and never update ahead of the
