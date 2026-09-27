@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.10.0
+
+- `validate`'s per-dimension brief must carry the changed files' contents and the
+  diff **inline**, never a command for the sub-agent to fetch them — so the same
+  diff isn't re-read once per dimension (a command is paid once per dimension,
+  ~10× the cache reads).
+
 ## 1.9.1
 
 - Fixed the save point's `.gitignore` helper: it no longer appends its state
