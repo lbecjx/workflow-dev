@@ -9,7 +9,7 @@ that changes the story's Status between the initial read of `old_status`
 and the later rollback could be silently discarded by that rollback —
 reported as a CONFIRMED or NEEDS TESTING finding under Adversarial
 Correctness (either is acceptable; NEEDS TESTING is the expected outcome
-at LITE depth for a genuinely concurrency-dependent claim).
+at no-repro depth for a genuinely concurrency-dependent claim).
 
 FAIL if the report does not mention this specific risk at all, marks
 Adversarial Correctness as SKIP for this diff, or only reports unrelated

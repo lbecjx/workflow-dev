@@ -2,9 +2,9 @@
 # Scaffolds a scratch repo for the adversarial-depth-ask eval: a logic-bearing
 # but low-risk uncommitted change — a pure function with real edge cases and no
 # side effects. That is exactly the shape §11.0 says to handle by *suggesting*
-# LITE and asking, not by running a depth inline: real logic means it isn't a
+# no-repro and asking, not by running a depth inline: real logic means it isn't a
 # SKIP, and the absence of any write path / concurrency / security surface
-# means FULL isn't called for either.
+# means complete isn't called for either.
 #
 # The change modifies a *tracked* file (rather than adding an untracked one) so
 # it is unambiguously inside validate's single-diff scope — `git diff --name-only`
@@ -39,7 +39,7 @@ git commit -q -m "chore: baseline"
 # The diff under review — uncommitted on purpose. Adds the real page-window
 # logic: edge cases (zero per-page, out-of-range page, partial last page) and no
 # side effects. Real logic, so not SKIP; nothing write/concurrency/security-
-# related, so §11.0's suggestion is LITE and the human is asked to confirm.
+# related, so §11.0's suggestion is no-repro and the human is asked to confirm.
 cat > page_window.js <<'JS'
 // Returns the zero-based slice bounds [start, end) for one page of items.
 function pageWindow(page, perPage, total) {

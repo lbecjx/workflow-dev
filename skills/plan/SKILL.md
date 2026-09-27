@@ -105,8 +105,8 @@ the whole story:
 ```
 AskUserQuestion:
   question: "Before starting: the full validation (multiple sub-agents, plus
-    Adversarial Correctness — minutes on FULL) will run at some point.
-    Should it run once at the end of the story, or after every task group?"
+    Adversarial Correctness) will run at some point. Should it run once at the
+    end of the story, or after every task group?"
   header: "Validation mode"
   options:
     - label: "Once, at the end (recommended)"

@@ -5,6 +5,6 @@ allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent]
 ---
 
 Run /workflow-dev:validate on the uncommitted changes in this repository.
-If it recommends running the Adversarial Correctness dimension at FULL
-depth and asks whether to proceed at FULL or downgrade to LITE, answer:
-run it at FULL depth.
+If it recommends running the Adversarial Correctness dimension at complete
+depth and asks whether to proceed at complete or downgrade to no-repro, answer:
+run it at complete depth.

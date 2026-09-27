@@ -204,18 +204,27 @@ The other six dimensions always run — they're cheap enough that skipping them
 saves nothing worth the risk. This one is different: it's expensive enough
 that running the full version by default, on every change regardless of what
 the change actually is, wastes real time and tokens for no real return on a
-change with nothing much to break. There are three levels, not two:
+change with nothing much to break. There are three levels, not two — **`Skip`**,
+**`no-repro`** (*Adversarial without reproduction*), and **`complete`**
+(*Adversarial complete*):
+
+> **The depth is a *confidence* choice, not a cost one.** `no-repro` and
+> `complete` differ in **whether the agent executes** (runs, clones, reproduces)
+> — not in weight, and, on real diffs, not much in time or tokens either. Pick
+> `no-repro` when you don't need a timing/concurrency claim *reproduced*; pick
+> `complete` when you do (only it can raise such a claim to CONFIRMED). Don't
+> pick `no-repro` expecting to save time — the bound below is what saves it.
 
 - **SKIP** — nothing spawned. For diffs with nothing worth adversarially
   testing: docs/comments only, a pure rename or config-value change with no
   new logic, styling/presentation-only code, or anything else where a wrong
   result would be immediately obvious on the next normal use.
-- **LITE** — both hunt (§11.1) and verify (§11.2) run, both held to
+- **no-repro** — both hunt (§11.1) and verify (§11.2) run, both held to
   *static-analysis depth*: read the code, trace it by hand — this is what
   actually saves the time and tokens, not skipping verify. Neither agent runs
   anything (no server spun up, no real requests fired, no script executed
   against a scratch file); a hunt-alone cut would still leave the truly
-  expensive part (live, empirical testing) in place, so LITE restricts depth
+  expensive part (live, empirical testing) in place, so no-repro restricts depth
   on *both* agents instead. A finding that both agents can trace all the way
   through on paper still reaches CONFIRMED and still blocks (see Verdict);
   only a claim that genuinely needs live execution to settle — real
@@ -225,7 +234,7 @@ change with nothing much to break. There are three levels, not two:
   cases, a UI component with real conditional logic *that isn't auth-related*
   (a date picker, a filter panel, a form for non-sensitive data), a data
   transform.
-- **FULL** — hunt and verify both at full depth (empirical testing expected
+- **complete** — hunt and verify both at full depth (empirical testing expected
   wherever a claim can be checked that way, per §11.1/§11.2), as originally
   designed. Right for a diff that touches: a write path (anything that
   persists, deletes, or mutates state — a database, a file, `localStorage`/
@@ -240,30 +249,44 @@ change with nothing much to break. There are three levels, not two:
   invariant the rest of the codebase now has to hold (a new closed set, a
   new "exactly one of" guarantee, a new atomicity claim). These are exactly
   the cases where a claim needing live execution to be fully sure —
-  something LITE can only mark NEEDS TESTING — would actually matter enough
+  something no-repro can only mark NEEDS TESTING — would actually matter enough
   to pay for resolving it outright, so the extra depth earns its cost.
   **None of this is backend-specific** — "write path," "concurrency," and
   "security-relevant surface" apply the same way to frontend code (state
   writes, double-submit races, auth UI) as to a server.
 
+**Both active levels are bounded — and that, not the depth, is what saves
+time.** The expensive part is open-ended exploration, which `no-repro` and
+`complete` do identically, so both carry two limits:
+
+- **Scope ceiling.** Work only from the brief you were handed — the changed
+  files, their full contents, and the ACs. Do **not** execute, clone, or read or
+  explore anything outside it (no dependencies, no binaries, no "read the repo
+  for context"). An exception needs a one-line justification naming the exact
+  claim that requires it.
+- **Stop rule.** If a claim can't be settled without leaving the brief, or after
+  a bounded number of attempts, return it **NEEDS TESTING** and stop. Never
+  iterate open-endedly — a bounded "not settled" is the correct output, not a
+  failure to keep pushing.
+
 **SKIP is the only depth decided directly, without asking** — it's for a
 narrow case: genuinely zero logic (docs, a pure rename, a config-value
 change), where there's nothing to adversarially test either way, so asking
 would just be friction with no real choice behind it. For anything else,
-picking a depth is a real judgment call — LITE and FULL trade off cost
+picking a depth is a real judgment call — no-repro and complete trade off cost
 against how settled a finding can get — and that call belongs to the human,
-not the model. LITE is the default *suggestion* whenever there's real logic
-but nothing hits the FULL criteria above; FULL is the default suggestion once
+not the model. no-repro is the default *suggestion* whenever there's real logic
+but nothing hits the complete criteria above; complete is the default suggestion once
 it does. Either way, present the suggestion with a one-line reason and ask
 which depth to actually run.
 
 **Mixed diff:** judge by the highest-risk file touched, not the average — one
-write-path file in an otherwise-docs change still calls for suggesting FULL.
+write-path file in an otherwise-docs change still calls for suggesting complete.
 
 Before spawning anything, look at the scope from Step 2 and decide SKIP
 directly — the one case that never asks, since there's nothing to test
 either way. For anything else, present the suggested depth with its reason
-and ask the human to pick LITE or FULL:
+and ask the human to pick no-repro or complete:
 
 ```
 Adversarial correctness (Part 11): SKIP
@@ -272,52 +295,52 @@ shell script; no new logic to break.
 ```
 
 ```
-Adversarial correctness (Part 11) — recommend: LITE
+Adversarial correctness (Part 11) — recommend: no-repro
 This diff adds a pure formatting function with several edge cases; no
-write/concurrency/security surface. Run at LITE, or escalate to FULL?
+write/concurrency/security surface. Run at no-repro, or escalate to complete?
 ```
 
 ```
-Adversarial correctness (Part 11) — recommend: FULL
+Adversarial correctness (Part 11) — recommend: complete
 This diff adds a write endpoint with concurrent access and a rollback path —
-exactly the shape this dimension exists for. Downgrade to LITE instead?
+exactly the shape this dimension exists for. Downgrade to no-repro instead?
 ```
 
 ```
-Adversarial correctness (Part 11) — recommend: FULL
+Adversarial correctness (Part 11) — recommend: complete
 This diff is a pure-frontend login form — auth is security-relevant surface
 regardless of layer, even calling an endpoint that already exists.
-Downgrade to LITE instead?
+Downgrade to no-repro instead?
 ```
 
 If the human doesn't answer (asynchronous review, CI, batch mode): default
-to LITE regardless of which depth was suggested — never silently escalate to
-FULL just because that's what was recommended and nobody was there to
+to no-repro regardless of which depth was suggested — never silently escalate to
+complete just because that's what was recommended and nobody was there to
 confirm it. A human choosing a different depth than what was suggested or
 decided — up, down, or to skip — is always honored; SKIP is a stated
-decision, not a gate the human can't override, and LITE/FULL are
+decision, not a gate the human can't override, and no-repro/complete are
 recommendations, not requirements.
 
 **One scoped exception to that unattended fallback:** the batched/story-end
 scope (`validate/SKILL.md` Step 2) — the single validate pass a story
 running in "once, at the end" mode gets, per `implement/SKILL.md` Step 5 —
-does **not** default to LITE when unattended. It uses whatever depth this
-section's own criteria actually recommend for that cumulative diff (LITE or
-FULL). Reasoning: for an ordinary single call, defaulting to LITE when
-nobody's there to confirm FULL is the safe, cheap choice, because another
+does **not** default to no-repro when unattended. It uses whatever depth this
+section's own criteria actually recommend for that cumulative diff (no-repro or
+complete). Reasoning: for an ordinary single call, defaulting to no-repro when
+nobody's there to confirm complete is the safe, cheap choice, because another
 validate call can always happen later. For the batched story-end pass, that
 assumption doesn't hold — it may be the *only* check the deferred work ever
 receives, since the whole point of deferring was to avoid paying for
 per-task-group validation along the way. Forcibly capping depth there for
 cost reasons would undercut the very check being batched, on a diff that
-already earned FULL by this section's own risk criteria. This exception is
+already earned complete by this section's own risk criteria. This exception is
 scoped narrowly to that one batched-run case; every other unattended
 validate call — a normal single-diff scope, whether from a story in
 "after every task group" mode or a one-off ad-hoc run — still defaults to
-LITE exactly as above.
+no-repro exactly as above.
 
 Both depths run two independent sub-agents (hunt then verify), never with any
-memory of each other or of how the change was designed — LITE and FULL differ
+memory of each other or of how the change was designed — no-repro and complete differ
 in what those two agents are allowed to do (§11.1, §11.2), not in how many of
 them run:
 
@@ -342,38 +365,48 @@ Instructions to give this agent, close to verbatim:
 - Ignore: pre-existing issues outside the changed lines, anything a linter or
   type checker would already catch, and pedantic style points — this
   dimension hunts for behavior that's actually wrong, not taste.
+- **Stay inside the brief.** Work only from the changed files' contents and the
+  ACs you were given — don't read dependencies, binaries, or the wider repo "for
+  context". If one specific claim needs something outside the brief, say which
+  claim and why in one line; otherwise don't go there.
+- **Stop when bounded.** If a claim can't be settled without leaving the brief,
+  or after a few attempts, return it **NEEDS TESTING** and stop — a bounded "not
+  settled" is the correct output, not a reason to keep iterating.
 
-**Depth is set here, not just by whether verify runs afterward** — running
-real code (spinning up a server, firing actual concurrent requests,
-corrupting a file on disk and re-running the script against it) is what makes
-a FULL-depth hunt take minutes and burn six figures of tokens; a LITE-depth
-hunt skips all of that and stays on the page:
+**Depth is set here, not just by whether verify runs afterward** — running real
+code (spinning up a server, firing actual concurrent requests, corrupting a file
+on disk and re-running the script against it) is the slow, side-effecting part a
+`complete` hunt may do; a `no-repro` hunt never does, and stays on the page:
 
-- **LITE:** static analysis only — read the code and trace it by hand. Cite
+- **no-repro:** static analysis only — read the code and trace it by hand. Cite
   the exact line and reason through what the input/sequence you're describing
   would do, but never actually run anything: no starting a server, no real
   HTTP/socket calls, no executing the script against a scratch file, no
   process spawned to "just check." A claim traced correctly on paper still
   counts as a finding here — it just isn't empirically confirmed, which is
-  exactly what makes LITE cheap. §11.2's verify pass still runs at LITE — at
-  the same static depth — so a LITE finding isn't unverified in the sense of
+  exactly what makes no-repro cheap. §11.2's verify pass still runs at no-repro — at
+  the same static depth — so a no-repro finding isn't unverified in the sense of
   "nobody checked it twice," only in the sense of "nobody actually ran it."
-- **FULL:** the same mandate, but empirical testing is not just allowed, it's
+- **complete:** the same mandate, but empirical testing is not just allowed, it's
   expected wherever a claim can be checked that way — a hunt agent that could
   have spun up the actual server and fired the actual request, but instead
-  only reasoned about what "should" happen, is doing LITE-depth work under a
-  FULL label. Reserve this depth for exactly the diffs that earn it (§11.0).
+  only reasoned about what "should" happen, is doing `no-repro` work under a
+  `complete` label. Reserve this depth for exactly the diffs that earn it (§11.0).
 
 Tell the agent explicitly which depth it's running at — this isn't something
 it infers from context.
 
 ### 11.2 Verify
 
-Runs at both depths — LITE gets a real verify pass too, not none; it's just
-verify held to the same no-execution rule as a LITE hunt (see below). A
+Runs at both depths — no-repro gets a real verify pass too, not none; it's just
+verify held to the same no-execution rule as a no-repro hunt (see below). A
 second, independent agent — given the hunt's raw findings, the same changed
 files, and the same acceptance criteria hunt received, but nothing about how
 the hunt agent reasoned its way there.
+
+The same **scope ceiling and stop rule** apply (§11.1): verify works from the
+brief, and returns a claim as NEEDS TESTING rather than exploring outward to
+settle it.
 
 For each claimed finding, re-derive it from the actual code without trusting
 the hunt agent's framing: does the claimed trigger really reach the claimed
@@ -383,28 +416,28 @@ requires; tracing the trigger correctly doesn't make the "bug" real if the
 behavior it found is what the ACs call for.
 
 Same depth rule as hunt (§11.1), told explicitly, not inferred:
-- **LITE:** static only — re-derive by reading, never by running. Most false
+- **no-repro:** static only — re-derive by reading, never by running. Most false
   positives (the trigger doesn't actually reach that line, the case is
   already handled elsewhere, the behavior matches what the ACs actually
   require) are just as catchable by careful reading as by execution — that's
-  what still makes a LITE verify pass worth running instead of skipping it.
+  what still makes a no-repro verify pass worth running instead of skipping it.
   What static reading *can't* fully settle — genuine timing/concurrency
   behavior, anything whose outcome depends on real execution order — gets the
   **NEEDS TESTING** outcome below instead of CONFIRMED.
-- **FULL:** empirical — actually reproduce the claim (run the server, fire the
+- **complete:** empirical — actually reproduce the claim (run the server, fire the
   request, corrupt the file, whatever the claim calls for) rather than only
   reasoning about it.
 
 Three outcomes per finding:
-- **CONFIRMED** — independently traced (LITE) or reproduced (FULL) the exact
+- **CONFIRMED** — independently traced (no-repro) or reproduced (complete) the exact
   failure, with enough certainty at the depth actually run that this isn't a
   judgment call, and confirmed the resulting behavior actually violates a
   requirement (an AC, or an unambiguous correctness expectation if no AC
   covers it); it's real.
 - **NEEDS TESTING** — the trigger and reasoning check out on inspection, but
   settling it for certain would need something this depth doesn't do (typically:
-  live execution, at LITE depth, for a genuinely timing/order-dependent claim
-  that reading alone can't fully resolve — rare at FULL depth, where
+  live execution, at no-repro depth, for a genuinely timing/order-dependent claim
+  that reading alone can't fully resolve — rare at complete depth, where
   execution is already on the table, but not impossible for something that's
   hard to reproduce reliably even running it, like a narrow race window).
 - **REJECTED** — couldn't reproduce, the trigger doesn't actually reach the
@@ -417,16 +450,16 @@ high-signal instead of a pile of speculative maybes.
 
 **Verdict:**
 - **SKIP** — decided directly per §11.0 for a diff with no real logic
-  (Findings column reads `— (skipped, low risk)`), or it ran anyway (LITE or
-  FULL) and there was nothing to adversarially test (`— (nothing to test)`).
+  (Findings column reads `— (skipped, low risk)`), or it ran anyway (no-repro or
+  complete) and there was nothing to adversarially test (`— (nothing to test)`).
 - **CONFIRMED → FAIL**, at either depth. A verify pass that reached CONFIRMED
-  — whether by careful static tracing (LITE) or live reproduction (FULL) — is
+  — whether by careful static tracing (no-repro) or live reproduction (complete) — is
   reporting a real bug, not a matter of judgment. Depth changes how much a
   finding *can* reach CONFIRMED (some claims are only fully settleable by
   running them), not what CONFIRMED itself means once reached.
 - **NEEDS TESTING → WARN**, at either depth. Verify traced the reasoning and it
   holds up, but couldn't rule out every alternative without doing something
-  this depth doesn't do — most often live execution at LITE depth, for a
+  this depth doesn't do — most often live execution at no-repro depth, for a
   timing/order-dependent claim reading alone can't fully settle. A judgment
   call for the human, not a verified bug — the human reads it and decides.
 
