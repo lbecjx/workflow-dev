@@ -18,6 +18,8 @@ Context survives compaction and new sessions. It's saved explicitly on request â
 | `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
 | `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
 | `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, an adversarial correctness pass) before commit |
+| `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
+| `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks Jira/Confluence/GitHub for drift since the last save |
