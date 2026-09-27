@@ -29,7 +29,10 @@ Runs a structured quality gate over the current uncommitted changes, using paral
 
 - Doesn't commit or push
 - Doesn't auto-fix issues — it reports them and leaves the call to the human
-- Doesn't validate business logic — that's manual testing / AC verification
+- Doesn't validate business logic **by default** — that's manual testing / AC
+  verification. When the story's manual-QA decision is "Yes", Step 7 runs
+  `../manual-qa/SKILL.md` against the running app; otherwise the gate stays
+  static.
 - Doesn't draft or review a commit message or PR title/description — that's
   `/workflow-dev:summarize-changes`. This skill's Git History Disclosure
   dimension (Part 12) only covers `CHANGELOG.md` entries that happen to be
@@ -158,9 +161,10 @@ Overall: PASS (2 warnings)
 Warnings:
 1. src/foo.ts:45 — function exceeds 50 lines (62 lines)
 2. src/foo.ts:12 — magic number 1000 could be a named constant
-
-Ready to commit.
 ```
+
+The report ends at the warnings — don't print a "ready to commit" verdict here
+for a run that still has Step 7 (manual QA + the next-step offer) ahead of it.
 
 ### Step 5: Verdict
 
@@ -208,6 +212,48 @@ from `git diff --name-only HEAD` (stable across staged/unstaged for
 tracked files) plus `git ls-files --others` (untracked files) — is immune
 to this, because `git add` never touches what's actually on disk.
 
+### Step 7: Manual QA (PASS only) and the next-step offer
+
+Runs only on PASS (with or without warnings), and after Step 6 — the marker is
+written first, so a manual-QA finding never voids it (the static gate did pass;
+a QA finding is a new, separate signal for the human).
+
+1. Read the story's Working Memory → Decisions for the **"Manual QA for this
+   story"** row (written once by `/workflow-dev:plan`'s Step 5). **Never ask it
+   here.**
+   - **"yes"** → run `../manual-qa/SKILL.md` now, against the running app, and
+     report its per-AC verdicts. Its timing follows the story's validation
+     mode: under "once, at the end" this is the single end-of-story pass; under
+     "after every task group" it runs on each PASS. Do not re-ask whether to
+     run — that was decided at plan time.
+   - **"no", or no row (older story)** → skip manual QA; no notice needed.
+   - **Unattended/non-interactive** → same as "no": skip silently (the plan
+     default for manual QA is "skip").
+
+2. Then offer the next step via the ask-question tool (OpenCode `question` /
+   Claude Code `AskUserQuestion`):
+
+   ```
+   AskUserQuestion:
+     question: "Validation passed. Draft the commit message / PR now?"
+     header: "Next step"
+     options:
+       - label: "Yes — summarize changes"
+         description: "Run /workflow-dev:summarize-changes for the commit/PR text."
+       - label: "Not yet"
+         description: "Stop here; I'll ask when I'm ready."
+   ```
+   On "Yes" → run `/workflow-dev:summarize-changes`. On "Not yet" → stop.
+
+   **Skip this offer when `validate` was invoked by `/workflow-dev:implement`** —
+   implement's own Step 5 already runs `summarize-changes` right after it, so
+   offering again would double it. The offer exists so a **standalone**
+   `/workflow-dev:validate` still hands the human the next step instead of
+   dead-ending.
+
+3. **Unattended:** skip the question and do not run `summarize-changes` on your
+   own — leave the summary for a human-triggered step.
+
 ## Principles
 
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
@@ -218,3 +264,4 @@ to this, because `git add` never touches what's actually on disk.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
 - **Git history disclosure is enforced, not just suggested** — this skill's slice of it (CHANGELOG.md entries in scope) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed. Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.
+- **Manual QA is opt-in and decided elsewhere** — this skill *runs* manual QA (Step 7) only when `plan` recorded "yes"; it never decides that for itself, and never on a non-PASS.
