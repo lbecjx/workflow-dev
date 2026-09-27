@@ -51,6 +51,10 @@ sqlq() { printf '%s' "${1//\'/\'\'}"; }
 # never reach git, whatever the project's choice for .workflow-dev/ itself.
 ensure_gitignored() {
   local pattern=".workflow-dev/context/.compaction-state/"
+  local probe=".workflow-dev/context/.compaction-state/.probe"
+  # Already covered by an ancestor pattern (e.g. `.workflow-dev/`)? Then this
+  # line adds nothing and would only dirty a tracked .gitignore on every save.
+  if git check-ignore -q "$probe" 2>/dev/null; then return 0; fi
   [[ -f .gitignore ]] || touch .gitignore
   grep -qxF "$pattern" .gitignore || printf '%s\n' "$pattern" >> .gitignore
 }
