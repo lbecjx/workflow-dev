@@ -14,6 +14,19 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.18.0
+
+- Every reminder Claude Code gets from `hooks/hooks.json` now reaches OpenCode
+  too, by `opencode/plugin.ts` calling the same `scripts/*.sh`.
+- The reminder scripts take `--message` for plain text, and the two-level one
+  takes `--status` for its `ok`/`notify`/`block` verdict.
+- OpenCode cannot raise a question, so where Claude Code asks it notifies — a
+  pre-commit reminder arrives after the command, not before it.
+- AI/agent attribution blocks on both harnesses.
+- `pre-compact-check.sh --arm` arms the compaction state where no `PreCompact`
+  event exists.
+- `README.md` and `hooks/README.md` state per reminder what each harness gets.
+
 ## 1.17.0
 
 - `init` checks the agent-role bindings before spawning its research

@@ -47,6 +47,7 @@ Every entry here is an **example**. None of them is the name to hardcode.
 | load a skill | `skill` / `Skill` |
 | call an MCP server's tool | `<server>.<tool>` (OpenCode) / `mcp__<server>__<tool>` (Claude Code) |
 | receive a lifecycle event | an OpenCode plugin / Claude Code's `hooks/hooks.json` (see `../hooks/README.md`) |
+| deliver a reminder | the same `scripts/*.sh` on both: `--message` prints it plain, the JSON envelope is Claude Code's |
 
 ## Invoking one skill from another
 
