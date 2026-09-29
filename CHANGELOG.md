@@ -14,6 +14,23 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.16.0
+
+- Tool names are written as **capabilities**, with each harness's name as an
+  example rather than the name: the shell, the ask tool, sub-agents, skill
+  loading, MCP namespacing and hooks are mapped once in
+  `references/harness-tools.md`. A new `harness-vocab.test.sh` fails when
+  shipped text names a Claude-Code-only tool without naming its environment.
+- `hooks/hooks.json` is documented as **Claude Code only** — it does not run
+  under OpenCode, whose counterpart is the plugin. Its matchers are that
+  harness's event vocabulary, not portable tool names.
+- `evals/*/prompt.md` record that `allowed_tools` are Claude Code names, with
+  the OpenCode equivalents alongside; the values are unchanged.
+- README documents the **OpenCode install** (clone, link each skill, link the
+  plugin entry point, `opencode service restart`) and the per-harness naming,
+  including that a skill is invoked as `workflow-dev-init` there rather than
+  `/workflow-dev:init`.
+
 ## 1.15.0
 
 - Model tiering is real: the plugin names **roles** — `wd-operator` for the
