@@ -47,8 +47,8 @@ Determine the available verification commands. A fixed list of manifest files (`
 
 1. Check `.workflow-dev/context/REPO.md` for documented test/lint/typecheck/build commands. If found and still accurate (spot-check against what's actually in the repo), skip straight to Step 2.
 2. Absent that, this is two sub-agents in sequence, not one — a survey and a confirmation search are different tasks (broad ecosystem knowledge vs. this specific repo's filesystem), and keeping them separate means the second agent's search list isn't limited to whatever the orchestrator happened to already know:
-   - **Stack-survey sub-agent**: give it whatever manifest/config files actually exist at the repo root and in any obviously-separate sub-projects (a monorepo can have more than one stack) — `package.json`, `pyproject.toml`, `requirements*.txt`, `pytest.ini`, `setup.cfg`, `tox.ini`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`, `*.csproj`/`*.sln`, `build.gradle`/`pom.xml`, `mix.exs`, or whatever else is present — Python alone has enough legitimate config-file shapes (`pyproject.toml`, or a bare `requirements*.txt` with `pytest.ini`/`setup.cfg`/`tox.ini` and no `pyproject.toml` at all — both real, current setups) that no single one of them can be assumed to signal "this is/isn't a Python project" by itself. Ask it to identify every language/framework in use, then, for each one, list the realistic full set of conventional test, build, typecheck, lint, and format tools an experienced developer in that stack would recognize — not just the most common one (e.g. Python: pytest (+ pytest-cov, hypothesis), unittest, doctest, nose2, tox, nox, ruff, flake8, pylint, black, mypy, pyright; JS/TS: jest, vitest, mocha, ava, jasmine, playwright, cypress, eslint, prettier, tsc; Go: `go test`, `go vet`, golangci-lint, `gofmt`; Rust: `cargo test`/`clippy`/`fmt`; Ruby: rspec, minitest, rubocop; Java/Kotlin: Maven/Gradle `test`, checkstyle, spotbugs, ktlint; PHP: phpunit, pest, phpcs; .NET: `dotnet test`, StyleCop; Elixir: `mix test`, credo, dialyzer). **Its list is a union, not a replacement**: it must include at least the examples already named above for whatever stack it finds, plus anything else it knows about that ecosystem (including a stack not named here at all) — the examples in this file are a floor that doesn't depend on the agent's reasoning being complete that day, not a ceiling on what it's allowed to add. This agent doesn't need to find anything in the repo beyond the stack itself — its output is a candidate list, not a fixed list this file hardcodes standing alone (new tools appear faster than a skill doc gets updated, which is exactly why neither source should be trusted by itself).
-   - **Confirmation sub-agent**: give it that candidate list and have it actually check the repo for each one — a config file (`pytest.ini`, `tox.ini`, `jest.config.js`, `.rspec`, `phpunit.xml`, …), a script entry (`package.json`'s `scripts`, a `Makefile` target, a CI workflow file), or a directory/naming convention (`tests/`, `test/`, `spec/`, `__tests__/`, `test_*.py`, `*_test.go`, `*.spec.ts`). Only a command actually found this way goes in the map — the survey names candidates, it doesn't assume any of them are present. **Independent of the candidate list, this same agent always also runs a generic catch-all**: search the repo for anything whose name contains "test" or "spec" that the stack-specific list might have missed — a custom `run-tests.sh`, an unconventionally-named `Makefile` target, a `tests/` folder with no config file the survey would recognize. If something like this turns up and it's not obviously one of the tools already found, report it and ask what it is rather than silently ignoring it — an unrecognized test setup is a gap in the survey's knowledge, not evidence the project has no tests.
+   - **Stack-survey sub-agent** (`wd-operator`): give it whatever manifest/config files actually exist at the repo root and in any obviously-separate sub-projects (a monorepo can have more than one stack) — `package.json`, `pyproject.toml`, `requirements*.txt`, `pytest.ini`, `setup.cfg`, `tox.ini`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`, `*.csproj`/`*.sln`, `build.gradle`/`pom.xml`, `mix.exs`, or whatever else is present — Python alone has enough legitimate config-file shapes (`pyproject.toml`, or a bare `requirements*.txt` with `pytest.ini`/`setup.cfg`/`tox.ini` and no `pyproject.toml` at all — both real, current setups) that no single one of them can be assumed to signal "this is/isn't a Python project" by itself. Ask it to identify every language/framework in use, then, for each one, list the realistic full set of conventional test, build, typecheck, lint, and format tools an experienced developer in that stack would recognize — not just the most common one (e.g. Python: pytest (+ pytest-cov, hypothesis), unittest, doctest, nose2, tox, nox, ruff, flake8, pylint, black, mypy, pyright; JS/TS: jest, vitest, mocha, ava, jasmine, playwright, cypress, eslint, prettier, tsc; Go: `go test`, `go vet`, golangci-lint, `gofmt`; Rust: `cargo test`/`clippy`/`fmt`; Ruby: rspec, minitest, rubocop; Java/Kotlin: Maven/Gradle `test`, checkstyle, spotbugs, ktlint; PHP: phpunit, pest, phpcs; .NET: `dotnet test`, StyleCop; Elixir: `mix test`, credo, dialyzer). **Its list is a union, not a replacement**: it must include at least the examples already named above for whatever stack it finds, plus anything else it knows about that ecosystem (including a stack not named here at all) — the examples in this file are a floor that doesn't depend on the agent's reasoning being complete that day, not a ceiling on what it's allowed to add. This agent doesn't need to find anything in the repo beyond the stack itself — its output is a candidate list, not a fixed list this file hardcodes standing alone (new tools appear faster than a skill doc gets updated, which is exactly why neither source should be trusted by itself).
+   - **Confirmation sub-agent** (`wd-operator`): give it that candidate list and have it actually check the repo for each one — a config file (`pytest.ini`, `tox.ini`, `jest.config.js`, `.rspec`, `phpunit.xml`, …), a script entry (`package.json`'s `scripts`, a `Makefile` target, a CI workflow file), or a directory/naming convention (`tests/`, `test/`, `spec/`, `__tests__/`, `test_*.py`, `*_test.go`, `*.spec.ts`). Only a command actually found this way goes in the map — the survey names candidates, it doesn't assume any of them are present. **Independent of the candidate list, this same agent always also runs a generic catch-all**: search the repo for anything whose name contains "test" or "spec" that the stack-specific list might have missed — a custom `run-tests.sh`, an unconventionally-named `Makefile` target, a `tests/` folder with no config file the survey would recognize. If something like this turns up and it's not obviously one of the tools already found, report it and ask what it is rather than silently ignoring it — an unrecognized test setup is a gap in the survey's knowledge, not evidence the project has no tests.
 
 Build a command map: `{ build: "...", typecheck: "...", lint: "...", format: "...", test: "..." }` — one entry per stack if more than one was found. Any command that can't be discovered is skipped, not failed — note it in the report, and say what was searched for so a human can tell "skipped, nothing found" apart from "skipped, didn't look."
 
@@ -129,31 +129,35 @@ check rather than a judgment — running the discovered commands, the
 `.workflow-dev/` ↔ `config.json` drift check — the orchestrator runs directly.
 Don't spend a sub-agent on it.
 
-**Model tiering, when the harness allows it.** The mechanical work — Verification,
-Git history disclosure, the inline checks above, and `summarize-changes`' Part 12
-review — is a checklist; run it on a **cheaper/faster model**. Adversarial
-Correctness and Architecture are judgment; keep them on the strongest model on
-hand. If the harness cannot select a model per sub-agent, run everything on the
-default and say so — don't silently pretend the tiering happened.
+**Model tiering — by role, never by model.** Every sub-agent this skill spawns
+runs under one of two roles, defined once in
+`../setup-models/references/roles.md`: **`wd-operator`** (class `operator`) for
+mechanical, checklist work, and **`wd-judge`** (class `judge`) for judgment.
+Name the **role** as the sub-agent's type when you spawn it — never a model name
+or alias; the user bound each role to a model once, via
+`/workflow-dev:setup-models`. If the harness cannot select a model per sub-agent
+— the roles are ungenerated or stale and the user has not opted out, or the
+harness has no per-sub-agent model mechanism at all — run everything on the
+default and **say so**; never silently pretend the tiering happened.
 
 Then, for a **full set**, spawn one independent sub-agent per dimension, each
-with its scoped brief, reporting findings as a structured list (file, line,
-issue, severity):
+under its role, with its scoped brief, reporting findings as a structured list
+(file, line, issue, severity):
 
-| Sub-agent | Dimensions (from rules.md) |
-|-----------|-----------------------------|
-| **Verification** | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite) — a diff that changes tests is executed, not reasoned about. |
-| **Security** | Parts 2–3. Read the changed files for vulnerabilities. |
-| **Code quality** | Part 4. Smells, conventions, patterns. |
-| **Testing** | Part 5. Coverage of changes, test quality. |
-| **Architecture** | Parts 8–9. Separation of concerns, coupling, performance. |
-| **Scope** | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
-| **CI/CD** | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
+| Sub-agent | Role | Dimensions (from rules.md) |
+|-----------|------|-----------------------------|
+| **Verification** | `wd-operator` | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite) — a diff that changes tests is executed, not reasoned about. |
+| **Security** | `wd-judge` | Parts 2–3. Read the changed files for vulnerabilities. |
+| **Code quality** | `wd-operator` | Part 4. Smells, conventions, patterns. |
+| **Testing** | `wd-operator` | Part 5. Coverage of changes, test quality. |
+| **Architecture** | `wd-judge` | Parts 8–9. Separation of concerns, coupling, performance. |
+| **Scope** | `wd-operator` | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
+| **CI/CD** | `wd-operator` | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
 
 **Git history disclosure** (Part 12) is conditional, not always-run: it fires
 only when `CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list,
-and then reviews the new/edited entries — formality, length, security-incident
-disclosure, personal/internal-behavior exposure. A changelog entry is ordinary
+and then a **`wd-operator`** sub-agent reviews the new/edited entries — formality,
+length, security-incident disclosure, personal/internal-behavior exposure. A changelog entry is ordinary
 committed file content with no commit-time hook backstop the way a commit
 message has, so this run is its enforcement. If `CHANGELOG.md` isn't in scope,
 report `SKIP — (not touched)`.
@@ -184,9 +188,10 @@ too slow, apply §11.0's **bound** (scope ceiling + stop rule), not a shallower
 depth — and keep `verify` at either depth: a measured run showed it rejecting a
 wrongly-reasoned hunt claim that would otherwise have blocked the commit.
 
-Both depths are the same two sub-agents (hunt, §11.1, then verify, §11.2) —
-what differs is whether those agents may actually execute anything (complete) or
-must stay on the page (no-repro, §11.1/§11.2's depth rules). Neither agent ever
+Both depths are the same two **`wd-judge`** sub-agents (hunt, §11.1, then
+verify, §11.2) — what differs is whether those agents may actually execute
+anything (complete) or must stay on the page (no-repro, §11.1/§11.2's depth
+rules). Neither agent ever
 gets the design discussion, only the changed files and the ACs — inheriting
 that narrative means inheriting its blind spots, at either depth.
 
@@ -357,6 +362,7 @@ a QA finding is a new, separate signal for the human).
 - **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not all 554 lines), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
+- **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
 - **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.

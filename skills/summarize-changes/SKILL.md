@@ -77,10 +77,12 @@ hunt/verify split: whoever wrote the text tends to re-confirm it); the
 per-artifact fan-out does not, and a 1–3 line message does not need its own
 session.
 
-This review is a bounded checklist, not open-ended reasoning, so run it on the
-**cheapest model the harness lets you pick per sub-agent** — see
-`../validate/SKILL.md`'s model-tiering note. If the harness cannot choose a
-model per sub-agent, run it on the default and say so; don't pretend.
+This review is a bounded checklist, not open-ended reasoning, so run it under
+the **`wd-operator`** role (class `operator`) — see
+`../setup-models/references/roles.md`. Name the role as the sub-agent's type;
+never a model name. If the harness cannot select a model per sub-agent (roles
+ungenerated or stale, and no opt-out), run it on the default and **say so**;
+don't pretend.
 
 - **FAIL** (12.2 security disclosure, 12.3 personal/internal exposure —
   including any AI/agent/LLM attribution) → rewrite and re-check. Never
