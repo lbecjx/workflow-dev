@@ -37,14 +37,13 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`PreToolUse`** (before `git commit` / `gh pr create` / `gh pr edit`) — asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
 
-On **OpenCode** the same reminder is delivered by a plugin, which has to be linked into OpenCode's plugin directory — OpenCode auto-loads plugins from `~/.config/opencode/plugins/`, and this plugin's own checkout sits one level below it:
+On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminder there is delivered by a plugin instead, and OpenCode's plugin API has no way to ask: it can only intercept a tool call, so the reminder arrives as a note attached to the skill's own output and the skill still runs. It targets OpenCode 2's plugin API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
 
-```
-ln -s ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
-      ~/.config/opencode/plugins/workflow-dev.ts
-```
+## Tool names per harness
 
-OpenCode's plugin API has no way to ask — it can only intercept a tool call — so there the reminder arrives as a note attached to the skill's own output and the skill still runs. It targets OpenCode 2's plugin API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads.
+The skills name the **capability** — "run a command", "ask the human", "read a file" — and let your environment supply the name. The same capability is a different tool in each harness (`shell` on OpenCode, `Bash` on Claude Code; `question` / `AskUserQuestion`; `subagent` / `Agent` or `Task`), and the set varies per session too, so no hardcoded name stays right for long. The per-harness mapping is in [`references/harness-tools.md`](./references/harness-tools.md).
+
+The same applies to how you invoke a skill: `/workflow-dev:init` on Claude Code is `workflow-dev-init` on OpenCode.
 
 ## Model tiering
 
@@ -79,10 +78,29 @@ to `~/.workflow-dev/tiering.json`.
 
 ## Installation
 
+**Claude Code:**
+
 ```
 /plugin marketplace add lbecjx/claude-plugins
 /plugin install workflow-dev@lbecjx
 ```
+
+**OpenCode** has no marketplace step: the skills and the plugin are installed separately, by hand. Clone the plugin, link each skill into OpenCode's skills directory, and link the plugin entry point (OpenCode auto-loads plugins from `~/.config/opencode/plugins/`, and this checkout sits one level below it):
+
+```
+git clone https://github.com/lbecjx/workflow-dev \
+  ~/.config/opencode/plugins/lbecjx/workflow-dev
+
+for s in ~/.config/opencode/plugins/lbecjx/workflow-dev/skills/*/; do
+  ln -s "../plugins/lbecjx/workflow-dev/skills/$(basename "$s")" \
+        "$HOME/.config/opencode/skills/workflow-dev-$(basename "$s")"
+done
+
+ln -s ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
+      ~/.config/opencode/plugins/workflow-dev.ts
+```
+
+After a change to the plugin — not to the skills — run `opencode service restart`. The background service caches each plugin's load result, so a plugin that fails to load once keeps failing (logged only as a warning) until the service restarts.
 
 ## Recommended alongside this plugin
 
