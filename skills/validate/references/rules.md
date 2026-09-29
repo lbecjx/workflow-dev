@@ -211,9 +211,11 @@ change with nothing much to break. There are three levels, not two — **`Skip`*
 > **The depth is a *confidence* choice, not a cost one.** `no-repro` and
 > `complete` differ in **whether the agent executes** (runs, clones, reproduces)
 > — not in weight, and, on real diffs, not much in time or tokens either. Pick
-> `no-repro` when you don't need a timing/concurrency claim *reproduced*; pick
-> `complete` when you do (only it can raise such a claim to CONFIRMED). Don't
-> pick `no-repro` expecting to save time — the bound below is what saves it.
+> `no-repro` when you don't need a runtime claim *reproduced* — a
+> timing/concurrency one, or any other whose truth depends on how something
+> behaves when it runs; pick `complete` when you do (only it can raise such a
+> claim to CONFIRMED). Don't pick `no-repro` expecting to save time — the bound
+> below is what saves it.
 
 - **SKIP** — nothing spawned. For diffs with nothing worth adversarially
   testing: docs/comments only, a pure rename or config-value change with no
@@ -227,8 +229,10 @@ change with nothing much to break. There are three levels, not two — **`Skip`*
   expensive part (live, empirical testing) in place, so no-repro restricts depth
   on *both* agents instead. A finding that both agents can trace all the way
   through on paper still reaches CONFIRMED and still blocks (see Verdict);
-  only a claim that genuinely needs live execution to settle — real
-  concurrency timing, mostly — comes back NEEDS TESTING instead, a WARN. Right
+  only a claim whose truth depends on how something behaves **when it runs** —
+  real concurrency timing, what a command does with a given argument, how a
+  binary resolves a name — comes back NEEDS TESTING instead, a WARN (§11.2).
+  Right
   for a diff with real new logic worth a fresh pair of eyes, but not touching
   the highest-risk categories below — a new pure function with some edge
   cases, a UI component with real conditional logic *that isn't auth-related*
@@ -444,6 +448,15 @@ Three outcomes per finding:
   code, the case is already handled elsewhere, or the behavior matches what
   the ACs actually require.
 
+**A claim about how something behaves *when it runs* is never CONFIRMED at
+`no-repro`.** `no-repro` reads; it does not run. So when a claim's truth depends
+on execution — what a command does when given a particular argument, how a
+binary or library resolves a name, what an operating system returns — reading
+can only ever produce a hypothesis, however confident the trace looks. The
+correct outcome there is **NEEDS TESTING**. Marking such a claim CONFIRMED hands
+an opinion the authority of a verified fact, which is the one failure this pass
+exists to prevent.
+
 Only CONFIRMED and NEEDS TESTING findings are reported upward. A finding that
 stays REJECTED never reaches the human — this is what keeps the dimension
 high-signal instead of a pile of speculative maybes.
@@ -557,11 +570,11 @@ was fixed — worse than saying nothing.
 
 ### 12.4 Length & Conciseness
 
-A long commit message or PR description is usually long because it's
-narrating the process (what was tried, what went wrong, why a decision was
-made) instead of stating the outcome — and process narration is exactly
-what 12.1–12.3 already flag for other reasons. Length is a useful signal
-on its own even when nothing else trips: it means the draft needs
+A long commit message, PR description, or changelog entry is usually long
+because it's narrating the process (what was tried, what went wrong, why a
+decision was made) instead of stating the outcome — and process narration is
+exactly what 12.1–12.3 already flag for other reasons. Length is a useful
+signal on its own even when nothing else trips: it means the draft needs
 summarizing, not just softening in tone.
 
 - [ ] Commit message: a one-line summary, optionally followed by **at most
@@ -572,6 +585,11 @@ summarizing, not just softening in tone.
 - [ ] PR description: **at most a couple of short paragraphs** (a brief
       summary plus, if genuinely useful, a short bulleted list) — not a
       full narrative of the work session, not one bullet per commit
+- [ ] Changelog entry: the version heading plus a **short bulleted list** —
+      one bullet per change, one to two lines each, each stating a net
+      effect. Not a paragraph per change, and not a transcription of the
+      implementation; a bullet that needs three sentences is a summary that
+      hasn't been written yet
 - [ ] If the underlying change needs more explanation than that to be
       understood, that explanation belongs in code comments, the PR's
       inline diff comments, or linked documentation — not in the message
