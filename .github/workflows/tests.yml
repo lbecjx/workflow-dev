@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scripts:
+    # macOS, deliberately. The test suite and the guard target BSD tools the
+    # repo's own conventions assume (`shasum`, `date -r`, `%-I`), and every run
+    # so far has happened on macOS; a Linux job would exercise a portability
+    # claim REPO.md makes for the *hooks* that the suite has never actually been
+    # run against. A workflow that is red on every push for unrelated reasons
+    # teaches people to ignore it, so Linux waits until that is verified rather
+    # than being assumed.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the plugin's test scripts
+        run: |
+          fail=0
+          for t in scripts/*.test.sh; do
+            printf '\n=== %s\n' "$t"
+            bash "$t" || fail=1
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "one or more test scripts failed"
+            exit 1
+          fi
