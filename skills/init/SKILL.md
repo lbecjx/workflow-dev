@@ -98,8 +98,10 @@ The argument is load-bearing — with no payload the script reads stdin, identif
 no skill, and answers `not-ours`, making this step a silent no-op. Then:
 
 - `ok` → continue silently.
-- `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline (main
-  agent, interactive — never a sub-agent), then continue where you left off.
+- `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline
+  (Claude Code `/workflow-dev:setup-models`, OpenCode
+  `workflow-dev-setup-models`) — main agent, interactive, never a sub-agent —
+  then continue where you left off.
 - `opted-out` → skip silently.
 - `no-harness` / `no-registry` → say that tiering couldn't be set up and that
   everything runs on the default model, then proceed.

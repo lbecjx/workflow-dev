@@ -154,8 +154,9 @@ That one word is the whole decision surface:
 | `not-ours` | the payload named no skill of ours (the no-argument bug above) | not a state to handle — fix the call |
 
 Model enumeration failing *inside* the inline run (`list-models.sh` exiting 1 or
-2) degrades the same way as `no-harness`: report it, run on the default,
-continue.
+2) is that run's own problem to resolve — its "No model source" path decides
+what happens, a hand-typed model or the opt-out — and init carries on either
+way. This step does not shortcut it to a silent default.
 
 Three things this step must not break:
 
@@ -173,7 +174,7 @@ Three things this step must not break:
   trap, so it stays reachable from here — never suppressed on the grounds that
   init is already running.
 
-Two properties of the inline run, both load-bearing:
+Three properties of the inline run, all load-bearing:
 
 - **It stays on the main agent, and it is interactive.** Its provider → model
   pick has to put a question to the human, and a sub-agent cannot ask one. Do
@@ -183,6 +184,12 @@ Two properties of the inline run, both load-bearing:
   chose. After it finishes, the reminder goes quiet by itself — the hook is
   silent once the role files are current, so nothing further needs announcing
   and a second `init` run is a no-op.
+- **What it does *not* promise is that the rest of *this* session runs tiered.**
+  On Claude Code, an agents directory created for the first time is only picked
+  up after a restart (see `../setup-models/SKILL.md`), and a first-time
+  `unmapped` is exactly that case. So say so when it applies, rather than
+  letting the binding read as though this session's research already benefits
+  from it. The binding is real from the next session on either harness.
 
 ### Step 7: Repo-level context (REPO.md)
 
@@ -289,9 +296,14 @@ Be specific. 5–8 prohibitions per category, no more."
 
 1. Launch the three subagents in parallel, each under the **`wd-judge`** role
    (`../setup-models/references/roles.md`) — name the role as the sub-agent's
-   type, never a model. If the harness cannot select a model per sub-agent
-   (roles ungenerated or stale, and no opt-out), run them on the default and
-   say so; don't pretend.
+   type, never a model. Whether the roles are *bound* is Step 6's verdict, made
+   once and already answered; don't re-derive it here. What remains this step's
+   own question is whether the harness can select a model per sub-agent at all —
+   `ok` proves the role files exist and are current, not that they will be
+   honoured. If it cannot, **or** the role it would name is not bound (Step 6's
+   verdict is where that was settled — `unmapped`, `stale`, `no-registry` and
+   `opted-out` all land there), run them on the default and say so; don't
+   pretend.
 2. Collect results.
 3. Compile them into REPO.md sections.
 4. Present each section to the human **separately**, in order:

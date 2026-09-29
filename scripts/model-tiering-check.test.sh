@@ -159,10 +159,12 @@ OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "
   || no "no payload, no stdin → not-ours (got: $OUT)"
 
 # --- 14: init's own call resolves to a real verdict -------------------------
-# The other half of 13: with the payload passed as an argument — how `init`
-# calls it — the check names `init` and answers about *our* state instead of
-# disowning it. Rebuilt from a clean slate so this asserts a known word rather
-# than merely "something other than not-ours".
+# The other half of 13, and specifically the *argument* path: the payload is
+# passed as an argument while stdin is /dev/null, so a run that fell through to
+# `INPUT="$(cat)"` would read nothing and answer `not-ours`. That is how `init`
+# calls it, and it is the reason 13's trap is real — the same command without
+# the argument is a silent no-op. Rebuilt from a clean slate so this asserts a
+# known word rather than merely "something other than not-ours".
 rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
 while IFS= read -r role; do
   [[ -n "$role" ]] || continue
@@ -170,9 +172,9 @@ while IFS= read -r role; do
     "$role" "$HASH" > "$HOME_DIR/.claude/agents/$role.md"
 done < <(grep '^### ' "$ROLES" | sed -E 's/^### `([^`]+)`.*/\1/')
 
-OUT="$(hook --status "$INIT")"
-[[ "$OUT" == "ok" ]] && ok "init payload, bound and current → ok" \
-  || no "init payload, bound and current → ok (got: $OUT)"
+OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$INIT" < /dev/null)"
+[[ "$OUT" == "ok" ]] && ok "init payload as an argument, bound and current → ok" \
+  || no "init payload as an argument, bound and current → ok (got: $OUT)"
 
 # --- 15: bound and current → init is never asked (AC #8) --------------------
 # The reminder must go quiet for `init` itself once the bindings are current,
@@ -184,8 +186,10 @@ OUT="$(hook "" "$INIT")"
 
 # --- 16: re-running the check changes nothing (AC #7) -----------------------
 # The check reports; it must never write. Comparing the generated agent files
-# before and after pins that a second run neither rewrites nor rebinds them —
-# the script-level half of the flow's "bound and current → a no-op" promise.
+# before and after catches a second run that rewrites or deletes them with
+# different content. It is deliberately narrow: a same-bytes rewrite, and any
+# write outside this one directory, would both pass — so this is one no-op
+# check, not the whole of the flow's "bound and current → a no-op" promise.
 BEFORE="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"
 OUT="$(hook --status "$INIT")"
 AFTER="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"

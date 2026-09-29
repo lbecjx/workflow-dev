@@ -25,9 +25,10 @@ All notable changes to this plugin are documented here. Format loosely follows
 - `init`'s steps are renumbered (repo-level is now Step 7, research Step 8);
   `README.md` documents the self-heal, and `references/harness-tools.md` the
   per-harness id a skill uses when it invokes another.
-- `model-tiering-check.test.sh` pins init's call shape, including the no-payload
-  case that reports `not-ours`, and a new eval guards that `init` reaches its
-  research step without prompting.
+- `model-tiering-check.test.sh` pins init's call shape — the payload as an
+  argument, and the no-payload case that reports `not-ours` — and a new eval
+  guards that `init` runs the check and reaches its story-context step without
+  prompting.
 
 ## 1.16.0
 

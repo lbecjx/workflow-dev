@@ -55,8 +55,10 @@ skill* names the capability, and the skill being named has an
 environment-specific **id**: `/workflow-dev:<name>` on Claude Code,
 `workflow-dev-<name>` on OpenCode. The plugin relies on this — `implement` and
 `validate` hand off to `summarize-changes`, and `init` runs `setup-models`
-inline on the missing-or-stale path — so both ids belong in the wording wherever
-a skill hands off.
+inline on the missing-or-stale path — so a handoff written now carries **both**
+ids rather than assuming one harness's form. Handoffs that name only the Claude
+Code form predate this rule and are not corrected here; the omission is a
+wording gap, not a break.
 
 It is a textual instruction to the agent, not a platform guarantee: nothing
 forces skill B to run because skill A's documentation says so. Where a behavior
