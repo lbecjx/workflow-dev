@@ -23,6 +23,7 @@ Context survives compaction and new sessions. Mechanical state (plan progress, f
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
+| `/workflow-dev:setup-models` | Binds each agent role to a model the harness offers, so mechanical sub-agent work runs on a fast model and judgment work on a strong one (one-time setup) |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
 ## Hooks

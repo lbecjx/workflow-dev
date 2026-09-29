@@ -37,16 +37,19 @@ assert_contains() { # $1 expected substring, $2 haystack, $3 label
 
 # --- 1: OpenCode — provider/model split on the first slash, order kept ------
 FIX="$TMP/models.txt"
+# Fixture ids are deliberately synthetic: the plugin names no model anywhere by
+# design, and a realistic sample would read as one. What matters here is the
+# shape — vendor/model, with a nested slash in the middle entry.
 cat > "$FIX" <<'LINES'
-deepseek/deepseek-flash
-openrouter/~anthropic/claude-haiku-latest
-opencode/ling-3.0-flash-fin-free
+alpha/alpha-one
+nested-vendor/sub/id-three
+beta/beta-two
 LINES
 OUT="$(env WD_OPENCODE_MODELS_CMD="cat $FIX" bash "$SCRIPT" --harness opencode 2>/dev/null)"
-assert_contains "deepseek	deepseek-flash" "$OUT" "plain provider/model splits on the slash"
-assert_contains "openrouter	~anthropic/claude-haiku-latest" "$OUT" "nested id splits on the FIRST slash only"
+assert_contains "alpha	alpha-one" "$OUT" "plain provider/model splits on the slash"
+assert_contains "nested-vendor	sub/id-three" "$OUT" "nested id splits on the FIRST slash only"
 FIRST_LINE="$(printf '%s\n' "$OUT" | head -1)"
-[[ "$FIRST_LINE" == "deepseek	deepseek-flash" ]] && ok "input order preserved" \
+[[ "$FIRST_LINE" == "alpha	alpha-one" ]] && ok "input order preserved" \
   || no "input order preserved (got: $FIRST_LINE)"
 
 # --- 2: a line without a slash is skipped, not emitted as provider-only -----
@@ -86,10 +89,10 @@ rc=$?
 
 # --- 5c: Claude Code via a gateway → ids parsed, provider claude-code ------
 FIXC="$TMP/claude-models.json"
-printf '{"data":[{"type":"model","id":"claude-sonnet-5-5"},{"type":"model","id":"claude-haiku-5"}]}' > "$FIXC"
+printf '{"data":[{"type":"model","id":"model-alpha"},{"type":"model","id":"model-beta"}]}' > "$FIXC"
 OUTC="$(env WD_CLAUDE_MODELS_CMD="cat $FIXC" bash "$SCRIPT" --harness claude 2>/dev/null)"
-assert_contains "claude-code	claude-sonnet-5-5" "$OUTC" "gateway id parsed"
-assert_contains "claude-code	claude-haiku-5" "$OUTC" "second gateway id parsed"
+assert_contains "claude-code	model-alpha" "$OUTC" "gateway id parsed"
+assert_contains "claude-code	model-beta" "$OUTC" "second gateway id parsed"
 
 # --- 5d: a gateway response with no ids → exit 2, not an empty list ---------
 printf '{"data":[]}' > "$TMP/claude-empty.json"
@@ -115,7 +118,20 @@ rc=$?
 
 # --- 7: --harness opencode wins even when Claude env is also present --------
 OUT7="$(env CLAUDECODE=1 WD_OPENCODE_MODELS_CMD="cat $FIX" bash "$SCRIPT" --harness opencode 2>/dev/null)"
-assert_contains "deepseek	deepseek-flash" "$OUT7" "--harness overrides ambient detection"
+assert_contains "alpha	alpha-one" "$OUT7" "--harness overrides ambient detection"
+
+# --- 8: --print-harness reports just the detected harness ------------------
+PH="$(env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT OPENCODE_TERMINAL=1 bash "$SCRIPT" --print-harness 2>/dev/null)"
+[[ "$PH" == "opencode" ]] && ok "--print-harness → opencode" || no "--print-harness → opencode (got: $PH)"
+
+PH2="$(env -u OPENCODE -u OPENCODE_TERMINAL CLAUDECODE=1 bash "$SCRIPT" --print-harness 2>/dev/null)"
+[[ "$PH2" == "claude" ]] && ok "--print-harness → claude" || no "--print-harness → claude (got: $PH2)"
+
+env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
+  bash "$SCRIPT" --print-harness >/dev/null 2>"$TMP/errH"
+rc=$?
+[[ $rc -eq 1 ]] && assert_contains "no harness detected" "$(cat "$TMP/errH")" "--print-harness with no signal → exit 1" \
+              || no "--print-harness with no signal → exit 1"
 
 echo
 echo "$pass passed, $fail failed"

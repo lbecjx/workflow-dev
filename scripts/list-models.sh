@@ -15,8 +15,8 @@
 #
 # Output: one model per line, tab-separated `provider<TAB>model`. The split is
 # on the *first* slash only, so a nested id keeps its remainder intact —
-# `openrouter/~anthropic/claude-haiku-latest` is provider `openrouter`, model
-# `~anthropic/claude-haiku-latest`. A line with no slash isn't a
+# `nested-vendor/sub/id-three` is provider `nested-vendor`, model `sub/id-three`.
+# A line with no slash isn't a
 # `provider/model` id and is skipped. Input order is preserved (the CLI's own
 # ordering), not re-sorted here.
 #
@@ -29,13 +29,20 @@
 # `opencode models`); WD_CLAUDE_MODELS_CMD replaces the Claude Code fetch.
 # Both mirror OPENCODE_DB in save-read-unsaved.sh. --harness forces a harness,
 # so a test doesn't depend on the ambient environment.
+#
+# --print-harness prints just the detected harness name and exits, so a caller
+# that needs to know *which* harness it is on (setup-models decides where to
+# write its agent file) asks here instead of re-deriving the signals — one
+# definition of "how we detect the harness", not two that can drift.
 
 set -u
 
+PRINT_HARNESS=0
 HARNESS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --harness) HARNESS="${2:-}"; shift 2 ;;
+    --print-harness) PRINT_HARNESS=1; shift ;;
     *) shift ;;
   esac
 done
@@ -49,6 +56,15 @@ detect_harness() {
 }
 
 [[ -n "$HARNESS" ]] || HARNESS="$(detect_harness)"
+
+if [[ $PRINT_HARNESS -eq 1 ]]; then
+  if [[ -z "$HARNESS" ]]; then
+    echo "cannot enumerate: no harness detected (neither OpenCode nor Claude Code signals are set)" >&2
+    exit 1
+  fi
+  echo "$HARNESS"
+  exit 0
+fi
 
 # Split `provider/model` on the first slash; drop anything without one.
 normalize() {
