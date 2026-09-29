@@ -103,7 +103,7 @@ Once the plan is approved — before writing anything, and before
 the whole story:
 
 ```
-AskUserQuestion:
+Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
   question: "Before starting: the full validation (multiple sub-agents, plus
     Adversarial Correctness) will run at some point. Should it run once at the
     end of the story, or after every task group?"
@@ -155,7 +155,7 @@ Immediately after the validation-mode answer (same sitting, same tool), ask
 once more for the whole story:
 
 ```
-AskUserQuestion:
+Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
   question: "Should /workflow-dev:validate run a manual QA pass (a real
     browser / device against the running app) before commit for this story?"
   header: "Manual QA"

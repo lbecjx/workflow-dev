@@ -37,7 +37,10 @@ Look for `.workflow-dev/context/` in the current project and list its `.md` file
 
 ### Step 2: Ask which story to resume
 
-Use `AskUserQuestion` to present the candidates:
+Use the ask-question tool to present the candidates — OpenCode's `question`,
+Claude Code's `AskUserQuestion`, or whatever the environment calls it
+(`references/harness-tools.md` at the plugin root — not this skill's own
+`references/`):
 - **Label:** the story ID (e.g. `PROJ-12710`). The most recently updated one gets a "(Recommended)" suffix.
 - **Description:** the story title (its H1 header) plus its progress percentage.
 - No preview needed.
@@ -53,7 +56,9 @@ Options:
 
 ### Step 3: Read the context files
 
-**Always** use the Read tool explicitly on both files, even if they seem to already be in context (e.g. via a system reminder or an earlier read). The reads need to be visible in the execution trace so the human can confirm the context was actually internalized.
+**Always** use the file-reading tool explicitly on both files — OpenCode's `read`,
+Claude Code's `Read`, whatever the environment calls it — even if they seem to
+already be in context (e.g. via a system reminder or an earlier read). The reads need to be visible in the execution trace so the human can confirm the context was actually internalized.
 
 1. Read **REPO.md** — internalize repo knowledge: stack, conventions, prohibitions, good practices.
 2. Read the **selected story file** — internalize its state: ACs, decisions, discoveries, progress, next step.
@@ -113,4 +118,4 @@ Suggest: "It's been [X days] since the last save. Want to run `/workflow-dev:ref
 - Fast — this is seconds, not minutes: read the files, run a quick git check, done.
 - Silent internalization — don't dump the whole context back at the human. They wrote it; just show status.
 - No re-asking — the context files already have the answer. Never ask "where were we?"
-- Reach for `AskUserQuestion` only when there's an actual choice (multiple stories); skip it when there's just one.
+- Reach for the ask-question tool (OpenCode `question`, Claude Code `AskUserQuestion`) only when there's an actual choice (multiple stories); skip it when there's just one.

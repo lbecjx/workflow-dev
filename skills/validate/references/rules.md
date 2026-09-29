@@ -595,7 +595,7 @@ disclosure and the tone are being flagged, not documentation in general.
 Once a rewritten message/description passes, mark it reviewed so the
 commit-time hook recognizes it and doesn't ask again:
 
-```bash
+```sh
 # Claude Code sets CLAUDE_PLUGIN_ROOT; OpenCode doesn't — derive the plugin root
 # from this skill's own directory instead.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"

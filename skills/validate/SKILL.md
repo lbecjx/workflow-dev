@@ -340,7 +340,7 @@ a QA finding is a new, separate signal for the human).
    Claude Code `AskUserQuestion`):
 
    ```
-   AskUserQuestion:
+   Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
      question: "Validation passed. Draft the commit message / PR now?"
      header: "Next step"
      options:

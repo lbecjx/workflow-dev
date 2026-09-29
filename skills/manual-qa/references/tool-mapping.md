@@ -70,3 +70,9 @@ navigate is `playwright.browser_navigate` in OpenCode and
 `mcp__playwright__browser_navigate` in Claude Code. Hardcoding either breaks the
 other. Name the **operation**, then use whichever tool the catalog actually
 offers.
+
+This file covers browser and device tooling. The same rule for the non-browser
+capabilities — running a command, reading or editing a file, searching, spawning
+a sub-agent, asking the human, loading a skill — is mapped once, with the names
+as examples rather than as the name, in `references/harness-tools.md` at the
+plugin root (not this skill's own `references/`).
