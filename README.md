@@ -37,7 +37,20 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`PreToolUse`** (before `git commit` / `gh pr create` / `gh pr edit`) — asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
 
-On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminder there is delivered by a plugin instead, and OpenCode's plugin API has no way to ask: it can only intercept a tool call, so the reminder arrives as a note attached to the skill's own output and the skill still runs. It targets OpenCode 2's plugin API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
+On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminders themselves are delivered by `opencode/plugin.ts` instead, which asks the **same** `scripts/*.sh` each hook calls, so there is one copy of a reminder's wording and of its "is this warranted?" test rather than two that can drift apart. The plugin targets OpenCode 2's API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
+
+What each harness actually gets, reminder by reminder:
+
+| Reminder | Claude Code | OpenCode |
+|---|---|---|
+| Suggest the next skill at session start | injected as context | the same suggestion, injected once per session |
+| Pending-save after a compaction | armed by `PreCompact`, then injected | armed from the subscribed compaction events — **unverified**: those events register but were never observed firing on 2.0.19 |
+| "Did `/workflow-dev:validate` pass?" | asks **before** the commit | a notice **after** the command ran |
+| Git History Disclosure review | asks **before** the commit | a notice **after** the command ran |
+| AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
+| Model tiering | asks while the roles are unbound | a notice naming the fix; it cannot ask |
+
+OpenCode's plugin API has no way to **raise** a question to the human, so where Claude Code asks, OpenCode notifies. That is a harness limit, not parity. It also means a pre-commit reminder cannot arrive *before* the commit on OpenCode: stopping the command is the only earlier moment, and blocking there would fake a question the human never saw — so what you get is a warning, after the fact.
 
 ## Tool names per harness
 
