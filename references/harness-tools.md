@@ -28,8 +28,8 @@ shell, and Claude Code's `Bash` in lowercase — and got:
 No tool named "bash" is currently available. Please use a tool from the available tool list.
 ```
 
-The same class covers `AskUserQuestion`, `Agent` and `Task`: real names in one
-harness, absent in the other.
+`AskUserQuestion`, `Agent` and `Task` are the same class: real tool names in
+Claude Code or OpenCode, absent in the other.
 
 ## Capability → names seen in the wild
 

@@ -88,6 +88,8 @@ to `~/.workflow-dev/tiering.json`.
 **OpenCode** has no marketplace step: the skills and the plugin are installed separately, by hand. Clone the plugin, link each skill into OpenCode's skills directory, and link the plugin entry point (OpenCode auto-loads plugins from `~/.config/opencode/plugins/`, and this checkout sits one level below it):
 
 ```
+mkdir -p ~/.config/opencode/plugins/lbecjx ~/.config/opencode/skills
+
 git clone https://github.com/lbecjx/workflow-dev \
   ~/.config/opencode/plugins/lbecjx/workflow-dev
 

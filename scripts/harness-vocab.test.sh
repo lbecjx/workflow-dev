@@ -26,8 +26,7 @@
 # That exclusion list is also the honest statement of what no wording guard can
 # protect: correct Claude-Code vocabulary in a file an agent reads is not a leak,
 # so the vector that actually fired is outside this guard by its nature — not by
-# oversight. Closing that vector needs a mechanism, not wording (see WD-0016 and
-# the prevention story it points at).
+# oversight. Closing that vector needs a mechanism, not wording.
 #
 # --- Scope: what is scanned, what is not, and why ------------------------------
 #
@@ -45,6 +44,20 @@
 #   local-backlog/  it is exactly where the measured vector lives (above).
 #   .git/, node_modules/   never shipped.
 #
+# **The exclusion list defines the scan, including its emptiness check.** The same
+# `EXCLUDES` array feeds both the file list and the check that the list is not
+# empty, so a tree whose only Markdown is excluded (say, a lone `CHANGELOG.md`)
+# fails as empty rather than passing as clean. Keeping those two in step is the
+# point: an earlier version counted every `*.md` for emptiness but skipped some
+# for matching, so an excluded-only tree reported a green `0 occurrence(s)`.
+#
+# **A scan that cannot read the tree fails; it does not report clean.** `grep`
+# exits 0 for a match, 1 for no match, and 2 for an error (an unreadable
+# subdirectory, an I/O error). Folding 2 into 1 — which `2>/dev/null` alone does —
+# turns this guard green in exactly the situation where it is blind. Both greps
+# are therefore status-checked: the recursive listing that builds the file list,
+# and the per-file scan that finds the hits. Either one erroring fails loudly.
+#
 # Two tokens only, deliberately. The story also lists `Read`, `Write`, `Edit`,
 # `Glob`, `Grep`, `Agent` and `Task` as names not to present as universal, and
 # this script does not check them: every one is ordinary English in these files
@@ -56,11 +69,13 @@
 #
 # Exits non-zero if any occurrence stands alone. It also self-checks the things a
 # guard of this shape gets wrong if nothing tests them: that a bare name fails
-# *and says where*, that an unreadable or empty tree fails instead of reading as
-# clean, that a qualified name still passes (so it can't be a blanket reject), and
-# that an allowlisted path is genuinely skipped (so the exclusion can't silently
-# widen). HARNESS_VOCAB_ROOT overrides the tree under test — used by those
-# self-checks, never for a normal run.
+# *and says where*, that a tree the scan cannot read fails instead of reading as
+# clean, that an empty or excluded-only tree fails, that a qualified name still
+# passes (so it can't be a blanket reject), that a bare name **outside `skills/`**
+# is still caught (the scope this guard claims), that the ±2-line window is the
+# one it says it is, and that an allowlisted path is genuinely skipped (so the
+# exclusion can't silently widen). HARNESS_VOCAB_ROOT overrides the tree under
+# test — used by those self-checks, never for a normal run.
 
 set -u
 
@@ -85,48 +100,100 @@ fail=0
 ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
-# A tree nobody can read is not a clean tree. `grep` exits 2 for a missing path
-# and 1 for no match, and folding both into "found nothing" would turn this
-# guard green in precisely the situation where it is blind — a renamed
-# directory, a bad ROOT, a permissions change.
+# A name is only "presented as universal" when nothing in its neighbourhood says
+# which environment it belongs to. The window is ±2 lines — room for the clause
+# that qualifies it (the name is usually the second half of the sentence), small
+# enough that a mention further away can't launder it. The markers are what the
+# acceptance criterion actually asks for: a **harness named** (Claude Code,
+# OpenCode) or a **pointer to the shared mapping** (`harness-tools`). Generic
+# words like "environment" used to be accepted here and were dropped: "set up the
+# environment" qualified a bare `Bash` while naming no harness and pointing
+# nowhere, which is a false negative in the one direction this guard must not fail.
+CONTEXT=2
+MARKERS='Claude Code|OpenCode|harness-tools'
+
+# A tree nobody can read is not a clean tree. `[ -r ]` covers only the root
+# itself; the recursive listing below is what catches an unreadable subtree.
 if [ ! -r "$ROOT" ]; then
   no "cannot read the tree under test: $ROOT"
   printf '\n%s passed, %s failed\n' "$pass" "$fail"
   exit 1
 fi
 
-# Nor is an empty tree a clean one. A renamed or misspelled directory that still
-# exists (an empty leftover) is readable and match-free, so the check above lets
-# it through and both tokens report "0 occurrence(s)" as a pass.
-if ! find "$ROOT" -type f -name '*.md' -print -quit | grep -q .; then
-  no "no markdown under the tree under test: $ROOT — a clean tree is not an empty one"
+# The scannable files, from the same exclusions the token check uses — so the
+# emptiness check below can never disagree with the scan about what counts.
+# `-a` keeps a stray NUL byte from turning a file into an unparsable
+# "Binary file … matches" line; grep still reports line numbers either way.
+ERRFILE="$(mktemp)" || ERRFILE=""
+if [ -z "$ERRFILE" ]; then
+  no "cannot create a temp file for the scan's error output"
+  printf '\n%s passed, %s failed\n' "$pass" "$fail"
+  exit 1
+fi
+SCAN_ERR="$ERRFILE.scan"
+trap 'rm -f "$ERRFILE" "$SCAN_ERR"' EXIT
+
+FILES="$(grep -rlF -a -e '' "$ROOT" --include='*.md' "${EXCLUDES[@]}" 2>"$SCAN_ERR")"
+rc=$?
+if [ "$rc" -gt 1 ]; then
+  # 0 = found files, 1 = found none, >1 = grep could not finish. A tree the scan
+  # cannot read must fail here, not read as "found nothing".
+  no "the scan could not read the tree under test (grep exit $rc): $(head -1 "$SCAN_ERR")"
   printf '\n%s passed, %s failed\n' "$pass" "$fail"
   exit 1
 fi
 
-# A name is only "presented as universal" when nothing in its neighbourhood says
-# which environment it belongs to. The window is ±2 lines — room for the clause
-# that qualifies it (the name is usually the second half of the sentence), small
-# enough that a mention further away can't launder it. The four markers are the
-# words these files actually use to name an environment; `harness` and
-# `environment` are in the set because the skills say "whatever the environment
-# calls it" instead of naming a product.
-CONTEXT=2
-MARKERS='Claude Code|OpenCode|harness|environment'
+# Nor is an empty tree a clean one. A renamed or misspelled directory that still
+# exists (an empty leftover) is readable and match-free, and so is a tree whose
+# only Markdown is excluded — both would otherwise report "0 occurrence(s)" as a
+# pass. This uses the same file list the token scan walks, deliberately.
+if [ -z "$FILES" ]; then
+  no "no scannable markdown under the tree under test: $ROOT — a clean tree is not an empty one"
+  printf '\n%s passed, %s failed\n' "$pass" "$fail"
+  exit 1
+fi
 
+# A hit is read per file, from `grep -n`'s `LINE:text` — never from a combined
+# `path:LINE:text`. A checkout path containing a colon (legal on APFS and ext4)
+# would otherwise be split at the wrong colon and leave the line number
+# unparsable; keeping the path out of the parsed string removes the whole class.
+# The numeric guard is the backstop: an unexpected shape fails loudly instead of
+# reaching the arithmetic below as a non-number.
 check_token() {
-  local token="$1" hits=0 orphans=0 hit file line from to
-  while IFS= read -r hit; do
-    [ -n "$hit" ] || continue
-    hits=$((hits + 1))
-    file="${hit%%:*}"; line="${hit#*:}"; line="${line%%:*}"
-    from=$((line > CONTEXT ? line - CONTEXT : 1))
-    to=$((line + CONTEXT))
-    if ! sed -n "${from},${to}p" "$file" | grep -qE "$MARKERS"; then
-      no "$token at $file:$line — no environment named nearby"
+  local token="$1" hits=0 orphans=0 f l out rc line from to
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # The per-file scan's status is checked for the same reason the listing's is:
+    # a file the scan cannot read must fail loudly rather than score as "no
+    # match". This is also what catches a name that arrived split — `$FILES` is
+    # newline-delimited, so a path containing a newline reaches here as fragments
+    # that do not exist, and grep exits 2 instead of reporting a clean zero.
+    out="$(grep -nF -a "$token" "$f" 2>/dev/null)"
+    rc=$?
+    if [ "$rc" -gt 1 ]; then
+      no "$token in $f — the scan could not read it (grep exit $rc)"
       orphans=$((orphans + 1))
+      continue
     fi
-  done < <(grep -rnF "$token" "$ROOT" --include='*.md' "${EXCLUDES[@]}" 2>/dev/null)
+    while IFS= read -r l; do
+      [ -n "$l" ] || continue
+      line="${l%%:*}"
+      case "$line" in
+        ''|*[!0-9]*)
+          no "$token in $f — unparsable grep line: $l"
+          orphans=$((orphans + 1))
+          continue
+          ;;
+      esac
+      hits=$((hits + 1))
+      from=$((line > CONTEXT ? line - CONTEXT : 1))
+      to=$((line + CONTEXT))
+      if ! sed -n "${from},${to}p" "$f" | grep -qE "$MARKERS"; then
+        no "$token at $f:$line — no harness or mapping reference nearby"
+        orphans=$((orphans + 1))
+      fi
+    done <<< "$out"
+  done <<< "$FILES"
   [ "$orphans" -eq 0 ] && ok "$token: $hits occurrence(s), each naming its environment"
 }
 
@@ -139,7 +206,7 @@ if [ -z "${HARNESS_VOCAB_ROOT:-}" ]; then
   if [ -z "$FIXTURE" ]; then
     no "self-check: mktemp -d failed"
   else
-    trap 'rm -rf "$FIXTURE"' EXIT
+    trap 'chmod -R u+rwX "$FIXTURE" 2>/dev/null; rm -f "$ERRFILE" "$SCAN_ERR"; rm -rf "$FIXTURE"' EXIT
 
     # 1. a bare name fails, and the failure has to say which file and line —
     #    an unrelated crash (missing sed, a syntax error) must not score the
@@ -160,15 +227,56 @@ if [ -z "${HARNESS_VOCAB_ROOT:-}" ]; then
     [ "$rc" -ne 0 ] && ok "self-check: a bare name exits non-zero" \
       || no "self-check: a bare name must exit non-zero"
 
-    # 2. a tree that cannot be read is a failure, never a clean pass.
-    if HARNESS_VOCAB_ROOT="$FIXTURE/does-not-exist" bash "$0" >/dev/null 2>&1; then
-      no "self-check: an unreadable tree must fail, not pass"
+    # 2. a name outside `skills/` is caught: the scope this version widened to.
+    #    Without this, narrowing the scan back to `skills/` would still pass
+    #    every other check — the widening would be untested and could regress.
+    mkdir -p "$FIXTURE/wide/skills/demo"
+    printf 'Run it with `Bash` in Claude Code.\n' > "$FIXTURE/wide/skills/demo/SKILL.md"
+    printf 'Spawn it with Bash.\n' > "$FIXTURE/wide/notes.md"
+    if HARNESS_VOCAB_ROOT="$FIXTURE/wide" bash "$0" 2>&1 | grep -q "notes.md:"; then
+      ok "self-check: a bare name outside skills/ is caught"
     else
-      ok "self-check: an unreadable tree fails"
+      no "self-check: a bare name in a scanned non-skills/ path must be caught"
     fi
 
-    # 3. an empty tree is readable and match-free — it must fail too, or a
-    #    renamed directory left behind as an empty directory reads as clean.
+    # 3. a tree the scan cannot read is a failure, never a clean pass — and the
+    #    tree here is *unreadable*, not merely absent (check 5), because
+    #    `2>/dev/null` and a permission problem is what previously reported
+    #    clean. Root can read anything, so this is skipped when running as root.
+    if [ "$(id -u)" -eq 0 ]; then
+      ok "self-check: unreadable-subtree case skipped (running as root)"
+    else
+      mkdir -p "$FIXTURE/denied/skills/secret"
+      printf 'Run it with `Bash` in Claude Code.\n' > "$FIXTURE/denied/skills/ok.md"
+      printf 'Run this with Bash.\n' > "$FIXTURE/denied/skills/secret/SKILL.md"
+      chmod 000 "$FIXTURE/denied/skills/secret"
+      if HARNESS_VOCAB_ROOT="$FIXTURE/denied" bash "$0" >/dev/null 2>&1; then
+        no "self-check: an unreadable subtree must fail, not pass"
+      else
+        ok "self-check: an unreadable subtree fails"
+      fi
+      chmod 700 "$FIXTURE/denied/skills/secret"
+    fi
+
+    # 4. an excluded-only tree is readable and match-free, but it is not clean:
+    #    its one Markdown file is out of scope by design, so the scan has nothing
+    #    to say. It must fail as empty rather than report a green "0 occurrence(s)".
+    mkdir -p "$FIXTURE/excluded"
+    printf 'a plain Bash tool call has no way to learn a thing\n' > "$FIXTURE/excluded/CHANGELOG.md"
+    if HARNESS_VOCAB_ROOT="$FIXTURE/excluded" bash "$0" >/dev/null 2>&1; then
+      no "self-check: an excluded-only tree must fail, not pass"
+    else
+      ok "self-check: an excluded-only tree fails"
+    fi
+
+    # 5. a tree that does not exist at all must fail, distinctly from #3.
+    if HARNESS_VOCAB_ROOT="$FIXTURE/does-not-exist" bash "$0" >/dev/null 2>&1; then
+      no "self-check: a missing tree must fail, not pass"
+    else
+      ok "self-check: a missing tree fails"
+    fi
+
+    # 6. an empty tree: a directory with no Markdown anywhere.
     mkdir -p "$FIXTURE/empty/skills"
     if HARNESS_VOCAB_ROOT="$FIXTURE/empty" bash "$0" >/dev/null 2>&1; then
       no "self-check: an empty tree must fail, not pass"
@@ -176,7 +284,7 @@ if [ -z "${HARNESS_VOCAB_ROOT:-}" ]; then
       ok "self-check: an empty tree fails"
     fi
 
-    # 4. a name qualified by its environment passes — otherwise this guard
+    # 7. a name qualified by its environment passes — otherwise this guard
     #    could be a blanket reject and still look green on the real tree.
     mkdir -p "$FIXTURE/good/skills/demo"
     printf 'Run it with `Bash` in Claude Code, `shell` on OpenCode, or whatever\n' > "$FIXTURE/good/skills/demo/SKILL.md"
@@ -187,7 +295,24 @@ if [ -z "${HARNESS_VOCAB_ROOT:-}" ]; then
       no "self-check: a name qualified by its environment must pass"
     fi
 
-    # 5. an allowlisted path is genuinely skipped. Without this, an exclusion
+    # 8. the window is the ±2 lines the header claims, no wider and no narrower:
+    #    a marker exactly at the edge qualifies, one line beyond it does not.
+    mkdir -p "$FIXTURE/window/edge" "$FIXTURE/window/past"
+    printf '# Claude Code\n\nRun this with Bash.\n' > "$FIXTURE/window/edge/SKILL.md"
+    if HARNESS_VOCAB_ROOT="$FIXTURE/window/edge" bash "$0" >/dev/null 2>&1; then
+      ok "self-check: a marker at the window edge qualifies"
+    else
+      no "self-check: a marker 2 lines above must qualify (±2 is inclusive)"
+    fi
+    mkdir -p "$FIXTURE/window/far"
+    printf '# Claude Code\n\n\n\nRun this with Bash.\n' > "$FIXTURE/window/far/SKILL.md"
+    if HARNESS_VOCAB_ROOT="$FIXTURE/window/far" bash "$0" >/dev/null 2>&1; then
+      no "self-check: a marker beyond the window must not qualify"
+    else
+      ok "self-check: a marker beyond the window does not qualify"
+    fi
+
+    # 9. an allowlisted path is genuinely skipped. Without this, an exclusion
     #    added for a good reason can widen into "the guard no longer looks at
     #    anything outside skills/" and still report green — which is the exact
     #    failure the scope note in the header exists to prevent.
