@@ -14,6 +14,20 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.16.0
+
+- Tool names are written as **capabilities**, each harness's name an example —
+  the mapping lives once in `references/harness-tools.md`.
+- `harness-vocab.test.sh` fails when shipped text names a Claude-Code-only tool
+  without naming its environment.
+- `hooks/hooks.json` is documented as **Claude Code only**, matchers included.
+- `evals/*/prompt.md` note that `allowed_tools` are Claude Code names, with the
+  OpenCode equivalents alongside; the values are unchanged.
+- README documents the **OpenCode install** and the per-harness naming.
+- The gate states that a runtime-behaviour claim can't be CONFIRMED by reading
+  alone, and that a changelog entry follows the length rule of a commit message.
+- CI runs the test scripts on every push and pull request.
+
 ## 1.15.0
 
 - Model tiering is real: the plugin names **roles** — `wd-operator` for the

@@ -290,15 +290,35 @@ On PASS (with or without warnings), write a marker so a later commit attempt can
 REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
 MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate"
 mkdir -p "$MARKER_DIR"
-DIFF_HASH=$(
+CHANGED=$(
   { git diff --name-only HEAD -- . ':!.workflow-dev';
     git ls-files --others --exclude-standard -- . ':!.workflow-dev';
-  } | sort -u | while IFS= read -r f; do
-    [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
-  done | shasum | cut -d' ' -f1
+  } | sort -u
 )
-printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
+if [ -z "$CHANGED" ]; then
+  # Nothing uncommitted to mark. This is the normal end state of the
+  # batched/story-end scope, whose diff is already committed — and hashing the
+  # empty input would write the same constant (da39a3ee…) for every clean tree,
+  # a marker that matches nothing and therefore means nothing. Say so instead.
+  echo "nothing uncommitted to mark — the validated diff is already committed"
+else
+  DIFF_HASH=$(
+    printf '%s\n' "$CHANGED" | while IFS= read -r f; do
+      [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
+    done | shasum | cut -d' ' -f1
+  )
+  printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
+fi
 ```
+
+**A clean tree gets no marker, deliberately.** The marker's job is to let a
+*later* commit recognize the exact changes it is about to make, so with nothing
+uncommitted there is nothing to recognize — and the batched/story-end scope
+validates a diff that is already committed, which is exactly that case. Writing
+one anyway produced the empty-input hash, identical for every clean tree in
+every repo, so it could never match a real commit and never meant anything. The
+absence of a marker is the honest state: the commit-time hook asks, the human
+answers.
 
 `.workflow-dev/` is excluded from the hash on purpose — a later `/workflow-dev:save` writing to the story file must never invalidate a validation that already passed on the actual code changes. Only `diffHash` matters for comparison; `validatedAt` is display-only metadata, never part of what gets hashed. This file is pure ephemeral machine state — it lives outside the repo, is never committed, and is safe to lose (worst case, the next commit attempt just doesn't find a match and asks the human to confirm validation happened).
 
@@ -340,7 +360,7 @@ a QA finding is a new, separate signal for the human).
    Claude Code `AskUserQuestion`):
 
    ```
-   AskUserQuestion:
+   Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
      question: "Validation passed. Draft the commit message / PR now?"
      header: "Next step"
      options:

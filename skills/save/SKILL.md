@@ -56,14 +56,18 @@ Load both so you know what's already recorded — this is what keeps you from du
 
 ### Step 3: Review the conversation since the last save
 
-**Run this before relying on anything else, substituting the real story ID:**
+**Run this before relying on anything else, substituting the real story ID.** Run
+it with whatever your environment calls a shell — `shell` under OpenCode, `Bash`
+under Claude Code, the terminal elsewhere — rather than assuming one name
+(`references/harness-tools.md` at the plugin root — not this skill's own
+`references/`):
 
-```bash
+```sh
 # Resolve the plugin root on either harness — Claude Code sets CLAUDE_PLUGIN_ROOT;
 # OpenCode doesn't, so fall back to this skill's own directory (…/skills/save → …).
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
 
-bash "$PLUGIN_ROOT/scripts/save-read-unsaved.sh" --digest [STORY-ID]
+"$PLUGIN_ROOT"/scripts/save-read-unsaved.sh --digest [STORY-ID]
 ```
 
 The `--digest` flag prints a **readable line per message** (channel + text, with
@@ -138,9 +142,9 @@ Confirmed → update both files with the identified changes and bump the "Last u
 
 Only if Step 3 actually ran `save-read-unsaved.sh` and got a real extract (not "nothing unsaved" or "no prior save point"), immediately after Step 5 writes the story file, run this exact command, substituting the real story ID:
 
-```bash
+```sh
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
-bash "$PLUGIN_ROOT/scripts/save-mark-saved.sh" [STORY-ID]
+"$PLUGIN_ROOT"/scripts/save-mark-saved.sh [STORY-ID]
 ```
 
 This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking content as caught up when it was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the state file yourself: the save point advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.

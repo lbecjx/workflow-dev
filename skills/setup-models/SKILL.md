@@ -51,7 +51,7 @@ nothing here travels with a plugin update. See "Re-running" below.
 
 `"$PLUGIN_ROOT"` is used throughout; resolve it once:
 
-```bash
+```sh
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
 ```
 
@@ -62,7 +62,7 @@ resolving through it.
 
 ### Step 1: Learn the harness, and the models it offers
 
-```bash
+```sh
 HARNESS="$("$PLUGIN_ROOT"/scripts/list-models.sh --print-harness)"
 "$PLUGIN_ROOT"/scripts/list-models.sh
 ```

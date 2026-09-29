@@ -15,11 +15,13 @@
 // published `/docs/plugins` page describes v1; the v2 reference is
 // `/v2/docs/build/plugins`.
 //
-// Claude Code can *ask* (a `permissionDecision`); OpenCode cannot — no
-// permission-decision hook exists — so this posts a notice and lets the skill
-// run, rather than breaking the repo's "never deny" rule to fake an ask. That
-// difference is deliberate, and documented as a harness limit rather than
-// presented as parity.
+// Claude Code can *ask* (a `permissionDecision`); OpenCode's plugin API has no
+// method to *raise* a question to the human, so this posts a notice and lets the
+// skill run rather than breaking the repo's "never deny" rule to fake an ask.
+// OpenCode does expose `ctx.permission.hook`/`reply` (measured on 2.0.19) — a
+// plugin can observe and answer permission requests, so it could deny; what it
+// cannot do is originate the question. The difference is deliberate, and
+// documented as a harness limit rather than as parity.
 //
 // Install by symlink. OpenCode loads direct `.ts`/`.js` files from
 // `~/.config/opencode/plugins/`, but this plugin's own checkout sits one level

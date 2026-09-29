@@ -35,10 +35,23 @@ REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
 MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate"
 mkdir -p "$MARKER_DIR"
 
-DIFF_HASH=$(
+CHANGED=$(
   { git diff --name-only HEAD -- . ':!.workflow-dev';
     git ls-files --others --exclude-standard -- . ':!.workflow-dev';
-  } | sort -u | while IFS= read -r f; do
+  } | sort -u
+)
+
+if [ -z "$CHANGED" ]; then
+  # Nothing uncommitted to defer. Writing a marker anyway would hash the empty
+  # input (da39a3ee…) — the same value for every clean tree — so it could only
+  # ever match a no-change commit, and it would claim "deferred" while deferring
+  # nothing. Same reasoning as validate/SKILL.md Step 6.
+  echo "Nothing uncommitted to defer — no marker written." >&2
+  exit 0
+fi
+
+DIFF_HASH=$(
+  printf '%s\n' "$CHANGED" | while IFS= read -r f; do
     [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
   done | shasum | cut -d' ' -f1
 )
