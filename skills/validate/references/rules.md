@@ -537,16 +537,23 @@ was fixed — worse than saying nothing.
       motive behind it
 - [ ] Does not mention specific people, blame, or internal disagreement
 - [ ] **No AI/agent/LLM attribution or co-authorship of any kind** — no
-      `Co-Authored-By: <any AI tool>`, no "Generated with [tool]", no 🤖,
-      no mention of Claude, Anthropic, GPT, Copilot, Gemini, Codex, or any
-      other agent/model/assistant, and no phrasing like "AI-generated" or
-      "written with the help of AI." This applies regardless of what
-      actually wrote or assisted with the change, and regardless of any
-      default attribution convention a tool or harness would otherwise
-      add — every commit and PR in a `workflow-dev`-managed repo is
-      attributed to the human alone. This is a hard rule, not a judgment
-      call: unlike the rest of 12.3, it doesn't depend on tone or
-      framing — the mere presence of the attribution fails it
+      `Co-Authored-By: <any AI tool>`, no "Generated with/by [tool]", no 🤖,
+      no "AI-generated" / "AI-assisted" / "written with the help of AI", and
+      no phrasing that *credits* an AI, an agent, a model, or an assistant
+      with the change. This applies regardless of what actually wrote or
+      assisted with the change, and regardless of any default attribution
+      convention a tool or harness would otherwise add — every commit and PR
+      in a `workflow-dev`-managed repo is attributed to the human alone. This
+      is a hard rule, not a judgment call: unlike the rest of 12.3, it doesn't
+      depend on tone or framing — the mere presence of the attribution fails it.
+      **What is blocked is attribution, not mention.** Naming the platform,
+      vendor, or model a change is *about* — a commit describing work on
+      "Claude Code", "OpenCode", a provider, or naming an env var like
+      `ANTHROPIC_BASE_URL` — describes the subject, it does not credit the
+      work, and is not a violation. `git-message-mark-reviewed.sh` and
+      `pre-commit-message-check.sh` enforce exactly this line: they match
+      attribution forms (`Co-Authored-By: <tool>`, "Generated with …", 🤖,
+      "AI-assisted", a tool's own site), never a bare platform name.
 
 ### 12.4 Length & Conciseness
 
