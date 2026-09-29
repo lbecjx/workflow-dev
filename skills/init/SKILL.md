@@ -81,11 +81,39 @@ If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.
 4. Check for uncommitted changes and warn if the tree is dirty.
 5. Identify or create the work branch.
 
-### Phase 4: Repo-level context (REPO.md)
+### Phase 4: Detect the agent-role bindings (self-heal before researching)
+
+The first role-dependent work in this flow is the research pass in Phase 5, so
+catch a missing or stale binding here — before it is paid for on the default
+model.
+
+Resolve `$PLUGIN_ROOT` the way `setup-models` does, then ask the one script that
+owns the verdict, passing this skill's name as the payload **argument**:
+
+```
+"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}'
+```
+
+The argument is load-bearing — with no payload the script reads stdin, identifies
+no skill, and answers `not-ours`, making this step a silent no-op. Then:
+
+- `ok` → continue silently.
+- `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline
+  (Claude Code `/workflow-dev:setup-models`, OpenCode
+  `workflow-dev-setup-models`) — main agent, interactive, never a sub-agent —
+  then continue where you left off.
+- `opted-out` → skip silently.
+- `no-harness` / `no-registry` → say that tiering couldn't be set up and that
+  everything runs on the default model, then proceed.
+
+Full branch table, and the rules about never re-deriving the check and never
+restating the setup flow: `references/workflow.md` Step 6.
+
+### Phase 5: Repo-level context (REPO.md)
 
 Check whether `.workflow-dev/context/REPO.md` already exists.
 
-**If it exists:** read it, spot-check that the stack section still matches `package.json` (or equivalent), update anything stale, and skip straight to Phase 5 — a full repo audit isn't needed twice.
+**If it exists:** read it, spot-check that the stack section still matches `package.json` (or equivalent), update anything stale, and skip straight to Phase 6 — a full repo audit isn't needed twice.
 
 **If it doesn't exist,** run a full exploration:
 
@@ -113,7 +141,7 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 8. Key files — table
 9. Integration sections as needed (Airtable, Datadog, etc.)
 
-### Phase 5: Story-level context ([STORY-ID].md)
+### Phase 6: Story-level context ([STORY-ID].md)
 
 1. Create `.workflow-dev/context/[STORY-ID].md` from `references/template.md`.
 2. Fill in story-specific findings.
@@ -126,7 +154,7 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 5. Map exemplar files to the ACs they inform.
 6. Mark anything unresolved with ⬜ and a note on what's missing.
 
-### Phase 6: Ask the human
+### Phase 7: Ask the human
 
 1. Collect every ⬜ across both files.
 2. Turn them into specific questions grounded in what's actually missing — not a generic checklist.

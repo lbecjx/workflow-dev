@@ -48,6 +48,23 @@ Every entry here is an **example**. None of them is the name to hardcode.
 | call an MCP server's tool | `<server>.<tool>` (OpenCode) / `mcp__<server>__<tool>` (Claude Code) |
 | receive a lifecycle event | an OpenCode plugin / Claude Code's `hooks/hooks.json` (see `../hooks/README.md`) |
 
+## Invoking one skill from another
+
+The same rule, one level up. A skill that tells the agent to *invoke another
+skill* names the capability, and the skill being named has an
+environment-specific **id**: `/workflow-dev:<name>` on Claude Code,
+`workflow-dev-<name>` on OpenCode. The plugin relies on this — `implement` and
+`validate` hand off to `summarize-changes`, and `init` runs `setup-models`
+inline on the missing-or-stale path — so a handoff written now carries **both**
+ids rather than assuming one harness's form. Handoffs that name only the Claude
+Code form predate this rule and are not corrected here; the omission is a
+wording gap, not a break.
+
+It is a textual instruction to the agent, not a platform guarantee: nothing
+forces skill B to run because skill A's documentation says so. Where a behavior
+must hold regardless of which skill ran (or whether any did), it belongs in a
+hook, not in a skill telling another skill what to do.
+
 ## The set is not fixed — treat every list as an example
 
 Measured 2026-09-29 on OpenCode 2.0.19: one session advertised `edit` and

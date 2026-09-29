@@ -57,6 +57,7 @@ hook() {
 NOT_OURS='{"tool_name":"Skill","tool_input":{"skill":"someone-else:thing"}}'
 VALIDATE='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:validate"}}'
 SETUP='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:setup-models"}}'
+INIT='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:init"}}'
 
 # --- 1: a skill that isn't this plugin's is left alone ----------------------
 OUT="$(hook "" "$NOT_OURS")"
@@ -147,6 +148,55 @@ OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "
 OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status '{"tool_input":{"name":"workflow-dev-nope"}}')"
 [[ "$OUT" == "not-ours" ]] && ok "hyphenated but unknown skill → not ours" \
   || no "hyphenated but unknown skill → not ours (got: $OUT)"
+
+# --- 13: --status with no payload and no stdin → not-ours -------------------
+# The shape `init` must never use. With nothing to identify, the script answers
+# `not-ours` — which a caller branching on the status word would read as "not
+# ours" and skip, making the whole check a no-op instead of an error. Pinned so
+# the trap the init flow warns about stays real.
+OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status < /dev/null)"
+[[ "$OUT" == "not-ours" ]] && ok "no payload, no stdin → not-ours" \
+  || no "no payload, no stdin → not-ours (got: $OUT)"
+
+# --- 14: init's own call resolves to a real verdict -------------------------
+# The other half of 13, and specifically the *argument* path: the payload is
+# passed as an argument while stdin is /dev/null, so a run that fell through to
+# `INPUT="$(cat)"` would read nothing and answer `not-ours`. That is how `init`
+# calls it, and it is the reason 13's trap is real — the same command without
+# the argument is a silent no-op. Rebuilt from a clean slate so this asserts a
+# known word rather than merely "something other than not-ours".
+rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
+while IFS= read -r role; do
+  [[ -n "$role" ]] || continue
+  printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- workflow-dev:roles-hash %s -->\n' \
+    "$role" "$HASH" > "$HOME_DIR/.claude/agents/$role.md"
+done < <(grep '^### ' "$ROLES" | sed -E 's/^### `([^`]+)`.*/\1/')
+
+OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$INIT" < /dev/null)"
+[[ "$OUT" == "ok" ]] && ok "init payload as an argument, bound and current → ok" \
+  || no "init payload as an argument, bound and current → ok (got: $OUT)"
+
+# --- 15: bound and current → init is never asked (AC #8) --------------------
+# The reminder must go quiet for `init` itself once the bindings are current,
+# not only for the skills the other tests here use — otherwise an init that just
+# healed its own bindings would be nagged for the rest of its run.
+OUT="$(hook "" "$INIT")"
+[[ -z "$OUT" ]] && ok "bound and current → init raises no ask" \
+  || no "bound and current → init raises no ask (got: $OUT)"
+
+# --- 16: re-running the check changes nothing (AC #7) -----------------------
+# The check reports; it must never write. Comparing the generated agent files
+# before and after catches a second run that rewrites or deletes them with
+# different content. It is deliberately narrow: a same-bytes rewrite, and any
+# write outside this one directory, would both pass — so this is one no-op
+# check, not the whole of the flow's "bound and current → a no-op" promise.
+BEFORE="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"
+OUT="$(hook --status "$INIT")"
+AFTER="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"
+[[ "$OUT" == "ok" ]] && ok "second check still reports ok" \
+  || no "second check still reports ok (got: $OUT)"
+[[ "$BEFORE" == "$AFTER" ]] && ok "second check rewrites no agent file" \
+  || no "second check rewrites no agent file"
 
 echo
 echo "$pass passed, $fail failed"
