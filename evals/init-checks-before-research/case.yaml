@@ -1,0 +1,17 @@
+schema_version: "1.1"
+name: init-checks-before-research
+description: >
+  Guard for the tiering detection init gained in WD-0018. With the tiering
+  opt-out set in ~/.workflow-dev/tiering.json, /workflow-dev:init must still run
+  its role-binding check on the way to the research step, and must not interrupt
+  the human to configure tiering. The two halves are asserted separately on
+  purpose: assuming the check because the run stayed quiet would pass a run that
+  never checked at all. The bound-and-current and missing-or-stale branches are
+  covered hermetically by scripts/model-tiering-check.test.sh — reaching them
+  here would mean overwriting the real ~/.claude/agents/<role>.md files a user's
+  models are bound in, and evals run as the user with no HOME isolation. This
+  case leaves the opt-out file in place; run it on a throwaway or CI machine
+  rather than a daily driver.
+tags: [model-tiering, init, regression]
+context:
+  scaffold_script: fixture.sh

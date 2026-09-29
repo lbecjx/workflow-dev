@@ -14,6 +14,21 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.17.0
+
+- `init` checks the agent-role bindings before spawning its research
+  sub-agents, and runs `setup-models` inline in the same session when they are
+  missing or stale.
+- The check is `model-tiering-check.sh --status`'s verdict — one owner for the
+  answer: `ok` and `opted-out` stay silent, and a missing or unreadable harness
+  says so and runs on the default model.
+- `init`'s steps are renumbered (repo-level is now Step 7, research Step 8);
+  `README.md` documents the self-heal, and `references/harness-tools.md` the
+  per-harness id a skill uses when it invokes another.
+- `model-tiering-check.test.sh` pins init's call shape, including the no-payload
+  case that reports `not-ours`, and a new eval guards that `init` reaches its
+  research step without prompting.
+
 ## 1.16.0
 
 - Tool names are written as **capabilities**, each harness's name an example —
