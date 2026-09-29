@@ -14,6 +14,21 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.15.0
+
+- Model tiering is real: the plugin names **roles** — `wd-operator` for the
+  mechanical checklist, `wd-judge` for judgment calls — and a new
+  `/workflow-dev:setup-models` command discovers the models your harness offers
+  and binds each role to one, written into your own agent config. No model name
+  ships in the plugin.
+- A reminder hook asks you to bind the roles (or opt out via
+  `~/.workflow-dev/tiering.json`) until they're mapped: an explicit ask on
+  Claude Code, a notice on OpenCode 2.
+- Skills resolve the plugin root portably, so script-driven steps now work under
+  OpenCode (which doesn't set `CLAUDE_PLUGIN_ROOT`), not just Claude Code.
+- Part 12.3 blocks AI *attribution*, not naming the platform a change is about —
+  a commit saying "Claude Code" or "OpenCode" no longer trips the review.
+
 ## 1.14.0
 
 - Renamed the Adversarial Correctness depths to what they actually are — **Skip**,
