@@ -249,9 +249,14 @@ When Adversarial Correctness isn't SKIP, its row also states the depth it ran at
 and the one-line reason, and reflects that the no-repro/complete choice was surfaced —
 the same decision Step 3's gate required, not a silent pick.
 
+`PLUGIN_ROOT` (used below) is `${CLAUDE_PLUGIN_ROOT}` on Claude Code. OpenCode
+doesn't set that variable, so resolve it from where this skill lives —
+`cd -P "<this skill's directory>/../.." && pwd -P` gives the plugin root either
+way (the `-P` resolves OpenCode's skill symlink; a logical `..` would not).
+
 **Record the run's cost — every run, full or reduced.** You noted the session
 total before spawning (Step 3's gate). After the report, run
-`"${CLAUDE_PLUGIN_ROOT}"/scripts/session-usage.sh` again and report the **delta**
+`"$PLUGIN_ROOT"/scripts/session-usage.sh` again and report the **delta**
 as the run's cost — for a reduced run with no sub-agents, that delta is the
 orchestrator's own cost; say so rather than omitting it. This is what ties a run
 to what it actually cost, and what makes the savings measurable rather than
@@ -298,7 +303,7 @@ printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" 
 `.workflow-dev/` is excluded from the hash on purpose — a later `/workflow-dev:save` writing to the story file must never invalidate a validation that already passed on the actual code changes. Only `diffHash` matters for comparison; `validatedAt` is display-only metadata, never part of what gets hashed. This file is pure ephemeral machine state — it lives outside the repo, is never committed, and is safe to lose (worst case, the next commit attempt just doesn't find a match and asks the human to confirm validation happened).
 
 `status` is written explicitly as `"validated"` here rather than left implicit — `pre-commit-validate-check.sh` also accepts a marker with no `status` field at all as `"validated"` (backward compatible with markers written before this field existed), but a marker this skill writes fresh always states it plainly. The only other value the hook recognizes is `"deferred"`, written by
-`"${CLAUDE_PLUGIN_ROOT}"/scripts/validate-mark-deferred.sh` when `/workflow-dev:implement` defers a task group's validation instead of running it — see that script and `implement/SKILL.md` Step 5 for when that path is taken instead of this one.
+`"$PLUGIN_ROOT"/scripts/validate-mark-deferred.sh` when `/workflow-dev:implement` defers a task group's validation instead of running it — see that script and `implement/SKILL.md` Step 5 for when that path is taken instead of this one.
 
 **Why content, not `git diff`'s text:** the obvious formula — `git diff` plus
 `git status --porcelain` — looked right and even matched between this file

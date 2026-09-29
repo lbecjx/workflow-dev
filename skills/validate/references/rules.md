@@ -596,7 +596,10 @@ Once a rewritten message/description passes, mark it reviewed so the
 commit-time hook recognizes it and doesn't ask again:
 
 ```bash
-printf '%s' "<final message text>" | "$CLAUDE_PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
+# Claude Code sets CLAUDE_PLUGIN_ROOT; OpenCode doesn't — derive the plugin root
+# from this skill's own directory instead.
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+printf '%s' "<final message text>" | "$PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
 ```
 
 The marker is keyed by exact content hash — editing the text by even one

@@ -115,7 +115,7 @@ When all tasks in the group are done:
      `/workflow-dev:validate`. If FAIL → fix issues, re-validate. Once it
      PASSes, continue to point 4.
    - **"Once, at the end"**: defer this task group's validation instead of
-     running it. Call `"${CLAUDE_PLUGIN_ROOT}"/scripts/validate-mark-deferred.sh` — this marks the
+     running it. Call `"$PLUGIN_ROOT"/scripts/validate-mark-deferred.sh` (`PLUGIN_ROOT` is `${CLAUDE_PLUGIN_ROOT}` on Claude Code; OpenCode doesn't set it, so use `cd -P "<this skill's directory>/../.." && pwd -P`) — this marks the
      current diff so the commit-time hook (`pre-commit-validate-check.sh`)
      lets the commit through with a visible note instead of asking. Add
      one line to the completion summary: "Validation: deferred (story

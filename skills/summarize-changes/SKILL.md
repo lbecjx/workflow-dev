@@ -98,7 +98,8 @@ Once each piece passes, mark the exact final text so
 doesn't ask again:
 
 ```bash
-printf '%s' "<final commit message>" | "$CLAUDE_PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+printf '%s' "<final commit message>" | "$PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
 ```
 
 PR title and description are marked **together**, concatenated exactly as
@@ -107,7 +108,7 @@ the actual `gh pr create`/`gh pr edit` command to check the hash, so the
 two must match byte-for-byte:
 
 ```bash
-printf '%s\n\n%s' "<final PR title>" "<final PR description>" | "$CLAUDE_PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
+printf '%s\n\n%s' "<final PR title>" "<final PR description>" | "$PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
 ```
 
 ### Step 5: Hand back
