@@ -122,7 +122,69 @@ No links → skip entirely. Never search Confluence speculatively.
 6. Identify the base branch (`main`, `develop`, `release/x`, …).
 7. Check for an existing branch for this story (`git branch -a | grep [STORY-ID]`).
 
-### Step 6: Repo-level context (REPO.md)
+### Step 6: Detect the agent-role bindings (self-heal before researching)
+
+This flow's first role-dependent work is the research pass that drafts REPO.md's
+Role, Good Practices, and Prohibitions sections (Step 8). Check the bindings
+*here*, before that work gets paid for on the default model — and when they are
+missing or stale, bind them in this session and carry on.
+
+1. Resolve `$PLUGIN_ROOT` the same way `../setup-models/SKILL.md` Step 0 does —
+   `PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"`.
+   Claude Code sets that variable; OpenCode does not, and the `cd -P` is what
+   resolves through its skill symlinks.
+2. Ask the one script that owns the verdict, passing this skill's name as the
+   payload **argument**:
+   `"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}'`.
+   The argument is load-bearing. Called with no payload at all, the script falls
+   through to `INPUT="$(cat)"`, identifies no skill, and answers `not-ours` — so
+   a no-argument call turns this entire step into a silent no-op instead of a
+   check.
+
+That one word is the whole decision surface:
+
+| `--status` says | What it means | What this step does |
+|---|---|---|
+| `ok` | every role file exists and carries the current registry hash | continue silently — no extra output, nothing rewritten |
+| `unmapped` | one or more role files are missing | run the `setup-models` flow inline, then resume here |
+| `stale` | every file exists, but its embedded hash predates the registry | same — the flow regenerates the definitions while keeping the models already chosen |
+| `incomplete` | some role files are missing and others are stale | same |
+| `opted-out` | the human's standing `~/.workflow-dev/tiering.json` says run everything on the default | skip silently — never re-offer what they already declined |
+| `no-harness` / `no-registry` | the harness isn't detectable, or the role registry can't be read | do not block: say tiering couldn't be set up and that everything runs on the default model, then continue |
+| `not-ours` | the payload named no skill of ours (the no-argument bug above) | not a state to handle — fix the call |
+
+Model enumeration failing *inside* the inline run (`list-models.sh` exiting 1 or
+2) degrades the same way as `no-harness`: report it, run on the default,
+continue.
+
+Three things this step must not break:
+
+- **One owner for the verdict.** Detection is delegated to
+  `scripts/model-tiering-check.sh` and never re-derived here. A second
+  "am I bound?" check written in this file would be free to disagree with the
+  hook that asks about the same thing, and then neither answer could be trusted.
+- **One source for the fix.** The `unmapped` / `stale` / `incomplete` branch
+  invokes the `setup-models` skill — naming the *capability*, so the invocation
+  is `/workflow-dev:setup-models` on Claude Code and `workflow-dev-setup-models`
+  on OpenCode — and that run reads `../setup-models/SKILL.md` as its one
+  definition. Never restate its flow in a second wording here.
+- **The way out stays open.** The inline run's own final step offers the opt-out
+  (`~/.workflow-dev/tiering.json`). That offer is what keeps this from being a
+  trap, so it stays reachable from here — never suppressed on the grounds that
+  init is already running.
+
+Two properties of the inline run, both load-bearing:
+
+- **It stays on the main agent, and it is interactive.** Its provider → model
+  pick has to put a question to the human, and a sub-agent cannot ask one. Do
+  not delegate it.
+- **It is idempotent.** On `stale` it rewrites the definitions and keeps the
+  models already bound, so a refresh never silently rebinds a model the human
+  chose. After it finishes, the reminder goes quiet by itself — the hook is
+  silent once the role files are current, so nothing further needs announcing
+  and a second `init` run is a no-op.
+
+### Step 7: Repo-level context (REPO.md)
 
 Check whether `.workflow-dev/context/REPO.md` already exists.
 
@@ -134,51 +196,51 @@ Check whether `.workflow-dev/context/REPO.md` already exists.
 
 **Doesn't exist → full exploration:**
 
-**6.1 Stack** (manifest / build config)
+**7.1 Stack** (manifest / build config)
 - Language and version (tsconfig target, engines, etc.)
 - Framework, version, paradigm
 - Key dependencies
 - Available scripts (dev, test, build, lint)
 
-**6.2 Structure**
+**7.2 Structure**
 - `find . -type f | head -200` or a depth-3 tree
 - Where modules, tests, and shared code live
 
-**6.3 Internal documentation**
+**7.3 Internal documentation**
 - Root README
 - Module/package READMEs
 - `docs/`, if present
 - CONTRIBUTING.md, ARCHITECTURE.md, if present
 
-**6.4 Configuration**
+**7.4 Configuration**
 - tsconfig.json / jsconfig.json
 - .eslintrc or eslint.config
 - Prettier config
 - docker-compose.yml
 - .env.example
 
-**6.5 CI/CD**
+**7.5 CI/CD**
 - `.github/workflows/*.yml` or equivalent
 - What runs: tests, coverage thresholds, lint gates
 
-**6.6 Patterns**
+**7.6 Patterns**
 - Shared types/interfaces
 - Error handling (AppError, HttpException, or equivalents)
 - Shared utils/helpers
 - Middleware patterns
 
-**6.7 Tests**
+**7.7 Tests**
 - One representative existing test
 - Runner, assertion style, mocking approach, fixtures
 
-**6.8 Integrations**
+**7.8 Integrations**
 - External APIs the repo talks to
 - Auth pattern per integration
 - Key modules per integration
 
-Then move to Step 7 to build Role, Good Practices, and Prohibitions for REPO.md.
+Then move to Step 8 to build Role, Good Practices, and Prohibitions for REPO.md.
 
-### Step 7: Build Role + Good Practices + Prohibitions → REPO.md
+### Step 8: Build Role + Good Practices + Prohibitions → REPO.md
 
 **Only runs if REPO.md doesn't exist yet, or is missing these sections.**
 
@@ -262,7 +324,7 @@ Approve as-is, edit (tell me what to change), or rewrite it yourself and I'll sa
 
 This choice is an execution optimization the agent makes on its own — it doesn't change the outcome, so it doesn't need to be asked.
 
-### Step 8: Generate the story context file ([STORY-ID].md)
+### Step 9: Generate the story context file ([STORY-ID].md)
 
 1. Create `.workflow-dev/context/` if it doesn't exist.
 2. Create `.workflow-dev/context/[STORY-ID].md` from the template.
@@ -273,7 +335,7 @@ This choice is an execution optimization the agent makes on its own — it doesn
 
 Whether this whole `.workflow-dev/` tree is tracked or gitignored was already settled in Step 0 — nothing further to decide here.
 
-### Step 9: Questions for the human
+### Step 10: Questions for the human
 
 Review everything marked ⬜ across both files and turn it into specific questions:
 - Not: "anything else I should know?"
@@ -281,7 +343,7 @@ Review everything marked ⬜ across both files and turn it into specific questio
 
 Update the files with the answers.
 
-### Step 10: Confirm
+### Step 11: Confirm
 
 Report back:
 - Files created/updated — REPO.md (new/updated/unchanged) and [STORY-ID].md (new)
