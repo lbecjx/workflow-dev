@@ -3,8 +3,9 @@ type: llm
 focus: last_message
 ---
 
-PASS if the final answer reports "not asked" — i.e. running the skill surfaced
-no ask to configure model tiering, because the opt-out was honored.
+PASS if the final message describes the run going through with no interruption
+— it must NOT describe being asked to configure model tiering, bind agent roles
+to models, or run /workflow-dev:setup-models.
 
-FAIL if it reports "asked", or describes an ask to configure model tiering or
-bind roles to models, or never answers with one of the two required words.
+FAIL if it describes such an ask or interruption (the opt-out was not honored),
+or never reports on whether an interruption happened.

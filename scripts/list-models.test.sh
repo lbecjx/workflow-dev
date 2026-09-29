@@ -109,6 +109,25 @@ rc=$?
 [[ $rc -eq 2 ]] && assert_contains "no automatic model source" "$(cat "$TMP/errN")" "no curl → exit 2 (manual), not a crash" \
               || no "no curl → exit 2 (manual), not a crash"
 
+# --- 5f: the real curl branch (curl present + base URL) parses gateway ids --
+# A fake curl records its args and answers with a known /v1/models body, so the
+# branch that is otherwise unreachable in a hermetic test (real curl against a
+# real gateway) gets exercised: ids parsed, trailing slash stripped, key sent.
+mkdir -p "$TMP/curlbin"
+cat > "$TMP/curlbin/curl" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$@" > "$FAKE_CURL_ARGS"
+printf '%s' '{"data":[{"type":"model","id":"model-gateway"}]}'
+EOF
+chmod +x "$TMP/curlbin/curl"
+ARGS_FILE="$TMP/curlargs.txt"
+OUTCU="$(env PATH="$TMP/curlbin:$PATH" FAKE_CURL_ARGS="$ARGS_FILE" \
+  ANTHROPIC_BASE_URL="http://gw.example/" ANTHROPIC_API_KEY="k-test" \
+  bash "$SCRIPT" --harness claude 2>/dev/null)"
+assert_contains "claude-code	model-gateway" "$OUTCU" "real curl path parses gateway ids"
+assert_contains "http://gw.example/v1/models" "$(cat "$ARGS_FILE")" "base URL trailing slash stripped"
+assert_contains "x-api-key: k-test" "$(cat "$ARGS_FILE")" "API key sent as header"
+
 # --- 6: no harness signal at all → exit 1 ----------------------------------
 env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
   bash "$SCRIPT" >/dev/null 2>"$TMP/err4"

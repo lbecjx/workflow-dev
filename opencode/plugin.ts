@@ -30,9 +30,9 @@
 //         ~/.config/opencode/plugins/workflow-dev.ts
 //
 // Which skills count, whether the roles are bound, and whether the user opted
-// out are all decided by `scripts/model-tiering-check.sh --status` — the same
+// out are all decided by `scripts/model-tiering-check.sh --message` — the same
 // script Claude Code's hooks call, so both harnesses share one definition of
-// "set up" instead of two that can drift.
+// "set up" (and one copy of the reminder text) instead of two that can drift.
 
 import { execFileSync } from "node:child_process"
 import { join } from "node:path"
@@ -43,23 +43,19 @@ import { join } from "node:path"
 const HERE = import.meta.dir ?? import.meta.dirname ?? "."
 const SCRIPT = join(HERE, "..", "scripts", "model-tiering-check.sh")
 
-const NOT_SET_UP =
-  "workflow-dev has no model tiering configured — run /workflow-dev:setup-models to bind each agent role to a model, or opt out in ~/.workflow-dev/tiering.json"
-const STALE =
-  "workflow-dev's agent roles are stale — re-run /workflow-dev:setup-models to refresh them (your chosen models are kept)"
-
-// Ask the shared script; anything unexpected (no script, no harness) means say
-// nothing rather than guess.
+// The reminder text is the check script's, not this file's: the script owns one
+// copy of the "not set up" / "stale" message (the same one Claude Code's hook
+// asks with), and `--message` returns it for the current state. Keeping a
+// second copy here would let the two drift — the exact bug a single source
+// prevents.
 function noticeFor(payload: string): string | undefined {
-  let status = ""
+  let message = ""
   try {
-    status = execFileSync("bash", [SCRIPT, "--status", payload], { encoding: "utf8" }).trim()
+    message = execFileSync("bash", [SCRIPT, "--message", payload], { encoding: "utf8" }).trim()
   } catch {
     return undefined
   }
-  if (status === "stale") return STALE
-  if (status === "unmapped" || status === "incomplete") return NOT_SET_UP
-  return undefined
+  return message || undefined
 }
 
 export default {

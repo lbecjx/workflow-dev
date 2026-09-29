@@ -38,6 +38,14 @@ has() { # $1 substring, $2 haystack, $3 label
     *) no "$3 (missing: $1 — got: $2)" ;;
   esac
 }
+# JSON-validity of the emitted hook output — the one thing `has` can't catch: a
+# malformed payload still contains every substring, but a real JSON consumer
+# (Claude Code's hook runner) drops the whole ask on a parse error. jq when
+# present; the substring checks above still run everywhere.
+json_ok() { # $1 JSON, $2 label
+  command -v jq >/dev/null 2>&1 || return 0
+  printf '%s' "$1" | jq -e . >/dev/null 2>&1 && ok "$2" || no "$2 (invalid JSON: $1)"
+}
 
 # hook MODE input-json -> stdout (Claude Code env, throwaway HOME). OpenCode's
 # own signals are cleared so the test can't inherit the harness it runs under —
@@ -62,11 +70,13 @@ OUT="$(hook "" "$SETUP")"
 OUT="$(hook "" "$VALIDATE")"
 has '"permissionDecision":"ask"' "$OUT" "unbound role → permissionDecision ask"
 has '/workflow-dev:setup-models' "$OUT" "ask names the command that fixes it"
+json_ok "$OUT" "unbound ask is valid JSON"
 
 # --- 4: the typed path gets context, never an ask ---------------------------
 OUT="$(hook --expansion "$VALIDATE")"
 has '"hookEventName":"UserPromptExpansion"' "$OUT" "expansion → UserPromptExpansion output"
 has '"additionalContext"' "$OUT" "expansion → advisory context"
+json_ok "$OUT" "expansion output is valid JSON"
 case "$OUT" in
   *permissionDecision*) no "expansion must not emit a permission decision" ;;
   *) ok "expansion must not emit a permission decision" ;;
@@ -98,8 +108,24 @@ OUT="$(hook --status "$VALIDATE")"
 OUT="$(hook "" "$VALIDATE")"
 has 'stale' "$OUT" "stale ask says the roles are stale"
 has '"permissionDecision":"ask"' "$OUT" "stale ask is still an ask"
+json_ok "$OUT" "stale ask is valid JSON"
 
-# --- 8: the opt-out ends the nagging ---------------------------------------
+# --- 8: one role stale + another missing → incomplete ----------------------
+# Rebuild from a clean slate so this doesn't depend on the prior test's state:
+# the first role is stale (wrong hash), the remaining role(s) have no file.
+rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
+printf -- '---\nname: %s\n---\n<!-- workflow-dev:roles-hash deadbeef -->\n' "$FIRST_ROLE" \
+  > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+OUT="$(hook --status "$VALIDATE")"
+[[ "$OUT" == "incomplete" ]] && ok "--status → incomplete" || no "--status → incomplete (got: $OUT)"
+
+# --- 9: registry unreadable → status no-registry, never a silent "ok" ------
+mv "$ROLES" "$ROLES.bak"
+OUT="$(hook --status "$VALIDATE")"
+mv "$ROLES.bak" "$ROLES"
+[[ "$OUT" == "no-registry" ]] && ok "--status → no-registry" || no "--status → no-registry (got: $OUT)"
+
+# --- 10: the opt-out ends the nagging ---------------------------------------
 mkdir -p "$HOME_DIR/.workflow-dev"
 printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
 OUT="$(hook "" "$VALIDATE")"
@@ -108,11 +134,11 @@ OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "opted-out" ]] && ok "--status → opted-out" || no "--status → opted-out (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
 
-# --- 9: an undetectable harness is left alone ------------------------------
+# --- 11: an undetectable harness is left alone ------------------------------
 OUT="$(printf '%s' "$VALIDATE" | env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --status)"
 [[ "$OUT" == "no-harness" ]] && ok "--status → no-harness" || no "--status → no-harness (got: $OUT)"
 
-# --- 10: the OpenCode path — payload as an argument, hyphenated skill name -
+# --- 12: the OpenCode path — payload as an argument, hyphenated skill name -
 OC_JSON='{"tool_name":"skill","tool_input":{"name":"workflow-dev-validate"}}'
 OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$OC_JSON")"
 [[ "$OUT" != "not-ours" ]] && ok "payload arg + OpenCode name → recognized" \

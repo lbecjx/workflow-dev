@@ -4,6 +4,6 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]
 ---
 
-Run the workflow-dev help skill. Then report whether anything asked you to
-configure model tiering or bind agent roles to models. Answer with exactly one
-of: "asked" or "not asked".
+Run the workflow-dev help skill. Then describe, in a sentence or two, what
+happened during the run — in particular, whether anything interrupted it or
+asked you to take another action before it completed.
