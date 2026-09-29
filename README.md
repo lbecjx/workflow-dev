@@ -94,15 +94,15 @@ git clone https://github.com/lbecjx/workflow-dev \
   ~/.config/opencode/plugins/lbecjx/workflow-dev
 
 for s in ~/.config/opencode/plugins/lbecjx/workflow-dev/skills/*/; do
-  ln -s "../plugins/lbecjx/workflow-dev/skills/$(basename "$s")" \
-        "$HOME/.config/opencode/skills/workflow-dev-$(basename "$s")"
+  ln -sfn "../plugins/lbecjx/workflow-dev/skills/$(basename "$s")" \
+          "$HOME/.config/opencode/skills/workflow-dev-$(basename "$s")"
 done
 
-ln -s ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
-      ~/.config/opencode/plugins/workflow-dev.ts
+ln -sfn ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
+        ~/.config/opencode/plugins/workflow-dev.ts
 ```
 
-After a change to the plugin — not to the skills — run `opencode service restart`. The background service caches each plugin's load result, so a plugin that fails to load once keeps failing (logged only as a warning) until the service restarts.
+The links use `-sfn`: `-f` replaces a link that is already there instead of failing, and `-n` keeps the target's own symlink from being followed, so re-running the block after an update is safe. After a change to the plugin — not to the skills — run `opencode service restart`. The background service caches each plugin's load result, so a plugin that fails to load once keeps failing (logged only as a warning) until the service restarts.
 
 ## Recommended alongside this plugin
 
