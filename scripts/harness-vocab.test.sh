@@ -65,6 +65,14 @@
 # fail on the plan's own vocabulary rather than on a leak. Those are reviewed by
 # hand; only the two unambiguous tokens are mechanical.
 #
+# **A false positive here is loud, on purpose.** The tokens match as fixed
+# strings, so a `Bash` used as the *language name* — "written in Bash" — with no
+# harness or mapping reference inside the window fails the guard. That is the
+# right direction to be wrong in: the remedy is one word (name the harness, point
+# at the mapping, or say "shell scripts"), while a guard that stayed quiet on a
+# real leak to avoid an occasional awkward sentence would have the trade
+# backwards.
+#
 #   bash scripts/harness-vocab.test.sh
 #
 # Exits non-zero if any occurrence stands alone. It also self-checks the things a
@@ -323,6 +331,21 @@ if [ -z "${HARNESS_VOCAB_ROOT:-}" ]; then
       ok "self-check: an allowlisted path with a bare name is skipped"
     else
       no "self-check: an allowlisted path must be skipped — got: $(HARNESS_VOCAB_ROOT="$FIXTURE/allow" bash "$0" 2>&1 | grep FAIL | head -1)"
+    fi
+
+    # 10. an excluded *directory* is skipped too. Exercise it, because otherwise
+    #     only `CHANGELOG.md` proves any exclusion at all and a typo in one of
+    #     the `--exclude-dir` entries would widen the guard's noise silently.
+    #     `local-backlog` stands in for the group; a `.workflow-dev` typo would
+    #     still be caught by the real tree, and `.git`/`node_modules` are
+    #     never-scanned by construction.
+    mkdir -p "$FIXTURE/xdir/skills/demo" "$FIXTURE/xdir/local-backlog"
+    printf 'Run it with `Bash` in Claude Code.\n' > "$FIXTURE/xdir/skills/demo/SKILL.md"
+    printf 'a plain Bash tool call has no way to learn a thing\n' > "$FIXTURE/xdir/local-backlog/notes.md"
+    if HARNESS_VOCAB_ROOT="$FIXTURE/xdir" bash "$0" >/dev/null 2>&1; then
+      ok "self-check: an excluded directory with a bare name is skipped"
+    else
+      no "self-check: an excluded directory must be skipped — got: $(HARNESS_VOCAB_ROOT="$FIXTURE/xdir" bash "$0" 2>&1 | grep FAIL | head -1)"
     fi
   fi
 fi
