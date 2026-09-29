@@ -118,6 +118,7 @@ await plugin.setup(ctx)
 
 // --- 1: setup registers everything the reminders need -----------------------
 check("setup registers execute.after", typeof toolHooks["execute.after"] === "function")
+check("setup registers execute.before", typeof toolHooks["execute.before"] === "function")
 check("setup registers session.hook('context')", typeof contextHook === "function")
 check("setup subscribes the compaction events", subscribed.length === 2)
 
@@ -227,7 +228,26 @@ await fire(pr)
 check("AI attribution → the reason is surfaced to the agent",
   /Part 12\.3/.test(pr.result.output.output))
 
-// --- 6: an armed compaction state is delivered on the context hook ----------
+// --- 6: the one hard block --------------------------------------------------
+const attempt = async (event: any) => {
+  try { await toolHooks["execute.before"](event); return undefined }
+  catch (e: any) { return e?.message ?? String(e) }
+}
+
+let blocked = await attempt(shellCall('git commit -m "feat: x\n\nCo-Authored-By: Claude <n@anthropic.com>"'))
+check("AI attribution → the command is blocked", typeof blocked === "string" && /Part 12\.3/.test(blocked!))
+
+blocked = await attempt(shellCall('git commit -m "feat: a clean unreviewed change"'))
+check("a clean but unreviewed commit is NOT blocked (it is an ask on Claude Code)",
+  blocked === undefined)
+
+blocked = await attempt(shellCall("ls -la"))
+check("a non-commit command is never blocked", blocked === undefined)
+
+blocked = await attempt({ tool: "skill", status: "completed", sessionID: "ses_test", input: { id: "workflow-dev-help" } })
+check("a non-shell tool is never blocked", blocked === undefined)
+
+// --- 7: an armed compaction state is delivered on the context hook ----------
 writeFileSync(`${PROJECT}/.workflow-dev/context/.compaction-state/WD-0001.json`,
   '{"current":"opencode","opencodeSession":"ses_a","opencodeSeq":1,"pendingSave":true}')
 ev = await runContext(newContextEvent("ses_d"))

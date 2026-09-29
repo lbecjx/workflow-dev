@@ -45,6 +45,13 @@
 //     and delivered **nothing** observed — `session.created` did not fire in a
 //     run where the context hook fired twice. Registering is not evidence.
 //
+// One rule blocks rather than notifies, and only one. `execute.before` is the
+// only moment a reminder can still stop something, and blocking everything
+// Claude Code merely *asks* about would be faking a question the human never
+// got — which AC #3 forbids. What it does allow is the single rule with no
+// judgment in it: AI/agent attribution in a commit or PR, which Claude Code
+// denies outright for the same reason. See `pre-commit-message-check.sh`.
+//
 // Install by symlink. OpenCode loads direct `.ts`/`.js` files from
 // `~/.config/opencode/plugins/`, but this plugin's own checkout sits one level
 // below it (`~/.config/opencode/plugins/lbecjx/workflow-dev/`), so this file is
@@ -90,6 +97,23 @@ function reminder(script: string, payload: unknown, cwd: string): string | undef
     return undefined
   }
   return out.trim() || undefined
+}
+
+// The one-word verdict counterpart to `reminder()`. Only
+// `pre-commit-message-check.sh` has one, because it is the only script with two
+// enforcement levels — a text-only answer cannot say whether the caller should
+// notify or stop. As with the text, the script decides; this file routes.
+function verdict(script: string, payload: unknown, cwd: string): string | undefined {
+  try {
+    return (
+      execFileSync("bash", [join(SCRIPTS, script), "--status", JSON.stringify(payload)], {
+        cwd,
+        encoding: "utf8",
+      }).trim() || undefined
+    )
+  } catch {
+    return undefined
+  }
 }
 
 // Arm the compaction state — the half that has no delivery of its own. On
@@ -181,6 +205,27 @@ export default {
         // unavailable rather than taking the plugin down with it.
       }
     }
+
+    // The one hard block. `execute.before` is the only hook that runs while the
+    // command can still be stopped, and the AI-attribution rule is the only one
+    // whose stopping is not a stand-in for a question: Claude Code denies it
+    // outright too, so nothing is being faked here. Both the verdict and the
+    // reason come from the script — a second pattern match in this file would
+    // be free to disagree with the one Claude Code enforces.
+    await ctx.tool.hook("execute.before", async (event: any) => {
+      const cwd = projectDir(ctx)
+      if (!cwd) return
+      if (event?.tool !== "shell") return
+
+      const payload = { tool_input: event.input }
+      if (verdict("pre-commit-message-check.sh", payload, cwd) !== "block") return
+
+      const reason = reminder("pre-commit-message-check.sh", payload, cwd)
+      throw new Error(
+        reason ??
+          "workflow-dev: this command was blocked, but pre-commit-message-check.sh printed no reason — the reminder script is broken, not the command.",
+      )
+    })
 
     // `execute.after` is the only tool hook that carries both what was invoked
     // (`input`) and a place to put the notice. `execute.before` can inspect the
