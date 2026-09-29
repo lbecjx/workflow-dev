@@ -39,8 +39,42 @@
 # than guess — same philosophy as Part 6's "can't discover it, skip, don't
 # fail": a check that can't run confidently shouldn't produce a false sense
 # of either safety or danger.
+#
+# Three modes, one owner of both the text and the verdict:
+#   pre-commit-message-check.sh
+#       Claude Code `PreToolUse` (matcher: Bash) — emits the JSON envelope.
+#   pre-commit-message-check.sh --status [payload]
+#       Prints one word and exits 0: `ok` (nothing to raise), `block` (the
+#       attribution rule — the one hard denial) or `notify` (the Part 12
+#       review). OpenCode's plugin reads this to know *whether* to raise
+#       something, and how hard.
+#   pre-commit-message-check.sh --message [payload]
+#       Prints the reason as plain text for whichever of those two fired, and
+#       nothing when the answer is `ok`.
+# The verdict and the wording are both decided here, never re-derived by the
+# caller — a second "should this fire?" test in the plugin would be free to
+# disagree with the one Claude Code gets.
 
-INPUT=$(cat)
+MODE="hook"
+PAYLOAD_ARG=""
+case "${1:-}" in
+  --status)  MODE="status";  PAYLOAD_ARG="${2:-}" ;;
+  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
+esac
+
+# Every early exit goes through this, so `--status` always answers a verdict
+# instead of exiting silently — silence is not one of the three words, and a
+# caller that had to read it as one would be guessing.
+quiet() {
+  [[ "$MODE" == "status" ]] && printf 'ok'
+  exit 0
+}
+
+if [[ "$MODE" != "hook" && -n "$PAYLOAD_ARG" ]]; then
+  INPUT="$PAYLOAD_ARG"
+else
+  INPUT=$(cat)
+fi
 
 if command -v jq >/dev/null 2>&1; then
   COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -53,11 +87,11 @@ else
   COMMAND=$(printf '%s' "$COMMAND" | sed 's/\\n/\n/g; s/\\"/"/g')
 fi
 
-[[ -n "$COMMAND" ]] || exit 0
+[[ -n "$COMMAND" ]] || quiet
 
 case "$COMMAND" in
   *"git commit"*|*"gh pr create"*|*"gh pr edit"*) ;;
-  *) exit 0 ;;
+  *) quiet ;;
 esac
 
 # Kept byte-identical to git-message-mark-reviewed.sh's AI_ATTRIBUTION_PATTERN
@@ -68,7 +102,12 @@ esac
 AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
 
 if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."}}'
+  ATTRIBUTION_REASON="This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."
+  case "$MODE" in
+    status) printf 'block' ;;
+    message) printf '%s' "$ATTRIBUTION_REASON" ;;
+    *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_REASON" ;;
+  esac
   exit 0
 fi
 
@@ -101,7 +140,7 @@ if [[ -z "$BODY" ]]; then
   BODY=$(printf '%s' "$COMMAND" | grep -oE -- '(-m|--body)[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^(-m|--body)[[:space:]]+"(.*)"$/\2/')
 fi
 
-[[ -n "$BODY" ]] || exit 0
+[[ -n "$BODY" ]] || quiet
 
 # For a PR, the reviewed text is title+description concatenated — same
 # convention summarize-changes/SKILL.md uses when marking it
@@ -118,7 +157,12 @@ esac
 MESSAGE_HASH=$(printf '%s' "$HASH_TEXT" | shasum | cut -d' ' -f1)
 MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/messages/$MESSAGE_HASH.json"
 
-[[ -f "$MARKER_FILE" ]] && exit 0
+[[ -f "$MARKER_FILE" ]] && quiet
 
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh."}}'
+REVIEW_REASON="This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh."
+case "$MODE" in
+  status) printf 'notify' ;;
+  message) printf '%s' "$REVIEW_REASON" ;;
+  *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$REVIEW_REASON" ;;
+esac
 exit 0

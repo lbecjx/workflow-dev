@@ -22,13 +22,35 @@
 # Since the same script serves two different events, hookEventName in the
 # response is read from the hook's own input rather than hardcoded — the
 # docs require it to match the event that actually fired.
+#
+# Two modes, one text:
+#   post-compaction-save-check.sh
+#       Claude Code `UserPromptSubmit` / `PostToolUse` — emits the JSON
+#       envelope below.
+#   post-compaction-save-check.sh --message [payload]
+#       Prints the same reminder as plain text and nothing otherwise. OpenCode's
+#       plugin calls this, passing the payload as an argument (there is no pipe
+#       to feed it through); the payload still has to carry `hook_event_name`,
+#       because that field is what selects the priority wording above.
+
+set -u
+
+MODE="hook"
+PAYLOAD_ARG=""
+case "${1:-}" in
+  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
+esac
 
 CONTEXT_DIR=".workflow-dev/context"
 STATE_DIR="$CONTEXT_DIR/.compaction-state"
 
 [[ -d "$STATE_DIR" ]] || exit 0
 
-INPUT=$(cat)
+if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
+  INPUT="$PAYLOAD_ARG"
+else
+  INPUT=$(cat)
+fi
 EVENT_NAME=$(printf '%s' "$INPUT" | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 [[ -n "$EVENT_NAME" ]] || exit 0
 
@@ -79,7 +101,12 @@ for STATE_FILE in "$STATE_DIR"/*.json; do
     PRIORITY_CLAUSE="Before answering the question below, or doing anything else this turn"
   fi
 
-  printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"A context compaction happened while %s was In Progress — there may be unsaved conversation history for it. %s: do both of these, without asking permission first: (1) Invoke /workflow-dev:save; its own '\''save all this?'\'' step is the only confirmation this needs. (2) In that same confirmation, add this line verbatim: '\''Declining deletes nothing, but leaves this out of the story file until a future save reads it.'\'' Only once save is done, proceed with what you were about to do."}}' "$EVENT_NAME" "$STORY_FILE" "$PRIORITY_CLAUSE"
+  REMINDER="A context compaction happened while $STORY_FILE was In Progress — there may be unsaved conversation history for it. $PRIORITY_CLAUSE: do both of these, without asking permission first: (1) Invoke /workflow-dev:save; its own 'save all this?' step is the only confirmation this needs. (2) In that same confirmation, add this line verbatim: 'Declining deletes nothing, but leaves this out of the story file until a future save reads it.' Only once save is done, proceed with what you were about to do."
+  if [[ "$MODE" == "message" ]]; then
+    printf '%s' "$REMINDER"
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}' "$EVENT_NAME" "$REMINDER"
+  fi
   exit 0
 done
 
