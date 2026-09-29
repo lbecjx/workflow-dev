@@ -32,6 +32,17 @@ fail=0
 ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
+# Payload construction needs real JSON escaping, and the script's own jq-less
+# extraction is best-effort *by design* (its comment says so: it handles the
+# shapes this repo's own git conventions produce, and fails toward doing nothing
+# otherwise). So rather than assert a decision table the fallback was never
+# written to support, skip the way the other suites do — a jq-less host reads
+# "not covered here", not eight failures that look like regressions.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  skip  jq isn't installed — payload construction for this suite needs it"
+  exit 0
+fi
+
 export TMPDIR="$TMP/tmpdir"
 mkdir -p "$TMPDIR"
 
@@ -108,13 +119,16 @@ rm -rf "$TMPDIR/workflow-dev-validate/messages"
 
 # --- 6: the vocabulary is exactly three words -------------------------------
 WORDS="$(status "$OTHER") $(status "$CLEAN") $(status "$ATTR")"
+unknown=0
 for w in $WORDS; do
   case "$w" in
     ok|notify|block) ;;
-    *) no "unknown status word: $w" ;;
+    *) no "unknown status word: $w"; unknown=1 ;;
   esac
 done
-ok "every verdict is one of ok|notify|block ($WORDS)"
+# Conditional on the loop above: printing this unconditionally would report a
+# pass for the property that just failed.
+[[ $unknown -eq 0 ]] && ok "every verdict is one of ok|notify|block ($WORDS)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

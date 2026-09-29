@@ -80,7 +80,7 @@ const check = (label: string, condition: boolean) => {
 
 // --- a stub OpenCode plugin context ----------------------------------------
 const toolHooks: Record<string, (event: any) => Promise<void>> = {}
-const subscribed: string[] = []
+const subscribed: Record<string, (() => Promise<void>) | undefined> = {}
 const posted: string[] = []
 let contextHook: ((event: any) => Promise<void>) | undefined
 let syntheticThrows = false
@@ -106,8 +106,11 @@ const ctx = {
     },
   },
   event: {
-    subscribe: async (name: string) => {
-      subscribed.push(name)
+    // The callback is kept, not just the name: asserting that two subscriptions
+    // were *registered* says nothing about whether the arming path they exist
+    // for is reachable. Nothing else in this harness triggers it.
+    subscribe: async (name: string, callback: () => Promise<void>) => {
+      subscribed[name] = callback
       return { dispose: async () => {} }
     },
   },
@@ -120,7 +123,7 @@ await plugin.setup(ctx)
 check("setup registers execute.after", typeof toolHooks["execute.after"] === "function")
 check("setup registers execute.before", typeof toolHooks["execute.before"] === "function")
 check("setup registers session.hook('context')", typeof contextHook === "function")
-check("setup subscribes the compaction events", subscribed.length === 2)
+check("setup subscribes the compaction events", Object.keys(subscribed).length === 2)
 
 // --- helpers ---------------------------------------------------------------
 const newContextEvent = (sessionID: string) => ({
@@ -140,8 +143,8 @@ const skillCall = (id: string, output = "SKILL BODY") => ({
   tool: "skill", status: "completed", sessionID: "ses_test",
   input: { id }, result: { output: { output } },
 })
-const shellCall = (command: string, output = "stdout\n") => ({
-  tool: "shell", status: "completed", sessionID: "ses_test",
+const shellCall = (command: string, output = "stdout\n", id = "call_shell") => ({
+  tool: "shell", status: "completed", sessionID: "ses_test", id,
   input: { command }, result: { output: { output } },
 })
 
@@ -166,17 +169,37 @@ check("the injected message uses the part-array shape",
   Array.isArray(parts?.content) && parts.content[0]?.type === "text")
 
 // --- 3: the shell path — a commit gets the pre-commit notices ---------------
-let shell = shellCall('git commit -m "feat: x"')
-await fire(shell)
-const shellOut = shell.result.output.output
+// The regression this pins first: `execute.after` on its own must say nothing
+// about validate. The marker that reminder compares against fingerprints the
+// files the commit is about to consume, so asking it once the command has run
+// answers "no matching record" for *every* commit — validated, deferred, or
+// not. Delivering that is a notice that is always wrong, which is what this
+// used to do; it trains people to ignore notices, and it is worse than parity.
+const afterOnly = shellCall('git commit -m "feat: x"', "stdout\n", "call_after_only")
+await fire(afterOnly)
+check("execute.after alone never claims validate is missing",
+  !/validated/i.test(afterOnly.result.output.output))
+
+// Decided before the command (where the diff still exists), delivered after it,
+// paired by the call id both hooks carry.
+await toolHooks["execute.before"](shellCall('git commit -m "feat: x"', "stdout\n", "call_full"))
+const committed = shellCall('git commit -m "feat: x"', "stdout\n", "call_full")
+await fire(committed)
+const shellOut = committed.result.output.output
 check("a commit with no validate marker → the reminder is appended",
   shellOut.includes("[workflow-dev]") && /validated/i.test(shellOut))
 check("...and the Part 12 review notice comes with it",
   /Git History Disclosure/.test(shellOut))
 
-shell = shellCall("ls -la")
-await fire(shell)
-check("an ordinary shell command → nothing appended", shell.result.output.output === "stdout\n")
+const repeated = shellCall('git commit -m "feat: x"', "stdout\n", "call_full")
+await fire(repeated)
+check("...and it is consumed, so a second after-hook for that id is silent",
+  !/validated/i.test(repeated.result.output.output))
+
+const ordinary = shellCall("ls -la")
+await toolHooks["execute.before"](ordinary)
+await fire(ordinary)
+check("an ordinary shell command → nothing appended", ordinary.result.output.output === "stdout\n")
 
 // --- 4: skills — the tiering reminder, unchanged ---------------------------
 posted.length = 0
@@ -247,6 +270,14 @@ check("a non-commit command is never blocked", blocked === undefined)
 blocked = await attempt({ tool: "skill", status: "completed", sessionID: "ses_test", input: { id: "workflow-dev-help" } })
 check("a non-shell tool is never blocked", blocked === undefined)
 
+// A blocked call never reaches the validate stash, so its id cannot later
+// deliver a notice for a command that never ran.
+const blockedCall = shellCall('git commit -m "x\n\nCo-Authored-By: Claude <n@anthropic.com>"', "stdout\n", "call_blocked")
+await attempt(blockedCall)
+await fire(blockedCall)
+check("a blocked call leaves no validate notice behind",
+  !/validated/i.test(blockedCall.result.output.output))
+
 // --- 7: an armed compaction state is delivered on the context hook ----------
 writeFileSync(`${PROJECT}/.workflow-dev/context/.compaction-state/WD-0001.json`,
   '{"current":"opencode","opencodeSession":"ses_a","opencodeSeq":1,"pendingSave":true}')
@@ -255,6 +286,19 @@ check("an armed compaction state → the save reminder is injected",
   /workflow-dev:save/.test(injected(ev)))
 ev = await runContext(newContextEvent("ses_e"))
 check("...and it clears, so it is not repeated", !/workflow-dev:save/.test(injected(ev)))
+
+// --- 8: firing a compaction event actually arms the state -------------------
+// The only path that ever calls `pre-compact-check.sh --arm`, and the one the
+// stub used to make unreachable by discarding the callback.
+const STATE = `${PROJECT}/.workflow-dev/context/.compaction-state/WD-0001.json`
+writeFileSync(STATE, '{"current":"opencode","opencodeSession":"ses_x","opencodeSeq":7,"pendingSave":false}')
+check("the compaction event callback was registered", typeof subscribed["session.compacted"] === "function")
+await subscribed["session.compacted"]!()
+check("firing a compaction event arms pendingSave",
+  readFileSync(STATE, "utf8").includes('"pendingSave":true'))
+check("...while the save flow's session fields survive it",
+  readFileSync(STATE, "utf8").includes('"opencodeSession":"ses_x"') &&
+  readFileSync(STATE, "utf8").includes('"opencodeSeq":7'))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

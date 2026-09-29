@@ -33,6 +33,14 @@ fail=0
 ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
+# Payload construction needs real JSON escaping, and the scripts' own jq-less
+# extraction is best-effort by design. Skip rather than fail on a host without
+# jq, the same way the other suites in this repo do.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  skip  jq isn't installed — payload construction for this suite needs it"
+  exit 0
+fi
+
 PROJ="$TMP/proj"
 export TMPDIR="$TMP/tmpdir"
 mkdir -p "$PROJ" "$TMPDIR"

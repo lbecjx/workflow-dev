@@ -52,6 +52,12 @@
 // judgment in it: AI/agent attribution in a commit or PR, which Claude Code
 // denies outright for the same reason. See `pre-commit-message-check.sh`.
 //
+// `execute.before` is also where the one *time-sensitive* reminder is decided.
+// The validate check fingerprints the very files a commit consumes, so asking
+// it after the commit can only ever answer "no matching record" — on every
+// commit, validated or deferred. It is therefore evaluated before the command
+// and delivered after it, keyed by the call id both hooks carry.
+//
 // Install by symlink. OpenCode loads direct `.ts`/`.js` files from
 // `~/.config/opencode/plugins/`, but this plugin's own checkout sits one level
 // below it (`~/.config/opencode/plugins/lbecjx/workflow-dev/`), so this file is
@@ -76,8 +82,14 @@ const SCRIPTS = join(HERE, "..", "scripts")
 // the wrong project and find nothing to say. `location` is what the plugin ctx
 // exposes for it (measured 2.0.19).
 function projectDir(ctx: any): string | undefined {
-  const dir = ctx?.location?.directory ?? ctx?.location?.project?.directory
-  return typeof dir === "string" && dir ? dir : undefined
+  // Two candidates, checked for a *usable* value rather than coalesced: `??`
+  // only falls through on null/undefined, so an empty-string `directory` would
+  // win the coalesce and then fail the falsy guard below — silently disabling
+  // every reminder even though `location.project.directory` held the answer.
+  const dir = ctx?.location?.directory
+  if (typeof dir === "string" && dir) return dir
+  const project = ctx?.location?.project?.directory
+  return typeof project === "string" && project ? project : undefined
 }
 
 // Ask one script for its reminder, in the `--message` mode every reminder
@@ -206,6 +218,15 @@ export default {
       }
     }
 
+    // A notice whose *decision* has to be made before the command and whose
+    // *delivery* can only happen after it, keyed by the call id both hooks
+    // carry. Only the validate reminder works this way: the marker it compares
+    // against fingerprints the files the commit is about to consume, so asking
+    // it afterwards could only ever answer "no matching record" — on every
+    // commit, validated or deliberately deferred. A notice that is always wrong
+    // is worse than no notice, and it was exactly that until this was measured.
+    const decidedBefore = new Map<string, string>()
+
     // The one hard block. `execute.before` is the only hook that runs while the
     // command can still be stopped, and the AI-attribution rule is the only one
     // whose stopping is not a stand-in for a question: Claude Code denies it
@@ -218,13 +239,25 @@ export default {
       if (event?.tool !== "shell") return
 
       const payload = { tool_input: event.input }
-      if (verdict("pre-commit-message-check.sh", payload, cwd) !== "block") return
 
-      const reason = reminder("pre-commit-message-check.sh", payload, cwd)
-      throw new Error(
-        reason ??
-          "workflow-dev: this command was blocked, but pre-commit-message-check.sh printed no reason — the reminder script is broken, not the command.",
-      )
+      if (verdict("pre-commit-message-check.sh", payload, cwd) === "block") {
+        const reason = reminder("pre-commit-message-check.sh", payload, cwd)
+        throw new Error(
+          reason ??
+            "workflow-dev: this command was blocked, but pre-commit-message-check.sh printed no reason — the reminder script is broken, not the command.",
+        )
+      }
+
+      // Decided here, delivered below in `execute.after`. Nothing is stashed for
+      // a command that already threw, so a blocked call cannot leave an orphan
+      // behind; the size check is the belt to that braces, for a build that
+      // somehow runs `before` without an `after`.
+      const callID = String(event?.id ?? "")
+      if (!callID) return
+      const validated = reminder("pre-commit-validate-check.sh", payload, cwd)
+      if (!validated) return
+      if (decidedBefore.size >= 64) decidedBefore.clear()
+      decidedBefore.set(callID, validated)
     })
 
     // `execute.after` is the only tool hook that carries both what was invoked
@@ -269,12 +302,15 @@ export default {
         )
         if (review) intoToolResult(event, review)
 
-        const validated = reminder(
-          "pre-commit-validate-check.sh",
-          { tool_input: event.input },
-          cwd,
-        )
-        if (validated) intoToolResult(event, validated)
+        // Decided in `execute.before`, where the pre-commit diff still existed —
+        // this half only delivers it, and consumes it so a call id cannot be
+        // answered twice.
+        const callID = String(event?.id ?? "")
+        if (callID) {
+          const validated = decidedBefore.get(callID)
+          decidedBefore.delete(callID)
+          if (validated) intoToolResult(event, validated)
+        }
       }
     })
   },

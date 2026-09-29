@@ -107,17 +107,40 @@ json_get_number() {
 # those is worse than not reminding: the honest gap is narrower than the bug.
 # A story whose state file does not exist yet gets no compaction reminder on
 # OpenCode — recorded as such rather than papered over.
+#
+# ⚠️ One deliberate divergence from the hook path above: this arms on the
+# compaction event itself and never compares "has anything been written since
+# the last save?" — the check the hook path makes from `transcript_path`, a
+# field OpenCode does not hand a plugin. The reasoning is that the event is
+# already the signal (a compaction is where unsaved conversation goes missing),
+# so arming there is not a guess about content, it is the event's own meaning.
+# The cost is a "run /workflow-dev:save" prompt for a story with nothing
+# unsaved. Confirmed as a real divergence by the story's adversarial verify;
+# left in place knowingly, and flagged for the live run — if the compaction
+# events turn out to fire, this is the first thing to re-examine.
 if [[ "$MODE" == "arm" ]]; then
   while IFS= read -r STORY_FILE; do
     is_in_progress "$STORY_FILE" || continue
     STORY_NAME=$(basename "$STORY_FILE" .md)
     STATE_FILE="$STATE_DIR/${STORY_NAME}.json"
     [[ -f "$STATE_FILE" ]] || continue
-    grep -q '"pendingSave"' "$STATE_FILE" || continue
+    # Same shape the substitution below rewrites. A bare `grep -q '"pendingSave"'`
+    # would accept a key carrying something the regex cannot match, and then the
+    # `sed` would no-op while this still exited 0 — a guard and a rewrite
+    # disagreeing about what they are guarding.
+    grep -qE '"pendingSave"[[:space:]]*:[[:space:]]*(true|false)' "$STATE_FILE" || continue
     mkdir -p "$STATE_DIR"
     ensure_gitignored
-    sed -E 's/"pendingSave"[[:space:]]*:[[:space:]]*(true|false)/"pendingSave":true/' \
-      "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    # mktemp in the same directory, not a fixed "$STATE_FILE.tmp": a predictable
+    # name written with `>` follows a symlink someone else could have planted
+    # there, and two concurrent runs would race on the same path.
+    TMP_STATE=$(mktemp "$STATE_DIR/.pendingSave.XXXXXX") || continue
+    if sed -E 's/"pendingSave"[[:space:]]*:[[:space:]]*(true|false)/"pendingSave":true/' \
+        "$STATE_FILE" > "$TMP_STATE"; then
+      mv "$TMP_STATE" "$STATE_FILE"
+    else
+      rm -f "$TMP_STATE"
+    fi
   done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
   exit 0
 fi
