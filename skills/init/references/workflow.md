@@ -225,7 +225,11 @@ Be specific. 5–8 prohibitions per category, no more."
 
 #### Running it
 
-1. Launch the three subagents in parallel.
+1. Launch the three subagents in parallel, each under the **`wd-judge`** role
+   (`../setup-models/references/roles.md`) — name the role as the sub-agent's
+   type, never a model. If the harness cannot select a model per sub-agent
+   (roles ungenerated or stale, and no opt-out), run them on the default and
+   say so; don't pretend.
 2. Collect results.
 3. Compile them into REPO.md sections.
 4. Present each section to the human **separately**, in order:

@@ -23,6 +23,7 @@ Context survives compaction and new sessions. Mechanical state (plan progress, f
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
+| `/workflow-dev:setup-models` | Binds each agent role to a model the harness offers, so mechanical sub-agent work runs on a fast model and judgment work on a strong one (one-time setup) |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
 ## Hooks
@@ -34,6 +35,47 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`UserPromptSubmit` / `PostToolUse`** — reminds you to `/workflow-dev:save` when there are pending changes to persist.
 - **`PreToolUse`** (before `git commit`) — asks you to confirm `/workflow-dev:validate` passed on the current changes, or lets a deliberate deferral through with a visible note.
 - **`PreToolUse`** (before `git commit` / `gh pr create` / `gh pr edit`) — asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution.
+- **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
+
+On **OpenCode** the same reminder is delivered by a plugin, which has to be linked into OpenCode's plugin directory — OpenCode auto-loads plugins from `~/.config/opencode/plugins/`, and this plugin's own checkout sits one level below it:
+
+```
+ln -s ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
+      ~/.config/opencode/plugins/workflow-dev.ts
+```
+
+OpenCode's plugin API has no way to ask — it can only intercept a tool call — so there the reminder arrives as a note attached to the skill's own output and the skill still runs. It targets OpenCode 2's plugin API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads.
+
+## Model tiering
+
+`workflow-dev` spawns sub-agents for two very different jobs: running a fixed checklist (Verification, the Part 12 text review) and making a contested call (Security, Architecture, Adversarial Correctness). The plugin never names a model — it names **roles**, `wd-operator` and `wd-judge`, and you bind each role to a model your harness actually offers:
+
+```
+/workflow-dev:setup-models
+```
+
+Setup reads the live model list from the harness, asks for a provider and then a model per role (paged, with a hint that says what the role is for), and writes one agent file per role into your own config:
+
+| Harness | Where the binding is written | What `model:` takes |
+|---|---|---|
+| Claude Code | `~/.claude/agents/<role>.md` | one of its aliases, a full model ID, or `inherit` |
+| OpenCode | `~/.config/opencode/agents/<role>.md` | any `provider/model` it offers |
+
+Each generated file carries a hash of the role registry, so a later run — or the reminder hook — can tell a current binding from a stale one.
+
+**The Claude Code limit.** Claude Code routes a sub-agent to its own models. A non-Claude model per sub-agent needs a router or gateway in front of it, and that gateway is also the only way setup can *enumerate* models there (`GET <base>/v1/models`). Without one, setup asks you to type the name yourself — run `/model` to see it — rather than inventing a list. Documented as a fallback, not a promise; OpenCode has no such limit.
+
+**Degrades honestly.** When the harness can't select a model per sub-agent — the roles are unbound or stale and you haven't opted out — the workflow says so and runs everything on your default model. It never pretends the tiering happened.
+
+**Updating.** Roles live in the plugin; your bindings live in your config, which a plugin update doesn't touch. When a release changes a role's definition the reminder flags the binding as stale, and re-running setup regenerates it while keeping the model you picked. The plugin ships no `agents/` directory of its own, deliberately: a plugin agent gets a namespaced name and can't carry your model.
+
+**Opting out.** To run everything on your default model and stop being asked, write:
+
+```json
+{ "optOut": true }
+```
+
+to `~/.workflow-dev/tiering.json`.
 
 ## Installation
 

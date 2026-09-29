@@ -131,7 +131,7 @@ assert_contains "SECRET_TOOL_PAYLOAD" "$( cd "$PROJ5" && as_claude "$READ" --raw
 # No source at all → honest message
 # ---------------------------------------------------------------------------
 PROJ4="$TMP/none"; mkdir -p "$PROJ4"
-OUT6=$( cd "$PROJ4" && env -u OPENCODE_TERMINAL CLAUDECODE=1 OPENCODE_DB="$TMP/missing.db" bash "$READ" "$STORY" )
+OUT6=$( cd "$PROJ4" && env -u OPENCODE_TERMINAL -u OPENCODE CLAUDECODE=1 OPENCODE_DB="$TMP/missing.db" bash "$READ" "$STORY" )
 assert_contains "No Claude Code transcript known" "$OUT6" "no source → honest message"
 
 echo

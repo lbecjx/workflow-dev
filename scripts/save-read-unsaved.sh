@@ -43,6 +43,10 @@ if [[ -z "$STORY_ID" ]]; then
   exit 1
 fi
 
+# Resolve through symlinks (OpenCode installs skills as symlinks) so the shared
+# harness detector, list-models.sh, is found from this script's own location.
+HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
+
 STATE_DIR=".workflow-dev/context/.compaction-state"
 STATE_FILE="$STATE_DIR/${STORY_ID}.json"
 PENDING_FILE="$STATE_DIR/.pending-save-${STORY_ID}"
@@ -91,12 +95,15 @@ ensure_gitignored() {
   grep -qxF "$pattern" .gitignore || printf '%s\n' "$pattern" >> .gitignore
 }
 
-# Which harness is running this? OpenCode sets OPENCODE_TERMINAL; Claude Code
-# sets CLAUDECODE/CLAUDE_CODE_ENTRYPOINT. Only fall back to a guess when
-# neither is present (and then prefer whichever source is resolvable).
+# Which harness is running this? The signal check lives in list-models.sh
+# (`--print-harness`) — one definition, shared with the tiering reminder. Here
+# we keep only the fallback list-models.sh doesn't need: when no harness signal
+# is present (some contexts don't propagate it), prefer whichever source the
+# state actually records.
 detect_harness() {
-  if [[ -n "${OPENCODE_TERMINAL:-}${OPENCODE:-}" ]]; then echo opencode; return; fi
-  if [[ -n "${CLAUDECODE:-}${CLAUDE_CODE_ENTRYPOINT:-}" ]]; then echo claude; return; fi
+  local h
+  h="$("$HERE/list-models.sh" --print-harness 2>/dev/null)" || h=""
+  [[ -n "$h" ]] && { echo "$h"; return; }
   if [[ -f "$STATE_FILE" ]]; then
     local c; c=$(json_get_string "$(cat "$STATE_FILE")" current)
     [[ -n "$c" ]] && { echo "$c"; return; }
