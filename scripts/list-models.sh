@@ -21,12 +21,14 @@
 # ordering), not re-sorted here.
 #
 # Exit: 0 = at least one model listed; 1 = could not enumerate (reason on
-# stderr). A non-zero exit is the honest "cannot enumerate" outcome the
-# workflow degrades on — never "the list came back empty, pick anyway".
+# stderr); 2 = no automatic source exists, so the caller should ask the user to
+# enter a model (its stderr says how). A non-zero exit is the honest outcome
+# the workflow degrades on — never "the list came back empty, pick anyway".
 #
-# Test seam: WD_OPENCODE_MODELS_CMD overrides the OpenCode command (default
-# `opencode models`), mirroring OPENCODE_DB in save-read-unsaved.sh. --harness
-# forces a harness, so a test doesn't depend on the ambient environment.
+# Test seams: WD_OPENCODE_MODELS_CMD replaces the OpenCode command (default
+# `opencode models`); WD_CLAUDE_MODELS_CMD replaces the Claude Code fetch.
+# Both mirror OPENCODE_DB in save-read-unsaved.sh. --harness forces a harness,
+# so a test doesn't depend on the ambient environment.
 
 set -u
 
@@ -67,14 +69,38 @@ case "$HARNESS" in
     fi
     printf '%s\n' "$OUT"
     ;;
+  claude)
+    # Claude Code has no CLI that lists models. The one real dynamic source is
+    # a configured gateway/API: their GET /v1/models returns the ids. Without
+    # one, the honest path is to ask the user — never to invent an alias list
+    # (aliases are a few names that rot, and naming them here would be exactly
+    # the hardcoded list the plugin must not have).
+    RESP=""
+    if [[ -n "${WD_CLAUDE_MODELS_CMD:-}" ]]; then
+      RESP="$($WD_CLAUDE_MODELS_CMD 2>/dev/null)" || RESP=""
+    elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]] && command -v curl >/dev/null 2>&1; then
+      AUTH=()
+      [[ -n "${ANTHROPIC_API_KEY:-}" ]] && AUTH=(-H "x-api-key: $ANTHROPIC_API_KEY")
+      RESP="$(curl -fsS -H "anthropic-version: 2023-06-01" "${AUTH[@]}" \
+        "${ANTHROPIC_BASE_URL%/}/v1/models" 2>/dev/null)" || RESP=""
+    fi
+    if [[ -n "$RESP" ]]; then
+      OUT="$(printf '%s\n' "$RESP" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed -E 's/.*: *"(.*)"/\1/')"
+      if [[ -n "$OUT" ]]; then
+        while IFS= read -r m; do [[ -n "$m" ]] && printf 'claude-code\t%s\n' "$m"; done <<< "$OUT"
+        exit 0
+      fi
+    fi
+    echo "no automatic model source: set ANTHROPIC_BASE_URL to list from a gateway, or run \`/model\` in Claude Code to see your models and enter one manually (https://docs.claude.com/en/docs/claude-code/model-config)" >&2
+    exit 2
+    ;;
   "")
     echo "cannot enumerate: no harness detected (neither OpenCode nor Claude Code signals are set)" >&2
     exit 1
     ;;
   *)
-    # No model source is wired for this harness yet. Reported as the honest
-    # outcome, never as an empty-but-usable list.
-    echo "cannot enumerate: no model source for harness '$HARNESS'" >&2
+    # A harness this script doesn't know. Reported, never an empty-but-usable list.
+    echo "cannot enumerate: unknown harness '$HARNESS'" >&2
     exit 1
     ;;
 esac

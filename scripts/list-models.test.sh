@@ -72,11 +72,39 @@ rc=$?
 [[ $rc -eq 1 ]] && assert_contains "no provider/model entries" "$(cat "$TMP/err2")" "empty output → exit 1, not an empty list" \
               || no "empty output → exit 1, not an empty list"
 
-# --- 5: a harness with no wired source → exit 1, names the harness ----------
-env -u OPENCODE -u OPENCODE_TERMINAL bash "$SCRIPT" --harness claude >/dev/null 2>"$TMP/err3"
+# --- 5: Claude Code with no gateway → exit 2, manual-entry guidance --------
+env -u OPENCODE -u OPENCODE_TERMINAL -u ANTHROPIC_BASE_URL bash "$SCRIPT" --harness claude >/dev/null 2>"$TMP/err3"
 rc=$?
-[[ $rc -eq 1 ]] && assert_contains "no model source for harness 'claude'" "$(cat "$TMP/err3")" "unwired harness → exit 1 naming it" \
-              || no "unwired harness → exit 1 naming it"
+[[ $rc -eq 2 ]] && assert_contains "run \`/model\`" "$(cat "$TMP/err3")" "CC without a gateway → exit 2 with manual guidance" \
+              || no "CC without a gateway → exit 2 with manual guidance"
+
+# --- 5b: an unknown harness → exit 1 ---------------------------------------
+env -u OPENCODE -u OPENCODE_TERMINAL bash "$SCRIPT" --harness acme >/dev/null 2>"$TMP/errU"
+rc=$?
+[[ $rc -eq 1 ]] && assert_contains "unknown harness 'acme'" "$(cat "$TMP/errU")" "unknown harness → exit 1" \
+              || no "unknown harness → exit 1"
+
+# --- 5c: Claude Code via a gateway → ids parsed, provider claude-code ------
+FIXC="$TMP/claude-models.json"
+printf '{"data":[{"type":"model","id":"claude-sonnet-5-5"},{"type":"model","id":"claude-haiku-5"}]}' > "$FIXC"
+OUTC="$(env WD_CLAUDE_MODELS_CMD="cat $FIXC" bash "$SCRIPT" --harness claude 2>/dev/null)"
+assert_contains "claude-code	claude-sonnet-5-5" "$OUTC" "gateway id parsed"
+assert_contains "claude-code	claude-haiku-5" "$OUTC" "second gateway id parsed"
+
+# --- 5d: a gateway response with no ids → exit 2, not an empty list ---------
+printf '{"data":[]}' > "$TMP/claude-empty.json"
+env WD_CLAUDE_MODELS_CMD="cat $TMP/claude-empty.json" bash "$SCRIPT" --harness claude >/dev/null 2>"$TMP/errE"
+rc=$?
+[[ $rc -eq 2 ]] && assert_contains "no automatic model source" "$(cat "$TMP/errE")" "gateway without ids → exit 2" \
+              || no "gateway without ids → exit 2"
+
+# --- 5e: a base URL set but curl unavailable → exit 2 (manual), not a crash -
+BASH_ABS="$(command -v bash)"
+mkdir -p "$TMP/emptybin2"
+env PATH="$TMP/emptybin2" ANTHROPIC_BASE_URL="http://example.invalid" "$BASH_ABS" "$SCRIPT" --harness claude >/dev/null 2>"$TMP/errN"
+rc=$?
+[[ $rc -eq 2 ]] && assert_contains "no automatic model source" "$(cat "$TMP/errN")" "no curl → exit 2 (manual), not a crash" \
+              || no "no curl → exit 2 (manual), not a crash"
 
 # --- 6: no harness signal at all → exit 1 ----------------------------------
 env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
