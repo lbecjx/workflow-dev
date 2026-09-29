@@ -18,7 +18,8 @@ the Free Software Foundation, either version 3 of the License, or
   doesn't exist.
 - JSON takes no comments, which is why this note sits beside the file rather
   than inside it.
-- OpenCode's counterpart is the plugin `opencode/plugin.ts` (v2 API). There is
-  no "ask" there: a plugin can inspect a call, block it, or post a notice, but
-  it cannot prompt.
+- OpenCode's counterpart is the plugin `opencode/plugin.ts` (v2 API). A plugin
+  can inspect a call, block it, or post a notice, and it can even answer a
+  permission request (`ctx.permission.hook`/`reply` — measured on 2.0.19) — but
+  it has no way to *raise* one, so the reminder there is a notice, not a question.
 - Tool-name mapping across harnesses: `../references/harness-tools.md`.
