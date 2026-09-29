@@ -31,10 +31,13 @@
 #
 # --- Scope: what is scanned, what is not, and why ------------------------------
 #
-#   evals/          `allowed_tools` are Claude Code names by design — that is the
-#                   eval runner's vocabulary. Documented where an evaluator reads
-#                   it (WD-0016 TG3). REMOVE this exclusion when TG3 lands and the
-#                   names carry their own per-harness note.
+# Everything shipped is scanned, `evals/*/prompt.md` included: each
+# `allowed_tools` line carries a comment naming the environment, so its Claude
+# Code names pass the same check as everywhere else (WD-0016 TG3). The values
+# stay Claude Code names — that is the eval runner's vocabulary, and the comment
+# is what records the mismatch.
+#
+# Excluded, each with the reason it is out of scope:
 #   CHANGELOG.md    historical record. It describes past Claude-Code-only
 #                   behaviour; rewriting history to dodge a guard is worse than
 #                   the guard not seeing it.
@@ -75,7 +78,7 @@ fi
 # header — keep them in step, because an exclusion that outlives its reason is
 # how a guard quietly stops covering what it claims to cover.
 EXCLUDES=(--exclude-dir=.git --exclude-dir=.workflow-dev --exclude-dir=local-backlog
-          --exclude-dir=node_modules --exclude-dir=evals --exclude=CHANGELOG.md)
+          --exclude-dir=node_modules --exclude=CHANGELOG.md)
 
 pass=0
 fail=0
