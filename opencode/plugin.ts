@@ -67,14 +67,71 @@
 //         ~/.config/opencode/plugins/workflow-dev.ts
 
 import { execFileSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
 
 // `import.meta.dir` is Bun's (which is what OpenCode runs plugins on);
 // `import.meta.dirname` is Node's, which is what can exercise this file's logic
-// without Bun. Taking whichever exists keeps one implementation.
+// without Bun. Taking whichever exists keeps one implementation. Same for the
+// file's own path: Bun's `path`, Node's `filename`.
 const HERE = import.meta.dir ?? import.meta.dirname ?? "."
+const SELF = import.meta.path ?? import.meta.filename
 const SCRIPTS = join(HERE, "..", "scripts")
+
+// --- the liveness marker ----------------------------------------------------
+// A plugin that failed to load leaves nothing but a WARN in a rotating log, the
+// service caches that failure, and `opencode plugin list` lags the filesystem —
+// so "it is installed" proves nothing. What this writes is evidence only a
+// running plugin can produce: which process loaded it, the hash of the bytes it
+// loaded, and when the catalog notice first actually went out.
+// `scripts/opencode-live-check.sh` reads it and must hash the file the same way:
+// sha256 of the file's raw bytes, lowercase hex.
+//
+// Only the long-lived service writes it. A private server (`opencode run
+// --standalone`) runs this same file in its own process; letting it write would
+// overwrite the service's evidence with a run that proves nothing about the
+// service. The path is fixed under the home directory because the service does
+// not inherit the environment of whoever started a session.
+const IS_SERVICE = process.argv.includes("--service")
+const MARKER = join(homedir(), ".workflow-dev", "opencode-live.json")
+
+// Module-level, not per `setup`: the service calls `setup` once per project a
+// session opens, and a second project must not reset the evidence the first
+// one produced.
+let marker: { pid: number; hash: string; loadedAt: string; firedAt?: string } | undefined
+
+function writeMarker(): void {
+  if (!marker) return
+  try {
+    mkdirSync(join(homedir(), ".workflow-dev"), { recursive: true })
+    const tmp = `${MARKER}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(marker) + "\n")
+    renameSync(tmp, MARKER)
+  } catch {
+    // Evidence that cannot be written reads as "not loaded" to the checker —
+    // the conservative answer, and never a reason to take the plugin down.
+  }
+}
+
+function markLoaded(): void {
+  if (!IS_SERVICE || marker || !SELF) return
+  let hash: string
+  try {
+    hash = createHash("sha256").update(readFileSync(SELF)).digest("hex")
+  } catch {
+    return
+  }
+  marker = { pid: process.pid, hash, loadedAt: new Date().toISOString() }
+  writeMarker()
+}
+
+function markFired(): void {
+  if (!marker || marker.firedAt) return
+  marker.firedAt = new Date().toISOString()
+  writeMarker()
+}
 
 // The project the session belongs to. The scripts resolve `.workflow-dev/` —
 // relative paths, by design, so they behave the same when a human runs them by
@@ -200,6 +257,8 @@ export default {
   id: "workflow-dev",
 
   async setup(ctx: any) {
+    markLoaded()
+
     // Session ids whose opening reminder has already been sent. The context hook
     // fires on every model call, and Claude Code's own gate for this reminder
     // (`source == "startup"`) is a field its event has and OpenCode's does not —
@@ -216,7 +275,7 @@ export default {
       // plugin speaks where the workflow is in use, not in every session.
       if (existsSync(join(cwd, ".workflow-dev"))) {
         const catalog = catalogNotice(event?.tools)
-        if (catalog) intoSystem(event, catalog)
+        if (catalog && intoSystem(event, catalog)) markFired()
       }
 
       const session = String(event?.sessionID ?? "")

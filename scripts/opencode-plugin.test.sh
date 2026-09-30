@@ -56,8 +56,10 @@ printf '# WD-0001\n\n### Implementation Status: In Progress\n' > "$PROJECT/.work
 
 cat > "$TMP/harness.ts" <<'HARNESS'
 import { execFileSync } from "node:child_process"
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const PLUGIN = process.env.PLUGIN_PATH!
 const HOME_DIR = process.env.HOME_DIR!
@@ -347,6 +349,52 @@ ctx.location.directory = PLAIN
 ev = await runContext(catalogEvent("ses_plain", liveTools))
 check("a project without .workflow-dev/ → no catalog notice", systemText(ev) === "")
 ctx.location.directory = PROJECT
+
+// --- 10: the liveness marker ------------------------------------------------
+// Everything above ran as a non-service process (no `--service` in argv), which
+// is what a private `opencode run` server is — so it must have left no marker.
+const LIVE = `${HOME_DIR}/.workflow-dev/opencode-live.json`
+check("a non-service process writes no liveness marker", !existsSync(LIVE))
+
+// A second module instance (a fresh URL defeats the module cache) that sees
+// itself running as the service, with its own stub context.
+process.argv.push("--service")
+const service = (await import(pathToFileURL(PLUGIN).href + "?service")).default
+let serviceContext: ((event: any) => Promise<void>) | undefined
+const serviceCtx = {
+  location: { directory: PLAIN },
+  tool: { hook: async () => ({ dispose: async () => {} }) },
+  session: {
+    hook: async (name: string, cb: (event: any) => Promise<void>) => {
+      if (name === "context") serviceContext = cb
+      return { dispose: async () => {} }
+    },
+    synthetic: async () => {},
+  },
+  event: { subscribe: async () => ({ dispose: async () => {} }) },
+}
+await service.setup(serviceCtx)
+const readLive = () => JSON.parse(readFileSync(LIVE, "utf8"))
+const pluginHash = createHash("sha256").update(readFileSync(PLUGIN)).digest("hex")
+check("the service writes a marker on load", existsSync(LIVE))
+check("...with its own pid", readLive().pid === process.pid)
+check("...and the sha256 of the bytes it loaded", readLive().hash === pluginHash)
+check("...and nothing claiming it fired yet", readLive().firedAt === undefined)
+
+await serviceContext!(catalogEvent("ses_live_plain", liveTools))
+check("a context call outside a workflow-dev project does not count as firing",
+  readLive().firedAt === undefined)
+
+serviceCtx.location.directory = PROJECT
+await serviceContext!(catalogEvent("ses_live", liveTools))
+const firstFired = readLive().firedAt
+check("the notice actually going out records firedAt", typeof firstFired === "string")
+
+await serviceContext!(catalogEvent("ses_live", {}))
+await service.setup(serviceCtx)
+check("a later setup (another project) keeps the evidence",
+  readLive().firedAt === firstFired && readLive().hash === pluginHash)
+process.argv.pop()
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)
