@@ -300,6 +300,54 @@ check("...while the save flow's session fields survive it",
   readFileSync(STATE, "utf8").includes('"opencodeSession":"ses_x"') &&
   readFileSync(STATE, "utf8").includes('"opencodeSeq":7'))
 
+// --- 9: the live-catalog notice ---------------------------------------------
+// `tools` is a record keyed by tool name (measured, 2.0.20). The notice may name
+// only those keys, must leave the record itself untouched — adding a name that
+// is not real is the rejected alias — and must be re-sent on every call, since
+// nothing a context hook adds survives to the next one.
+const catalogEvent = (sessionID: string, tools: unknown) => ({ ...newContextEvent(sessionID), tools })
+const systemText = (event: any): string =>
+  (event.system ?? []).map((p: any) => p?.text ?? "").join("\n")
+const liveTools = {
+  read: { description: "d", input: {} },
+  shell: { description: "d", input: {} },
+  question: { description: "d", input: {} },
+}
+const toolsBefore = JSON.stringify(liveTools)
+
+ev = await runContext(catalogEvent("ses_cat", liveTools))
+const notice = systemText(ev)
+check("catalog → a notice is added to system", notice.includes("[workflow-dev]"))
+check("...naming exactly the event's tools", /exactly: read, shell, question\./.test(notice))
+check("...and no tool the event did not carry", !/\b(edit|write|glob|grep|patch)\b/.test(notice))
+check("...without touching the advertised catalog", JSON.stringify(ev.tools) === toolsBefore)
+check("...and not as a message, which would read as the human's",
+  !injected(ev).includes("available in this session"))
+
+ev = await runContext(catalogEvent("ses_cat", liveTools))
+check("the same session gets it again on the next call", systemText(ev).includes("exactly: read, shell, question."))
+
+const otherTools = { patch: { description: "d", input: {} }, shell: { description: "d", input: {} } }
+ev = await runContext(catalogEvent("ses_cat2", otherTools))
+check("a different catalog → the notice follows it", /exactly: patch, shell\./.test(systemText(ev)))
+
+for (const [label, tools] of [
+  ["missing", undefined],
+  ["empty", {}],
+  ["an array", ["shell"]],
+  ["null", null],
+] as const) {
+  ev = await runContext(catalogEvent("ses_cat_" + label, tools))
+  check(`tools ${label} → no catalog notice`, !systemText(ev).includes("available in this session"))
+}
+
+const PLAIN = join(dirname(PROJECT), "plain")
+mkdirSync(PLAIN, { recursive: true })
+ctx.location.directory = PLAIN
+ev = await runContext(catalogEvent("ses_plain", liveTools))
+check("a project without .workflow-dev/ → no catalog notice", systemText(ev) === "")
+ctx.location.directory = PROJECT
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)
 HARNESS

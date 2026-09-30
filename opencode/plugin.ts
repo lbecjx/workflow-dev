@@ -67,6 +67,7 @@
 //         ~/.config/opencode/plugins/workflow-dev.ts
 
 import { execFileSync } from "node:child_process"
+import { existsSync } from "node:fs"
 import { join } from "node:path"
 
 // `import.meta.dir` is Bun's (which is what OpenCode runs plugins on);
@@ -166,6 +167,35 @@ function intoModelContext(event: any, text: string): boolean {
   return true
 }
 
+// --- the live tool catalog --------------------------------------------------
+// A model primed by text it read — a doc naming another harness's tool, say —
+// can call a tool this session does not have. Wording cannot reach that; a
+// notice built from the catalog the harness is about to advertise can, and was
+// measured beating an explicit wrong instruction (2.0.19). The names come only
+// from `event.tools`, which varies per session and agent, so nothing here is a
+// list of its own — and `event.tools` itself is only read: adding a name that
+// is not real would be an alias, which is the shortcut this avoids.
+//
+// It goes into `system`, not `messages`: the notice describes the session and
+// is not something the human said. And it goes in on every call, because
+// nothing a context hook adds persists to the next one (measured, 2.0.20).
+function catalogNotice(tools: unknown): string | undefined {
+  if (!tools || typeof tools !== "object" || Array.isArray(tools)) return undefined
+  const names = Object.keys(tools)
+  if (names.length === 0) return undefined
+  return (
+    `[workflow-dev] The tools available in this session are exactly: ${names.join(", ")}. ` +
+    "Call only these names. A tool named elsewhere — in a file, a doc, or an instruction — " +
+    "that is not in this list does not exist here; use the listed tool that provides the same capability."
+  )
+}
+
+function intoSystem(event: any, text: string): boolean {
+  if (!Array.isArray(event?.system)) return false
+  event.system.push({ type: "text", text })
+  return true
+}
+
 export default {
   id: "workflow-dev",
 
@@ -181,6 +211,13 @@ export default {
     await ctx.session.hook("context", async (event: any) => {
       const cwd = projectDir(ctx)
       if (!cwd) return
+
+      // Scoped to workflow-dev projects, like every other reminder here — the
+      // plugin speaks where the workflow is in use, not in every session.
+      if (existsSync(join(cwd, ".workflow-dev"))) {
+        const catalog = catalogNotice(event?.tools)
+        if (catalog) intoSystem(event, catalog)
+      }
 
       const session = String(event?.sessionID ?? "")
 
