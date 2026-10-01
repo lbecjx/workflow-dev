@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.19.0
+
+- In a workflow-dev project, the OpenCode plugin adds the session's live tool
+  names to every model call, steering the agent away from tools it does not have.
+- `scripts/opencode-live-check.sh` reports whether the plugin is running in the
+  OpenCode service: `live`, `stale`, `not-loaded` or `not-firing`.
+- `resume` and `help` run that check on OpenCode and report a plugin that is not
+  live.
+- The docs no longer say an OpenCode plugin cannot ask: it can, through the
+  permission hook; the reminders still notify.
+
 ## 1.18.0
 
 - Every reminder Claude Code gets from `hooks/hooks.json` now reaches OpenCode

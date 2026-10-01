@@ -48,9 +48,15 @@ What each harness actually gets, reminder by reminder:
 | "Did `/workflow-dev:validate` pass?" | asks **before** the commit | a notice **after** the command ran |
 | Git History Disclosure review | asks **before** the commit | a notice **after** the command ran |
 | AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
-| Model tiering | asks while the roles are unbound | a notice naming the fix; it cannot ask |
+| Model tiering | asks while the roles are unbound | a notice naming the fix |
 
-OpenCode's plugin API has no way to **raise** a question to the human, so where Claude Code asks, OpenCode notifies. That is a harness limit, not parity. It also means a pre-commit reminder cannot arrive *before* the commit on OpenCode: stopping the command is the only earlier moment, and blocking there would fake a question the human never saw — so what you get is a warning, after the fact.
+Where Claude Code asks, OpenCode currently notifies — so a pre-commit reminder arrives *after* the command there, as a warning rather than a gate. That is where this plugin stands today, not a limit of the harness: OpenCode 2.0.20 lets a plugin turn a permission decision into a real question (`ctx.permission.hook("evaluate")` setting the effect to `ask`), and the reminders do not use it yet.
+
+### The live tool catalog (OpenCode only)
+
+In a workflow-dev project, the OpenCode plugin also adds one note to the system prompt of every model call: the exact tool names that session advertises, read from the harness rather than from any list of its own. It exists because an agent can pick up a tool name from text it read — a doc written for another harness, say — and call a tool the session does not have. The note steers the model; it cannot stop the call, and it reaches only what the harness hands the plugin. Claude Code has no equivalent and needs none here.
+
+Wording alone cannot close that gap. Text an agent reads that is *correct* for one harness — like this repo's own notes on Claude Code's `PreToolUse:Bash` hook — still names a tool another harness lacks, and no rule about wording reaches it. The note is the part that does; the rest is described in [`references/harness-tools.md`](./references/harness-tools.md).
 
 ## Tool names per harness
 
@@ -118,6 +124,14 @@ ln -sfn ~/.config/opencode/plugins/lbecjx/workflow-dev/opencode/plugin.ts \
 ```
 
 The links use `-sfn`: `-f` replaces a link that is already there instead of failing, and `-n` keeps the target's own symlink from being followed, so re-running the block after an update is safe. After a change to the plugin — not to the skills — run `opencode service restart`. The background service caches each plugin's load result, so a plugin that fails to load once keeps failing (logged only as a warning) until the service restarts.
+
+**Check that the plugin is live** after installing or updating — `opencode plugin list` lags the filesystem and is not evidence. Open a session in a workflow-dev project, send one message, then run:
+
+```
+~/.config/opencode/plugins/lbecjx/workflow-dev/scripts/opencode-live-check.sh
+```
+
+It reads the record the plugin writes from inside the running service and answers `live`, `stale` (the file changed since the service loaded it — restart the service), `not-loaded` (no record from the running service: it never loaded, or failed to) or `not-firing` (loaded, but the tool-catalog note has not gone out), with the fix for each. It exits 0 only when live. `/workflow-dev:resume` and `/workflow-dev:help` run the same check on OpenCode and report anything other than `live`.
 
 ## Recommended alongside this plugin
 

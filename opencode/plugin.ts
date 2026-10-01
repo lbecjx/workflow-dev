@@ -23,13 +23,12 @@
 // published `/docs/plugins` page describes v1; the v2 reference is
 // `/v2/docs/build/plugins`.
 //
-// Claude Code can *ask* (a `permissionDecision`); OpenCode's plugin API has no
-// method to *raise* a question to the human, so these post notices and let the
-// work continue rather than breaking the repo's "never deny" rule to fake an
-// ask. OpenCode does expose `ctx.permission.hook`/`reply` (measured on 2.0.19) —
-// a plugin can observe and answer permission requests, so it could deny; what it
-// cannot do is originate the question. The difference is deliberate, and
-// documented as a harness limit rather than as parity.
+// Claude Code can *ask* (a `permissionDecision`); these reminders post notices
+// instead and let the work continue. That is a present choice, not a harness
+// limit: on 2.0.20 `ctx.permission.hook("evaluate", …)` can set a permission's
+// effect to `ask`, which raises a real question to the human (measured). The
+// reminders have not been moved onto it, so they notify rather than ask — and
+// that is documented as such, not as parity.
 //
 // Three things measured on 2.0.19 (2026-09-29) shape everything below; the full
 // probe record is in `.workflow-dev/context/WD-0019.md`:
