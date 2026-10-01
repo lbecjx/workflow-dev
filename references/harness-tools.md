@@ -82,5 +82,20 @@ before the call, not at it, so it can shape the wording that reaches the model
 and not the model's choice. It cannot make an agent call the right tool, and
 nothing in this repo should claim otherwise.
 
+It also cannot reach text that is *right*. A file an agent reads may name a tool
+correctly for the harness it describes — this repo's own notes on Claude Code's
+`PreToolUse:Bash` hook do — and still prime that name in a session on OpenCode,
+where no such tool exists. One of the `No tool named "bash"` errors on record
+came right after an agent read exactly such a note, and no wording rule or guard
+(`scripts/harness-vocab.test.sh` excludes those notes, deliberately) can fix
+text that is not wrong.
+
+On OpenCode the plugin covers part of that gap: in a workflow-dev project it
+adds the session's live tool names to every model call (`opencode/plugin.ts`,
+read from `event.tools`, never a list of its own). That steers the model at the
+moment of the call; it does not bind it. Whether that plugin is actually running
+is a separate question with its own check — `scripts/opencode-live-check.sh` —
+because a plugin that failed to load is otherwise silent.
+
 Browser and device tooling is a separate capability contract with its own
 examples — `../skills/manual-qa/references/tool-mapping.md`.

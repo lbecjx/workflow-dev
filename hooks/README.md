@@ -22,11 +22,14 @@ the Free Software Foundation, either version 3 of the License, or
   covers every reminder registered above by calling the **same** `scripts/*.sh`
   from its own hooks — the wording and the "is this warranted?" test stay in the
   script, so the two harnesses cannot come to different conclusions about either.
-  What a plugin cannot do is *raise* a question: it can inspect a call, block
-  it, or post a notice, and it can even answer a permission request
-  (`ctx.permission.hook`/`reply` — measured on 2.0.19), but there is no `ask`.
-  So where a hook above asks, the plugin notifies — except AI/agent attribution,
-  which blocks on both.
+  Where a hook above asks, the plugin currently notifies — except AI/agent
+  attribution, which blocks on both. That is this plugin's present choice, not
+  a harness limit: on OpenCode 2.0.20 a plugin's
+  `ctx.permission.hook("evaluate", …)` can set a permission's effect to `ask`,
+  which raises a real question to the human. The reminders do not use it yet.
+- The plugin also adds the session's live tool names to every model call in a
+  workflow-dev project — OpenCode only, with no Claude Code counterpart — and
+  records that it is running so `scripts/opencode-live-check.sh` can tell.
 - The one reminder with no verified OpenCode trigger is the compaction pair:
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not

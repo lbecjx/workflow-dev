@@ -56,8 +56,10 @@ printf '# WD-0001\n\n### Implementation Status: In Progress\n' > "$PROJECT/.work
 
 cat > "$TMP/harness.ts" <<'HARNESS'
 import { execFileSync } from "node:child_process"
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 const PLUGIN = process.env.PLUGIN_PATH!
 const HOME_DIR = process.env.HOME_DIR!
@@ -299,6 +301,130 @@ check("firing a compaction event arms pendingSave",
 check("...while the save flow's session fields survive it",
   readFileSync(STATE, "utf8").includes('"opencodeSession":"ses_x"') &&
   readFileSync(STATE, "utf8").includes('"opencodeSeq":7'))
+
+// --- 9: the live-catalog notice ---------------------------------------------
+// `tools` is a record keyed by tool name (measured, 2.0.20). The notice may name
+// only those keys, must leave the record itself untouched — adding a name that
+// is not real is the rejected alias — and must be re-sent on every call, since
+// nothing a context hook adds survives to the next one.
+const catalogEvent = (sessionID: string, tools: unknown) => ({ ...newContextEvent(sessionID), tools })
+const systemText = (event: any): string =>
+  (event.system ?? []).map((p: any) => p?.text ?? "").join("\n")
+const liveTools = {
+  read: { description: "d", input: {} },
+  shell: { description: "d", input: {} },
+  question: { description: "d", input: {} },
+}
+const toolsBefore = JSON.stringify(liveTools)
+
+ev = await runContext(catalogEvent("ses_cat", liveTools))
+const notice = systemText(ev)
+check("catalog → a notice is added to system", notice.includes("[workflow-dev]"))
+check("...naming exactly the event's tools", /exactly: read, shell, question\./.test(notice))
+check("...and no tool the event did not carry", !/\b(edit|write|glob|grep|patch)\b/.test(notice))
+check("...without touching the advertised catalog", JSON.stringify(ev.tools) === toolsBefore)
+check("...and not as a message, which would read as the human's",
+  !injected(ev).includes("available in this session"))
+
+ev = await runContext(catalogEvent("ses_cat", liveTools))
+check("the same session gets it again on the next call", systemText(ev).includes("exactly: read, shell, question."))
+
+const otherTools = { patch: { description: "d", input: {} }, shell: { description: "d", input: {} } }
+ev = await runContext(catalogEvent("ses_cat2", otherTools))
+check("a different catalog → the notice follows it", /exactly: patch, shell\./.test(systemText(ev)))
+
+for (const [label, tools] of [
+  ["missing", undefined],
+  ["empty", {}],
+  ["an array", ["shell"]],
+  ["null", null],
+] as const) {
+  ev = await runContext(catalogEvent("ses_cat_" + label, tools))
+  check(`tools ${label} → no catalog notice`, !systemText(ev).includes("available in this session"))
+}
+
+const PLAIN = join(dirname(PROJECT), "plain")
+mkdirSync(PLAIN, { recursive: true })
+ctx.location.directory = PLAIN
+ev = await runContext(catalogEvent("ses_plain", liveTools))
+check("a project without .workflow-dev/ → no catalog notice", systemText(ev) === "")
+ctx.location.directory = PROJECT
+
+// --- 10: the liveness marker ------------------------------------------------
+// Everything above ran as a non-service process (no `--service` in argv), which
+// is what a private `opencode run` server is — so it must have left no marker.
+const LIVE = `${HOME_DIR}/.workflow-dev/opencode-live.json`
+check("a non-service process writes no liveness marker", !existsSync(LIVE))
+
+// A second module instance (a fresh URL defeats the module cache) that sees
+// itself running as the service, with its own stub context.
+process.argv.push("--service")
+const service = (await import(pathToFileURL(PLUGIN).href + "?service")).default
+let serviceContext: ((event: any) => Promise<void>) | undefined
+const serviceCtx = {
+  location: { directory: PLAIN },
+  tool: { hook: async () => ({ dispose: async () => {} }) },
+  session: {
+    hook: async (name: string, cb: (event: any) => Promise<void>) => {
+      if (name === "context") serviceContext = cb
+      return { dispose: async () => {} }
+    },
+    synthetic: async () => {},
+  },
+  event: { subscribe: async () => ({ dispose: async () => {} }) },
+}
+await service.setup(serviceCtx)
+const readLive = () => JSON.parse(readFileSync(LIVE, "utf8"))
+const pluginHash = createHash("sha256").update(readFileSync(PLUGIN)).digest("hex")
+check("the service writes a marker on load", existsSync(LIVE))
+check("...with its own pid", readLive().pid === process.pid)
+check("...and the sha256 of the bytes it loaded", readLive().hash === pluginHash)
+check("...and nothing claiming it fired yet", readLive().firedAt === undefined)
+
+await serviceContext!(catalogEvent("ses_live_plain", liveTools))
+check("a context call outside a workflow-dev project does not count as firing",
+  readLive().firedAt === undefined)
+
+serviceCtx.location.directory = PROJECT
+await serviceContext!(catalogEvent("ses_live", liveTools))
+const firstFired = readLive().firedAt
+check("the notice actually going out records firedAt", typeof firstFired === "string")
+
+await serviceContext!(catalogEvent("ses_live", {}))
+await service.setup(serviceCtx)
+check("a later setup (another project) keeps the evidence",
+  readLive().firedAt === firstFired && readLive().hash === pluginHash)
+
+await new Promise((r) => setTimeout(r, 5))
+await serviceContext!(catalogEvent("ses_live", liveTools))
+check("the notice going out again does not move firedAt", readLive().firedAt === firstFired)
+
+// `$HOME/.workflow-dev` always exists — the marker itself lives there — so it
+// cannot be what makes a directory a workflow-dev project.
+serviceCtx.location.directory = HOME_DIR
+ev = catalogEvent("ses_home", liveTools)
+await serviceContext!(ev)
+check("a session opened in $HOME (which has .workflow-dev/) → no catalog notice",
+  !systemText(ev).includes("available in this session"))
+ctx.location.directory = HOME_DIR
+ev = await runContext(catalogEvent("ses_home2", liveTools))
+check("...from the main instance either", !systemText(ev).includes("available in this session"))
+ctx.location.directory = PROJECT
+
+// The hash is of the bytes evaluated, not of whatever is on disk by the time
+// `setup` first runs: the service only calls `setup` once a session opens a
+// project, and a file replaced in that gap must read as stale, not live.
+rmSync(LIVE)
+const COPY = join(dirname(PROJECT), "copy", "plugin.ts")
+mkdirSync(dirname(COPY), { recursive: true })
+writeFileSync(COPY, readFileSync(PLUGIN))
+const copyHash = createHash("sha256").update(readFileSync(COPY)).digest("hex")
+const copied = (await import(pathToFileURL(COPY).href + "?late-setup")).default
+writeFileSync(COPY, readFileSync(PLUGIN, "utf8") + "\n// replaced after import\n")
+await copied.setup(serviceCtx)
+check("a file replaced between import and setup → the marker keeps the evaluated bytes' hash",
+  readLive().hash === copyHash)
+process.argv.pop()
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

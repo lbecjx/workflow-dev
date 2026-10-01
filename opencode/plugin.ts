@@ -14,7 +14,11 @@
 // warranted?" test, and this file only decides *when* to ask it and *where* the
 // answer goes. That is why the plugin carries no reminder text at all — a
 // second copy here is free to drift from the one Claude Code asks with, which
-// is the bug the `--message` mode exists to prevent.
+// is the bug the `--message` mode exists to prevent. The one text this file
+// does own is the tool-catalog note (`catalogNotice`): it is OpenCode-only,
+// built from the session's own catalog, and has no Claude Code twin to drift
+// from — so moving it into a script would add a subprocess per model call and
+// buy nothing.
 //
 // OpenCode 2's plugin API is deliberately not OpenCode 1's: a plugin is
 // `export default { id, setup }`, tool hooks are registered imperatively with
@@ -23,13 +27,12 @@
 // published `/docs/plugins` page describes v1; the v2 reference is
 // `/v2/docs/build/plugins`.
 //
-// Claude Code can *ask* (a `permissionDecision`); OpenCode's plugin API has no
-// method to *raise* a question to the human, so these post notices and let the
-// work continue rather than breaking the repo's "never deny" rule to fake an
-// ask. OpenCode does expose `ctx.permission.hook`/`reply` (measured on 2.0.19) —
-// a plugin can observe and answer permission requests, so it could deny; what it
-// cannot do is originate the question. The difference is deliberate, and
-// documented as a harness limit rather than as parity.
+// Claude Code can *ask* (a `permissionDecision`); these reminders post notices
+// instead and let the work continue. That is a present choice, not a harness
+// limit: on 2.0.20 `ctx.permission.hook("evaluate", …)` can set a permission's
+// effect to `ask`, which raises a real question to the human (measured). The
+// reminders have not been moved onto it, so they notify rather than ask — and
+// that is documented as such, not as parity.
 //
 // Three things measured on 2.0.19 (2026-09-29) shape everything below; the full
 // probe record is in `.workflow-dev/context/WD-0019.md`:
@@ -67,13 +70,79 @@
 //         ~/.config/opencode/plugins/workflow-dev.ts
 
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
 
 // `import.meta.dir` is Bun's (which is what OpenCode runs plugins on);
 // `import.meta.dirname` is Node's, which is what can exercise this file's logic
-// without Bun. Taking whichever exists keeps one implementation.
+// without Bun. Taking whichever exists keeps one implementation. Same for the
+// file's own path: Bun's `path`, Node's `filename`.
 const HERE = import.meta.dir ?? import.meta.dirname ?? "."
+const SELF = import.meta.path ?? import.meta.filename
 const SCRIPTS = join(HERE, "..", "scripts")
+
+// --- the liveness marker ----------------------------------------------------
+// A plugin that failed to load leaves nothing but a WARN in a rotating log, the
+// service caches that failure, and `opencode plugin list` lags the filesystem —
+// so "it is installed" proves nothing. What this writes is evidence only a
+// running plugin can produce: which process loaded it, the hash of the bytes it
+// loaded, and when the catalog notice first actually went out.
+// `scripts/opencode-live-check.sh` reads it and must hash the file the same way:
+// sha256 of the file's raw bytes, lowercase hex.
+//
+// Only the long-lived service writes it. A private server (`opencode run
+// --standalone`) runs this same file in its own process; letting it write would
+// overwrite the service's evidence with a run that proves nothing about the
+// service. The path is fixed under the home directory because the service does
+// not inherit the environment of whoever started a session.
+const IS_SERVICE = process.argv.includes("--service")
+const MARKER = join(homedir(), ".workflow-dev", "opencode-live.json")
+
+// Module-level, not per `setup`: the service calls `setup` once per project a
+// session opens, and a second project must not reset the evidence the first
+// one produced.
+let marker: { pid: number; hash: string; loadedAt: string; firedAt?: string } | undefined
+
+function writeMarker(): void {
+  if (!marker) return
+  try {
+    mkdirSync(join(homedir(), ".workflow-dev"), { recursive: true })
+    const tmp = `${MARKER}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(marker) + "\n")
+    renameSync(tmp, MARKER)
+  } catch {
+    // Evidence that cannot be written reads as "not loaded" to the checker —
+    // the conservative answer, and never a reason to take the plugin down.
+  }
+}
+
+// Hashed when the module is evaluated, not when `setup` first runs. The service
+// calls `setup` only once a session opens a project, and a file replaced in that
+// gap would otherwise be recorded as loaded while the old code runs — `live`
+// where the truth is `stale`, the one wrong answer this marker exists to rule
+// out.
+const LOADED_HASH: string | undefined = (() => {
+  if (!IS_SERVICE || !SELF) return undefined
+  try {
+    return createHash("sha256").update(readFileSync(SELF)).digest("hex")
+  } catch {
+    return undefined
+  }
+})()
+
+function markLoaded(): void {
+  if (marker || !LOADED_HASH) return
+  marker = { pid: process.pid, hash: LOADED_HASH, loadedAt: new Date().toISOString() }
+  writeMarker()
+}
+
+function markFired(): void {
+  if (!marker || marker.firedAt) return
+  marker.firedAt = new Date().toISOString()
+  writeMarker()
+}
 
 // The project the session belongs to. The scripts resolve `.workflow-dev/` —
 // relative paths, by design, so they behave the same when a human runs them by
@@ -166,10 +235,41 @@ function intoModelContext(event: any, text: string): boolean {
   return true
 }
 
+// --- the live tool catalog --------------------------------------------------
+// A model primed by text it read — a doc naming another harness's tool, say —
+// can call a tool this session does not have. Wording cannot reach that; a
+// notice built from the catalog the harness is about to advertise can, and was
+// measured beating an explicit wrong instruction (2.0.19). The names come only
+// from `event.tools`, which varies per session and agent, so nothing here is a
+// list of its own — and `event.tools` itself is only read: adding a name that
+// is not real would be an alias, which is the shortcut this avoids.
+//
+// It goes into `system`, not `messages`: the notice describes the session and
+// is not something the human said. And it goes in on every call, because
+// nothing a context hook adds persists to the next one (measured, 2.0.20).
+function catalogNotice(tools: unknown): string | undefined {
+  if (!tools || typeof tools !== "object" || Array.isArray(tools)) return undefined
+  const names = Object.keys(tools)
+  if (names.length === 0) return undefined
+  return (
+    `[workflow-dev] The tools available in this session are exactly: ${names.join(", ")}. ` +
+    "Call only these names. A tool named elsewhere — in a file, a doc, or an instruction — " +
+    "that is not in this list does not exist here; use the listed tool that provides the same capability."
+  )
+}
+
+function intoSystem(event: any, text: string): boolean {
+  if (!Array.isArray(event?.system)) return false
+  event.system.push({ type: "text", text })
+  return true
+}
+
 export default {
   id: "workflow-dev",
 
   async setup(ctx: any) {
+    markLoaded()
+
     // Session ids whose opening reminder has already been sent. The context hook
     // fires on every model call, and Claude Code's own gate for this reminder
     // (`source == "startup"`) is a field its event has and OpenCode's does not —
@@ -181,6 +281,19 @@ export default {
     await ctx.session.hook("context", async (event: any) => {
       const cwd = projectDir(ctx)
       if (!cwd) return
+
+      // Scoped to workflow-dev projects, like every other reminder here — the
+      // plugin speaks where the workflow is in use, not in every session.
+      // `.workflow-dev/context` rather than `.workflow-dev`: the home directory
+      // always has the latter (this plugin's own marker and the tiering opt-out
+      // live there), which would make a session opened in `$HOME` count as a
+      // project. Only `init` creates `context/`. A session opened in a
+      // subdirectory of a project is not matched — the same cwd-relative view
+      // every reminder script takes.
+      if (existsSync(join(cwd, ".workflow-dev", "context"))) {
+        const catalog = catalogNotice(event?.tools)
+        if (catalog && intoSystem(event, catalog)) markFired()
+      }
 
       const session = String(event?.sessionID ?? "")
 

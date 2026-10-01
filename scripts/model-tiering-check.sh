@@ -23,7 +23,8 @@
 #   model-tiering-check.sh --status [payload]
 #       Prints one word and exits 0. OpenCode's plugin reads this, because
 #       OpenCode's `tool.execute.before` can only block or rewrite arguments —
-#       it cannot ask, so OpenCode gets an advisory rather than an ask. The
+#       asking goes through the permission hook instead, which this reminder
+#       does not use yet — so OpenCode gets an advisory rather than an ask. The
 #       payload (the JSON Claude Code would have piped) may be passed as an
 #       argument instead of on stdin, which is how the plugin calls it without
 #       a pipe.
