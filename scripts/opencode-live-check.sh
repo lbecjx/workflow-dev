@@ -45,7 +45,13 @@
 #
 # Test seams (the real values are the defaults): WD_OPENCODE_PLUGIN is the
 # installed entry file, WD_OPENCODE_SERVICE_PID the service's pid ("" = not
-# running). The marker is always read from $HOME.
+# running) — set, it replaces the `pgrep` lookup entirely. The marker is always
+# read from $HOME.
+#
+# Accepted residual: identity is pid + file hash. A restarted service that is
+# handed the old pid back, and then fails to load the plugin, would match a
+# leftover marker. Both coincidences are needed, and the hash is taken when the
+# module is evaluated, so a changed file still reads as stale.
 
 set -u
 
@@ -58,14 +64,6 @@ esac
 PLUGIN="${WD_OPENCODE_PLUGIN-$HOME/.config/opencode/plugins/workflow-dev.ts}"
 MARKER="$HOME/.workflow-dev/opencode-live.json"
 
-if [ "${WD_OPENCODE_SERVICE_PID+set}" = "set" ]; then
-  SERVICE_PID="$WD_OPENCODE_SERVICE_PID"
-else
-  # `serve --service` is the long-lived service; `serve --stdio` is a private
-  # server started by `opencode run`, which is exactly what must not count.
-  SERVICE_PID="$(pgrep -f 'opencode serve --service' 2>/dev/null | head -1)"
-fi
-
 # One flat field from the marker. jq when present; the fallback relies on the
 # marker being the single-line object the plugin writes.
 field() {
@@ -76,6 +74,26 @@ field() {
     sed -n "s/.*\"$1\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$MARKER" | head -1
   fi
 }
+
+if [ "${WD_OPENCODE_SERVICE_PID+set}" = "set" ]; then
+  SERVICE_PID="$WD_OPENCODE_SERVICE_PID"
+else
+  # `serve --service` is the long-lived service; `serve --stdio` is a private
+  # server started by `opencode run`, which is exactly what must not count.
+  # Anchored to the whole command line (`/…/opencode serve --service`, as `ps`
+  # shows it on 2.0.20): an unanchored `-f` also matches a shell or a grep whose
+  # command merely mentions the text. Such a process must never be a candidate —
+  # preferring the marker's pid among candidates would otherwise let a leftover
+  # marker that happens to name one read as live.
+  CANDIDATES="$(pgrep -u "$(id -u)" -f '^([^ ]*/)?opencode serve --service$' 2>/dev/null)"
+  MARKED="$(field pid)"
+  SERVICE_PID=""
+  if [ -n "$MARKED" ] && printf '%s\n' "$CANDIDATES" | grep -qx "$MARKED"; then
+    SERVICE_PID="$MARKED"
+  else
+    SERVICE_PID="$(printf '%s\n' "$CANDIDATES" | head -1)"
+  fi
+fi
 
 sha256_of() {
   if command -v shasum >/dev/null 2>&1; then

@@ -91,7 +91,49 @@ nojq() { PATH="$NOJQ" WD_OPENCODE_PLUGIN="$PLUGIN" WD_OPENCODE_SERVICE_PID=4242 
 printf '{"pid":4242,"hash":"%s","loadedAt":"t"}\n' "$HASH" > "$MARKER"
 [[ "$(nojq)" == "not-firing" ]] && ok "no jq: a missing firedAt is still noticed" || no "no jq: not-firing (got: $(nojq))"
 
-# --- 4: the plugin's hash and this script's hash agree ------------------------
+# --- 4: a marker that is not the plugin's single-line object ------------------
+printf '{"pid":4242,"hash":"%s","load' "$HASH" > "$MARKER"
+[[ "$(status 4242)" == "not-loaded" || "$(status 4242)" == "stale" ]] \
+  && ok "a truncated marker never reads as live (got: $(status 4242))" \
+  || no "a truncated marker never reads as live (got: $(status 4242))"
+printf 'not json at all\n' > "$MARKER"
+[[ "$(status 4242)" == "not-loaded" ]] && ok "a garbage marker → not-loaded" \
+  || no "a garbage marker → not-loaded (got: $(status 4242))"
+
+# --- 5: the real pgrep path picks the service the marker names ----------------
+# A command line that merely contains `opencode serve --service` (a shell, a
+# grep) also matches `pgrep -f`; when it sorts first it must not hide the real
+# service. A stand-in pgrep plays both processes.
+FAKE="$TMP/fake-pgrep"
+mkdir -p "$FAKE"
+printf '#!/bin/sh\nprintf "111\\n4242\\n"\n' > "$FAKE/pgrep"
+chmod +x "$FAKE/pgrep"
+printf '{"pid":4242,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
+got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
+[[ "$got" == "live" ]] && ok "a decoy matching process listed first does not hide the service" \
+  || no "decoy listed first (got: $got)"
+printf '{"pid":999,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
+got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
+[[ "$got" == "not-loaded" ]] && ok "a marker naming none of the candidates → not-loaded" \
+  || no "marker naming no candidate (got: $got)"
+printf '#!/bin/sh\nexit 1\n' > "$FAKE/pgrep"
+got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
+[[ "$got" == "not-loaded" ]] && ok "no matching process → not-loaded" \
+  || no "no matching process (got: $got)"
+
+# With the real pgrep: a process whose command line merely *mentions* the
+# service is never a candidate — even when a leftover marker names its pid,
+# which is the case that would otherwise read as live.
+bash -c 'sleep 30; : opencode serve --service' &
+DECOY=$!
+sleep 1
+printf '{"pid":%s,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$DECOY" "$HASH" > "$MARKER"
+got="$(WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
+kill "$DECOY" 2>/dev/null; wait "$DECOY" 2>/dev/null
+[[ "$got" != "live" ]] && ok "a marker naming a mere look-alike process never reads as live (got: $got)" \
+  || no "a marker naming a look-alike process read as live"
+
+# --- 6: the plugin's hash and this script's hash agree ------------------------
 # Everything above feeds the script a marker it wrote the hash for itself. This
 # runs the real plugin as the service under node, lets it write the marker, and
 # checks the script accepts it — the two formulas meeting, not each in isolation.

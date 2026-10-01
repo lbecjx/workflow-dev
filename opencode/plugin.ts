@@ -14,7 +14,11 @@
 // warranted?" test, and this file only decides *when* to ask it and *where* the
 // answer goes. That is why the plugin carries no reminder text at all — a
 // second copy here is free to drift from the one Claude Code asks with, which
-// is the bug the `--message` mode exists to prevent.
+// is the bug the `--message` mode exists to prevent. The one text this file
+// does own is the tool-catalog note (`catalogNotice`): it is OpenCode-only,
+// built from the session's own catalog, and has no Claude Code twin to drift
+// from — so moving it into a script would add a subprocess per model call and
+// buy nothing.
 //
 // OpenCode 2's plugin API is deliberately not OpenCode 1's: a plugin is
 // `export default { id, setup }`, tool hooks are registered imperatively with
@@ -114,15 +118,23 @@ function writeMarker(): void {
   }
 }
 
-function markLoaded(): void {
-  if (!IS_SERVICE || marker || !SELF) return
-  let hash: string
+// Hashed when the module is evaluated, not when `setup` first runs. The service
+// calls `setup` only once a session opens a project, and a file replaced in that
+// gap would otherwise be recorded as loaded while the old code runs — `live`
+// where the truth is `stale`, the one wrong answer this marker exists to rule
+// out.
+const LOADED_HASH: string | undefined = (() => {
+  if (!IS_SERVICE || !SELF) return undefined
   try {
-    hash = createHash("sha256").update(readFileSync(SELF)).digest("hex")
+    return createHash("sha256").update(readFileSync(SELF)).digest("hex")
   } catch {
-    return
+    return undefined
   }
-  marker = { pid: process.pid, hash, loadedAt: new Date().toISOString() }
+})()
+
+function markLoaded(): void {
+  if (marker || !LOADED_HASH) return
+  marker = { pid: process.pid, hash: LOADED_HASH, loadedAt: new Date().toISOString() }
   writeMarker()
 }
 
@@ -272,7 +284,13 @@ export default {
 
       // Scoped to workflow-dev projects, like every other reminder here — the
       // plugin speaks where the workflow is in use, not in every session.
-      if (existsSync(join(cwd, ".workflow-dev"))) {
+      // `.workflow-dev/context` rather than `.workflow-dev`: the home directory
+      // always has the latter (this plugin's own marker and the tiering opt-out
+      // live there), which would make a session opened in `$HOME` count as a
+      // project. Only `init` creates `context/`. A session opened in a
+      // subdirectory of a project is not matched — the same cwd-relative view
+      // every reminder script takes.
+      if (existsSync(join(cwd, ".workflow-dev", "context"))) {
         const catalog = catalogNotice(event?.tools)
         if (catalog && intoSystem(event, catalog)) markFired()
       }

@@ -394,6 +394,36 @@ await serviceContext!(catalogEvent("ses_live", {}))
 await service.setup(serviceCtx)
 check("a later setup (another project) keeps the evidence",
   readLive().firedAt === firstFired && readLive().hash === pluginHash)
+
+await new Promise((r) => setTimeout(r, 5))
+await serviceContext!(catalogEvent("ses_live", liveTools))
+check("the notice going out again does not move firedAt", readLive().firedAt === firstFired)
+
+// `$HOME/.workflow-dev` always exists — the marker itself lives there — so it
+// cannot be what makes a directory a workflow-dev project.
+serviceCtx.location.directory = HOME_DIR
+ev = catalogEvent("ses_home", liveTools)
+await serviceContext!(ev)
+check("a session opened in $HOME (which has .workflow-dev/) → no catalog notice",
+  !systemText(ev).includes("available in this session"))
+ctx.location.directory = HOME_DIR
+ev = await runContext(catalogEvent("ses_home2", liveTools))
+check("...from the main instance either", !systemText(ev).includes("available in this session"))
+ctx.location.directory = PROJECT
+
+// The hash is of the bytes evaluated, not of whatever is on disk by the time
+// `setup` first runs: the service only calls `setup` once a session opens a
+// project, and a file replaced in that gap must read as stale, not live.
+rmSync(LIVE)
+const COPY = join(dirname(PROJECT), "copy", "plugin.ts")
+mkdirSync(dirname(COPY), { recursive: true })
+writeFileSync(COPY, readFileSync(PLUGIN))
+const copyHash = createHash("sha256").update(readFileSync(COPY)).digest("hex")
+const copied = (await import(pathToFileURL(COPY).href + "?late-setup")).default
+writeFileSync(COPY, readFileSync(PLUGIN, "utf8") + "\n// replaced after import\n")
+await copied.setup(serviceCtx)
+check("a file replaced between import and setup → the marker keeps the evaluated bytes' hash",
+  readLive().hash === copyHash)
 process.argv.pop()
 
 console.log(`\n${pass} passed, ${fail} failed`)
