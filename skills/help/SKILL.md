@@ -33,6 +33,20 @@ Check for `.workflow-dev/context/` in the current project:
    - **"yes"** → "Implementation complete. Next: `/workflow-dev:validate` — it runs a manual-QA pass (this story opted in) before the commit/PR step."
    - **"no", or no row** → "Implementation complete. Next: `/workflow-dev:validate` — it skips manual QA unless you ask; then the commit/PR step."
 
+7. **On OpenCode, also check the plugin is running** — the reminders and the
+   tool-catalog notice come from `opencode/plugin.ts`, and a plugin that failed
+   to load in OpenCode's background service leaves only a warning in a log:
+
+   ```sh
+   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+   if [ "$("$PLUGIN_ROOT"/scripts/list-models.sh --print-harness)" = opencode ]; then
+     "$PLUGIN_ROOT"/scripts/opencode-live-check.sh --message
+   fi
+   ```
+
+   Silent when it is live, and on Claude Code (nothing to check there). If it
+   prints, show that text first in Step 2, as it stands — it names the fix.
+
 ### Step 2: Show status and suggestions
 
 ```

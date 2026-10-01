@@ -69,6 +69,21 @@ already be in context (e.g. via a system reminder or an earlier read). The reads
 1. `git status` — any uncommitted changes?
 2. `git log --oneline -5` — any commits landed since the last session?
 3. Is the branch behind its base? (`git rev-list --count HEAD..origin/[base]`)
+4. **On OpenCode only — is the plugin actually running?** OpenCode loads
+   `opencode/plugin.ts` from its background service, and a plugin that fails
+   to load there leaves only a warning in a log nobody reads. Ask the one
+   script that checks the evidence the running plugin leaves behind:
+
+   ```sh
+   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+   if [ "$("$PLUGIN_ROOT"/scripts/list-models.sh --print-harness)" = opencode ]; then
+     "$PLUGIN_ROOT"/scripts/opencode-live-check.sh --message
+   fi
+   ```
+
+   It prints nothing when the plugin is live, and nothing on Claude Code,
+   whose hooks run from Claude Code itself with nothing to check here. When
+   it does print, carry that text into Step 5 as it stands — it names the fix.
 
 ### Step 5: Present status
 
@@ -87,7 +102,9 @@ Pending:
 Continue?
 ```
 
-Call out uncommitted changes or a behind-base branch if either applies.
+Call out uncommitted changes or a behind-base branch if either applies, and the
+OpenCode plugin check from Step 4 if it printed anything — above "Pending", so
+it is read before the work resumes as if the plugin were running.
 
 ### Step 6: Ready to work
 
