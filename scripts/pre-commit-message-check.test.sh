@@ -130,5 +130,53 @@ done
 # pass for the property that just failed.
 [[ $unknown -eq 0 ]] && ok "every verdict is one of ok|notify|block ($WORDS)"
 
+# --- 7: a command that only *mentions* a commit/PR is data, not a command ---
+# The false positives that motivated command-match.sh. Every fixture here is
+# built in-process: typed as a literal into a shell command, the attribution
+# text would trip the very hook this suite is testing.
+ATTR_LINE='Co-Authored-By: Claude <noreply@anthropic.com>'
+
+# The case that fired live: a heredoc that writes a doc mentioning the verbs.
+MENTION_DOC="$(mk "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nRun git commit, then gh pr create.\nEOF')")"
+[[ "$(status "$MENTION_DOC")" == "ok" ]] && ok "heredoc that writes about gh pr create → ok" || no "heredoc that writes about gh pr create → ok (got: $(status "$MENTION_DOC"))"
+[[ -z "$(hook "$MENTION_DOC")" ]] && ok "…and hook mode is silent" || no "…and hook mode is silent"
+
+# The false deny: the same doc, with attribution text as a fixture inside it.
+MENTION_ATTR="$(mk "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nExample: git commit -m x\n%s\nEOF' "$ATTR_LINE")")"
+[[ "$(status "$MENTION_ATTR")" == "ok" ]] && ok "mention + attribution fixture in a heredoc → ok, no deny" || no "mention + attribution fixture in a heredoc → ok, no deny (got: $(status "$MENTION_ATTR"))"
+[[ -z "$(hook "$MENTION_ATTR")" ]] && ok "…and hook mode is silent" || no "…and hook mode is silent"
+
+for c in 'echo "git commit"' 'grep -rn "gh pr edit" docs/' 'git commit-tree HEAD^{tree}' 'git commit-graph write' '# git commit later'; do
+  [[ "$(status "$(mk "$c")")" == "ok" ]] && ok "mention stays quiet: $c" || no "mention stays quiet: $c (got: $(status "$(mk "$c")"))"
+done
+
+# A real commit still blocks, including the forms a substring match missed.
+for c in 'git -C ../r commit -m "x"' 'git -c k=v commit -m "x"' 'git  commit -m "x"' 'echo "a" && git commit -m "x"'; do
+  REAL_ATTR="$(mk "$(printf '%s\n\n%s' "$c" "$ATTR_LINE")")"
+  [[ "$(status "$REAL_ATTR")" == "block" ]] && ok "real commit + attribution blocks: $c" || no "real commit + attribution blocks: $c (got: $(status "$REAL_ATTR"))"
+done
+REAL_PR_ATTR="$(mk "$(printf 'gh pr create --title "t" --body "b\n%s"' "$ATTR_LINE")")"
+[[ "$(status "$REAL_PR_ATTR")" == "block" ]] && ok "real gh pr create + attribution → block" || no "real gh pr create + attribution → block (got: $(status "$REAL_PR_ATTR"))"
+
+# `maybe` (wrapped where the matcher cannot see) with attribution: ask, never deny.
+MAYBE_ATTR="$(mk "$(printf 'bash -c "git commit -m x\n%s"' "$ATTR_LINE")")"
+[[ "$(status "$MAYBE_ATTR")" == "notify" ]] && ok "bash -c commit + attribution → notify, not block" || no "bash -c commit + attribution → notify, not block (got: $(status "$MAYBE_ATTR"))"
+MAYBE_JSON="$(hook "$MAYBE_ATTR")"
+case "$MAYBE_JSON" in
+  *'"permissionDecision":"ask"'*) ok "…hook mode asks, never denies" ;;
+  *) no "…hook mode asks, never denies (got: $MAYBE_JSON)" ;;
+esac
+MAYBE_TEXT="$(plain "$MAYBE_ATTR")"
+case "$MAYBE_TEXT" in
+  *"Part 12.3"*) ok "…and its reason names the attribution rule" ;;
+  *) no "…and its reason names the attribution rule (got: $MAYBE_TEXT)" ;;
+esac
+[[ "$(envelope_reason "$MAYBE_JSON")" == "$MAYBE_TEXT" ]] && ok "…hook JSON and --message carry the same text" || no "…hook JSON and --message carry the same text"
+[[ "$MAYBE_TEXT" != "$ATTR_TEXT" ]] && ok "…and it is not the deny's wording" || no "…and it is not the deny's wording"
+
+# `maybe` without attribution is the ordinary Part 12 reminder (AC #6: err toward asking).
+MAYBE_CLEAN="$(mk 'bash -c "git commit -m \"feat: add a thing\""')"
+[[ "$(status "$MAYBE_CLEAN")" == "notify" || "$(status "$MAYBE_CLEAN")" == "ok" ]] && ok "bash -c commit, clean → never block" || no "bash -c commit, clean → never block (got: $(status "$MAYBE_CLEAN"))"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))
