@@ -100,38 +100,48 @@ printf 'not json at all\n' > "$MARKER"
 [[ "$(status 4242)" == "not-loaded" ]] && ok "a garbage marker → not-loaded" \
   || no "a garbage marker → not-loaded (got: $(status 4242))"
 
-# --- 5: the real pgrep path picks the service the marker names ----------------
+# --- 5: finding the service in the process list ------------------------------
 # A command line that merely contains `opencode serve --service` (a shell, a
-# grep) also matches `pgrep -f`; when it sorts first it must not hide the real
-# service. A stand-in pgrep plays both processes.
-FAKE="$TMP/fake-pgrep"
+# grep) must never be taken for the service, and when several real ones are
+# listed the one the marker names wins. A stand-in `ps` plays the process list.
+FAKE="$TMP/fake-ps"
 mkdir -p "$FAKE"
-printf '#!/bin/sh\nprintf "111\\n4242\\n"\n' > "$FAKE/pgrep"
-chmod +x "$FAKE/pgrep"
-printf '{"pid":4242,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
-got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
-[[ "$got" == "live" ]] && ok "a decoy matching process listed first does not hide the service" \
-  || no "decoy listed first (got: $got)"
-printf '{"pid":999,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
-got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
-[[ "$got" == "not-loaded" ]] && ok "a marker naming none of the candidates → not-loaded" \
-  || no "marker naming no candidate (got: $got)"
-printf '#!/bin/sh\nexit 1\n' > "$FAKE/pgrep"
-got="$(PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
-[[ "$got" == "not-loaded" ]] && ok "no matching process → not-loaded" \
-  || no "no matching process (got: $got)"
+fake_ps() { printf '#!/bin/sh\ncat <<EOF\n%s\nEOF\n' "$1" > "$FAKE/ps"; chmod +x "$FAKE/ps"; }
+check_with_ps() { PATH="$FAKE:$PATH" WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status; }
 
-# With the real pgrep: a process whose command line merely *mentions* the
-# service is never a candidate — even when a leftover marker names its pid,
-# which is the case that would otherwise read as live.
-bash -c 'sleep 30; : opencode serve --service' &
-DECOY=$!
-sleep 1
-printf '{"pid":%s,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$DECOY" "$HASH" > "$MARKER"
-got="$(WD_OPENCODE_PLUGIN="$PLUGIN" bash "$SCRIPT" --status)"
-kill "$DECOY" 2>/dev/null; wait "$DECOY" 2>/dev/null
-[[ "$got" != "live" ]] && ok "a marker naming a mere look-alike process never reads as live (got: $got)" \
-  || no "a marker naming a look-alike process read as live"
+fake_ps "  111 /opt/x/bin/opencode serve --service
+ 4242 /opt/x/bin/opencode serve --service
+ 5555 /bin/zsh -c : opencode serve --service"
+printf '{"pid":4242,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
+got="$(check_with_ps)"
+[[ "$got" == "live" ]] && ok "two real services listed: the one the marker names is used" \
+  || no "two services, marker names the second (got: $got)"
+printf '{"pid":5555,"hash":"%s","loadedAt":"t","firedAt":"t"}\n' "$HASH" > "$MARKER"
+got="$(check_with_ps)"
+[[ "$got" != "live" ]] && ok "a marker naming a look-alike command line never reads as live (got: $got)" \
+  || no "a marker naming a look-alike read as live"
+fake_ps " 5555 /bin/zsh -c : opencode serve --service"
+got="$(check_with_ps)"
+[[ "$got" == "not-loaded" ]] && ok "only look-alikes running → not-loaded" \
+  || no "only look-alikes (got: $got)"
+
+# The case the TUI exposed: `resume` and `help` run this from OpenCode's shell
+# tool, so the service is the *parent* of the check. BSD `pgrep` silently leaves
+# out its own ancestors; whatever lists processes here must not. A real process
+# whose command line is exactly `<dir>/opencode serve --service` runs the check
+# as its child and records its own pid as the marker's.
+PARENT="$TMP/parent"
+mkdir -p "$PARENT"
+ln -s "$(command -v perl)" "$PARENT/opencode"
+cat > "$PARENT/serve" <<'PERL'
+open(my $m, ">", "$ENV{HOME}/.workflow-dev/opencode-live.json") or die;
+print $m qq({"pid":$$,"hash":"$ENV{WANT_HASH}","loadedAt":"t","firedAt":"t"}\n);
+close $m;
+system("bash", $ENV{CHECK_SCRIPT}, "--status");
+PERL
+got="$(cd "$PARENT" && WANT_HASH="$HASH" CHECK_SCRIPT="$SCRIPT" WD_OPENCODE_PLUGIN="$PLUGIN" ./opencode serve --service)"
+[[ "$got" == "live" ]] && ok "run as a child of the service (from its shell tool) → still finds it" \
+  || no "run as a child of the service (got: $got)"
 
 # --- 6: the plugin's hash and this script's hash agree ------------------------
 # Everything above feeds the script a marker it wrote the hash for itself. This

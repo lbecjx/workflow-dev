@@ -81,11 +81,17 @@ else
   # `serve --service` is the long-lived service; `serve --stdio` is a private
   # server started by `opencode run`, which is exactly what must not count.
   # Anchored to the whole command line (`/…/opencode serve --service`, as `ps`
-  # shows it on 2.0.20): an unanchored `-f` also matches a shell or a grep whose
+  # shows it on 2.0.20): a looser match also catches a shell or a grep whose
   # command merely mentions the text. Such a process must never be a candidate —
   # preferring the marker's pid among candidates would otherwise let a leftover
   # marker that happens to name one read as live.
-  CANDIDATES="$(pgrep -u "$(id -u)" -f '^([^ ]*/)?opencode serve --service$' 2>/dev/null)"
+  #
+  # `ps`, not `pgrep`: BSD `pgrep` leaves out its own ancestors unless given
+  # `-a` (which means something else on Linux), and when `resume` or `help` run
+  # this from OpenCode's shell tool the service *is* an ancestor — so it was
+  # never found, and the check reported a running service as not running.
+  CANDIDATES="$(ps -U "$(id -u)" -o pid=,args= 2>/dev/null \
+    | awk '$0 ~ /^ *[0-9]+ ([^ ]*\/)?opencode serve --service$/ { print $1 }')"
   MARKED="$(field pid)"
   SERVICE_PID=""
   if [ -n "$MARKED" ] && printf '%s\n' "$CANDIDATES" | grep -qx "$MARKED"; then
