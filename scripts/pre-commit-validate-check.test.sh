@@ -161,6 +161,11 @@ if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
 else
   nojq_fires 'echo "done" && git commit -m "x"' && ok "no jq: a commit after an escaped quote still asks" || no "no jq: a commit after an escaped quote still asks"
   nojq_fires 'git commit -m "x"' && ok "no jq: a plain commit asks" || no "no jq: a plain commit asks"
+  # A multi-line command reaches the fallback with \n and \t escaped; the tab
+  # before the closing delimiter of a `<<-` heredoc must come back as a tab.
+  nojq_fires "$(printf 'cat <<-EOF > f\n\tbody\n\tEOF\ngit commit -m x')" && ok "no jq: a commit after a tab-indented <<- heredoc asks" || no "no jq: a commit after a tab-indented <<- heredoc asks"
+  nojq_fires "$(printf 'git\tcommit -m x')" && ok "no jq: a tab between git and commit asks" || no "no jq: a tab between git and commit asks"
+  nojq_fires "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nthen run git commit\nEOF')" && no "no jq: a heredoc mention stays silent" || ok "no jq: a heredoc mention stays silent"
   nojq_fires 'echo "run git commit later"' && no "no jq: a mention stays silent" || ok "no jq: a mention stays silent"
 fi
 

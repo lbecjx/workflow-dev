@@ -77,28 +77,24 @@ else
   INPUT=$(cat)
 fi
 
-if command -v jq >/dev/null 2>&1; then
-  COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-else
-  # Fallback when jq isn't installed: grab the raw JSON string value. Escaped
-  # newlines/quotes inside it are unescaped best-effort below — a message
-  # containing something this doesn't anticipate just won't match, which
-  # fails toward "hook does nothing," not toward a false positive.
-  COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*: *"(.*)"/\1/')
-  COMMAND=$(printf '%s' "$COMMAND" | sed 's/\\n/\n/g; s/\\"/"/g')
-fi
-
-[[ -n "$COMMAND" ]] || quiet
-
-# command-match.sh owns "is this really a commit/PR command?" for every hook —
-# see its header for the real/maybe/no contract. `no` means the words only
-# appear as data (a heredoc body, an `echo`, a `grep`), so there is nothing to
-# review and nothing to deny.
+# command-match.sh owns both questions every commit hook asks: what the command
+# was (one JSON extractor, shared) and whether it is really a commit/PR (see its
+# header for the real/maybe/no contract). `no` means the words only appear as
+# data (a heredoc body, an `echo`, a `grep`), so there is nothing to review and
+# nothing to deny.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=command-match.sh
 source "$HERE/command-match.sh"
 
-VERDICT=$(command_match git-commit,gh-pr-create,gh-pr-edit "$COMMAND")
+COMMAND=$(command_from_payload "$INPUT")
+
+[[ -n "$COMMAND" ]] || quiet
+
+# One scan answers both questions: the strongest verdict over every verb, and the
+# strongest over the PR verbs alone (it decides whether a --title joins the hash).
+SCAN=$(command_match_scan git-commit,gh-pr-create,gh-pr-edit "$COMMAND")
+VERDICT="${SCAN%% *}"
+PR_VERDICT="${SCAN##* }"
 [[ "$VERDICT" == "no" ]] && quiet
 
 # Kept byte-identical to git-message-mark-reviewed.sh's AI_ATTRIBUTION_PATTERN
@@ -166,7 +162,7 @@ fi
 # (`printf '%s\n\n%s' "<title>" "<description>"`). A commit has no separate
 # title, so HASH_TEXT is just the message body.
 HASH_TEXT="$BODY"
-if [[ "$(command_match gh-pr-create,gh-pr-edit "$COMMAND")" != "no" ]]; then
+if [[ "$PR_VERDICT" != "no" ]]; then
   TITLE=$(printf '%s' "$COMMAND" | grep -oE -- '--title[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^--title[[:space:]]+"(.*)"$/\1/')
   [[ -n "$TITLE" ]] && HASH_TEXT=$(printf '%s\n\n%s' "$TITLE" "$BODY")
 fi

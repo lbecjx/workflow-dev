@@ -39,25 +39,16 @@ if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
 else
   INPUT=$(cat)
 fi
-if command -v jq >/dev/null 2>&1; then
-  COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-else
-  # Fallback when jq isn't installed. The string body is "any char but a quote
-  # or backslash, or a backslash plus any char", so an escaped quote inside the
-  # command no longer ends the match — the old `[^"]*` stopped at the first
-  # `\"`, which hid everything after it (`echo "x" && git commit` read as
-  # `echo \`, and a real commit went unreminded).
-  COMMAND=$(printf '%s' "$INPUT" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' | head -1 | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"(.*)"$/\1/')
-  COMMAND=$(printf '%s' "$COMMAND" | sed 's/\\n/\n/g; s/\\"/"/g; s/\\\\/\\/g')
-fi
-
-# command-match.sh owns "is this really a commit?" for every hook — a command
+# command-match.sh owns both questions every commit hook asks: what the command
+# was (one JSON extractor, shared) and whether it is really a commit — a command
 # that only mentions `git commit` (a heredoc body, an `echo`, a `grep`) is data.
 # `maybe` (`bash -c "…"`, `eval`, an unterminated quote) still asks: this hook
 # only ever asks, and a missed real commit is worse than one extra question.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=command-match.sh
 source "$HERE/command-match.sh"
+
+COMMAND=$(command_from_payload "$INPUT")
 
 [[ "$(command_match git-commit "$COMMAND")" == "no" ]] && exit 0
 

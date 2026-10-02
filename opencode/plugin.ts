@@ -405,8 +405,9 @@ export default {
       // The pre-commit reminders. Claude Code fires these *before* the command
       // and can ask; here the command has already run, so what arrives is a
       // notice that the moment has passed — a warning, not a gate. Saying so is
-      // the honest shape (AC #2), and both scripts exit immediately for anything
-      // that is not a commit or PR, so this costs nothing on ordinary calls.
+      // the honest shape (AC #2). Both scripts answer through command-match.sh,
+      // which clears a command with none of the verb words in it before starting
+      // awk, so an ordinary call costs a few milliseconds, not a scan.
       if (event?.tool === "shell" && event?.status === "completed") {
         const review = reminder(
           "pre-commit-message-check.sh",
