@@ -35,6 +35,14 @@ the Free Software Foundation, either version 3 of the License, or
   itself and not on a command that only mentions one. It answers `real`, `maybe`
   (wrapped in `bash -c`, `eval` and similar) or `no`. `maybe` is treated as `real`
   by the reminders, which only ask; the attribution block never denies on it.
+- After a real `gh pr create`/`gh pr edit` succeeds, `scripts/post-pr-url-check.sh`
+  hands back the PR's full URL (WD-0024). On Claude Code it reads
+  `tool_response.exit_code`/`stdout` from the `PostToolUse` payload and stays
+  quiet on a non-zero exit. OpenCode's `execute.after` carries no exit code, so
+  there a URL found in the output is the only signal of success — a documented
+  gap, not a missed check. `gh pr edit` whose own stdout carries no URL falls
+  back to a read-only `gh pr view --json url`, the one script in this plugin
+  that calls out to `gh` itself.
 - The one reminder with no verified OpenCode trigger is the compaction pair:
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not

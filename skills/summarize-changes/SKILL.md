@@ -122,6 +122,12 @@ step isn't optional because the text already passed review here —
 reason. Running this skill first just means that's a formality instead of
 the first real look at the text.
 
+Once the actual `gh pr create`/`gh pr edit` runs, give the human the PR's
+full URL as plain text on its own line — not only as a Markdown link
+label, not only a `#n`. `post-pr-url-check.sh` reminds for this after a
+successful command (WD-0024), but the reminder only reaches the agent;
+relaying it to the human is still this step's job.
+
 ## Principles
 
 - **One skill, three outputs** — commit message, PR title, and PR

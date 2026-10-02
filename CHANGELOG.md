@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.22.0
+
+- After a real `gh pr create` or `gh pr edit` succeeds, a reminder hands back
+  the PR's full URL, so it gets relayed as plain text instead of staying
+  buried in a Markdown link label. `gh pr edit` whose own output carries no
+  URL falls back to a read-only `gh pr view --json url`.
+
 ## 1.21.0
 
 - The commit and PR message review is asked only in a workflow-dev project; the

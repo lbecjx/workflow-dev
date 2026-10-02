@@ -203,6 +203,27 @@ await toolHooks["execute.before"](ordinary)
 await fire(ordinary)
 check("an ordinary shell command → nothing appended", ordinary.result.output.output === "stdout\n")
 
+// WD-0024: a real gh pr create hands back its URL; a mention of one does not.
+const prCreate = shellCall(
+  'gh pr create --title "T" --body "B"',
+  "Creating pull request...\nhttps://github.com/lbecjx/workflow-dev/pull/44",
+  "call_pr_create",
+)
+await toolHooks["execute.before"](prCreate)
+await fire(prCreate)
+check("a real gh pr create → its URL is appended",
+  prCreate.result.output.output.includes("https://github.com/lbecjx/workflow-dev/pull/44"))
+
+const prMention = shellCall(
+  'echo "later this will run gh pr create"',
+  "later this will run gh pr create\n",
+  "call_pr_mention",
+)
+await toolHooks["execute.before"](prMention)
+await fire(prMention)
+check("a mention of gh pr create → no URL appended",
+  !/pull\/\d+/.test(prMention.result.output.output))
+
 // A command that only *mentions* a commit/PR is data: the matcher lives in the
 // shared scripts, so this path must say nothing for it either — and still ask
 // for a real commit written in a form a substring match would have missed.
