@@ -203,6 +203,27 @@ await toolHooks["execute.before"](ordinary)
 await fire(ordinary)
 check("an ordinary shell command → nothing appended", ordinary.result.output.output === "stdout\n")
 
+// A command that only *mentions* a commit/PR is data: the matcher lives in the
+// shared scripts, so this path must say nothing for it either — and still ask
+// for a real commit written in a form a substring match would have missed.
+const mentioned = shellCall('echo "run git commit, then gh pr create"', "stdout\n", "call_mention")
+await toolHooks["execute.before"](mentioned)
+await fire(mentioned)
+check("a command that only mentions a commit → nothing appended",
+  mentioned.result.output.output === "stdout\n")
+
+const docWrite = shellCall("cat > notes.md <<'EOF'\nthen run git commit\nEOF", "stdout\n", "call_doc")
+await toolHooks["execute.before"](docWrite)
+await fire(docWrite)
+check("a heredoc that writes about a commit → nothing appended",
+  docWrite.result.output.output === "stdout\n")
+
+const withDir = shellCall('git -C ../other commit -m "feat: x"', "stdout\n", "call_dir")
+await toolHooks["execute.before"](withDir)
+await fire(withDir)
+check("a real `git -C <dir> commit` → still gets the reminders",
+  /validated/i.test(withDir.result.output.output) && /Git History Disclosure/.test(withDir.result.output.output))
+
 // --- 4: skills — the tiering reminder, unchanged ---------------------------
 posted.length = 0
 await fire(skillCall("workflow-dev-help"))
@@ -268,6 +289,18 @@ check("a clean but unreviewed commit is NOT blocked (it is an ask on Claude Code
 
 blocked = await attempt(shellCall("ls -la"))
 check("a non-commit command is never blocked", blocked === undefined)
+
+// The false deny that motivated the shared matcher: a doc-writing heredoc that
+// mentions a commit and carries attribution text as a fixture is data.
+blocked = await attempt(shellCall("cat > notes.md <<'EOF'\nExample: git commit -m x\nCo-Authored-By: Claude <n@anthropic.com>\nEOF"))
+check("a mention plus an attribution fixture is NOT blocked", blocked === undefined)
+
+blocked = await attempt(shellCall('git -C ../other commit -m "x\n\nCo-Authored-By: Claude <n@anthropic.com>"'))
+check("a real `git -C <dir> commit` with attribution is still blocked",
+  typeof blocked === "string" && /Part 12\.3/.test(blocked!))
+
+blocked = await attempt(shellCall('bash -c "git commit -m x\nCo-Authored-By: Claude <n@anthropic.com>"'))
+check("an ambiguous wrapped commit with attribution is NOT blocked (it asks)", blocked === undefined)
 
 blocked = await attempt({ tool: "skill", status: "completed", sessionID: "ses_test", input: { id: "workflow-dev-help" } })
 check("a non-shell tool is never blocked", blocked === undefined)

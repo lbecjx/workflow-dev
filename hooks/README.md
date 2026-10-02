@@ -30,6 +30,11 @@ the Free Software Foundation, either version 3 of the License, or
 - The plugin also adds the session's live tool names to every model call in a
   workflow-dev project — OpenCode only, with no Claude Code counterpart — and
   records that it is running so `scripts/opencode-live-check.sh` can tell.
+- Both commit/PR hooks ask `scripts/command-match.sh` whether a command is really
+  a `git commit` / `gh pr create` / `gh pr edit`, so they act on the command
+  itself and not on a command that only mentions one. It answers `real`, `maybe`
+  (wrapped in `bash -c`, `eval` and similar) or `no`. `maybe` is treated as `real`
+  by the reminders, which only ask; the attribution block never denies on it.
 - The one reminder with no verified OpenCode trigger is the compaction pair:
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not

@@ -14,6 +14,26 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.20.0
+
+- The commit and PR reminders act on the command itself: an `echo`, a `grep` or
+  a heredoc that writes about `git commit`, `gh pr create` or `gh pr edit` no
+  longer triggers them.
+- The AI/agent attribution block denies only a real commit or PR. A command it
+  cannot read (`bash -c`, `eval`) asks instead.
+- Both reminders recognize `git -C <dir> commit`, `git -c k=v commit`, extra
+  spaces, and a commit after an escaped quote.
+- Both reminders look through wrappers and their options, such as `time -p`,
+  `sudo -u`, `timeout` and `xargs`.
+- A heredoc glued to a redirect, or arithmetic like `$((1<<2))`, no longer hides
+  the commands after it.
+- A command handed to something else to run (a script fed to `bash`,
+  `git submodule foreach`) asks rather than going unnoticed.
+- Both hooks read the command with one shared function, so the attribution block
+  also works without `jq`.
+- `scripts/command-match.sh` is the one place that decides whether a command is
+  a real commit or PR.
+
 ## 1.19.0
 
 - In a workflow-dev project, the OpenCode plugin adds the session's live tool
