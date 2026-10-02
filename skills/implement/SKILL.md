@@ -90,6 +90,9 @@ During implementation, STOP and ask the human when any condition from `reference
 > - **`summarize-changes` runs before the commit/PR, never after:** its Part
 >   12 review and "mark reviewed" step only mean anything ahead of
 >   `git commit` / `gh pr create` / `gh pr edit`.
+> - **After a real `gh pr create`/`gh pr edit`, hand back the full URL** as
+>   plain text on its own line (WD-0024) — `post-pr-url-check.sh` reminds for
+>   this, but relaying it to the human is still this step's job.
 > - **One commit per task group** — don't fold unrelated task groups into one
 >   commit.
 > - **Record the run's ids:** when you spawn a sub-agent, note its id in the

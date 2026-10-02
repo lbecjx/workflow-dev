@@ -37,6 +37,7 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`PreToolUse`** (before a real `git commit` / `gh pr create` / `gh pr edit`) — in a workflow-dev project, asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution, in any repo.
 
   "Real" means the command itself, not a command that mentions one: an `echo`, a `grep`, a heredoc that writes about a commit, `git commit-tree` and the like stay silent. `git -C <dir> commit`, `git -c k=v commit` and a commit after other commands are caught. When a command is wrapped where it cannot be read (`bash -c`, `eval`), it asks rather than guessing, and never blocks.
+- **`PostToolUse`** (after a real `gh pr create` / `gh pr edit` succeeds) — reminds you of the PR's full URL, so it gets relayed as plain text instead of staying buried in a Markdown link label. `gh pr edit` whose own output carries no URL falls back to a read-only `gh pr view --json url`.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
 
 On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminders themselves are delivered by `opencode/plugin.ts` instead, which asks the **same** `scripts/*.sh` each hook calls, so there is one copy of a reminder's wording and of its "is this warranted?" test rather than two that can drift apart. The plugin targets OpenCode 2's API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
@@ -50,6 +51,7 @@ What each harness actually gets, reminder by reminder:
 | "Did `/workflow-dev:validate` pass?" | asks **before** the commit | a notice **after** the command ran |
 | Git History Disclosure review | asks **before** the commit | a notice **after** the command ran |
 | AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
+| PR URL after `gh pr create`/`gh pr edit` | a notice **after** the command ran | a notice **after** the command ran — no exit code available, so a URL found in the output is the only success signal |
 | Model tiering | asks while the roles are unbound | a notice naming the fix |
 
 Where Claude Code asks, OpenCode currently notifies — so a pre-commit reminder arrives *after* the command there, as a warning rather than a gate. That is where this plugin stands today, not a limit of the harness: OpenCode 2.0.20 lets a plugin turn a permission decision into a real question (`ctx.permission.hook("evaluate")` setting the effect to `ask`), and the reminders do not use it yet.

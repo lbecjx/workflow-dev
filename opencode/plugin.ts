@@ -167,12 +167,18 @@ function projectDir(ctx: any): string | undefined {
 // means "say nothing" — a script that cannot run, a payload it does not
 // recognize, or a genuine all-clear: this file has no way to tell them apart
 // and no business guessing.
+// `timeout` bounds every call here, not just the ones that need it — matches
+// Claude Code's 5s `hooks.json` timeout, and since `post-pr-url-check.sh`
+// (WD-0024) can shell out to `gh`, this is the first reminder script able to
+// hang on the network; a timed-out call throws, which the catch below already
+// treats as "say nothing", same as a script that fails outright.
 function reminder(script: string, payload: unknown, cwd: string): string | undefined {
   let out = ""
   try {
     out = execFileSync("bash", [join(SCRIPTS, script), "--message", JSON.stringify(payload)], {
       cwd,
       encoding: "utf8",
+      timeout: 5000,
     })
   } catch {
     return undefined
@@ -415,6 +421,17 @@ export default {
           cwd,
         )
         if (review) intoToolResult(event, review)
+
+        // After a real `gh pr create`/`gh pr edit`, hand back its URL (WD-0024).
+        // No exit code is available here, so a URL found in the output is the
+        // only signal of success this harness can give the script — documented
+        // gap, see hooks/README.md.
+        const prUrl = reminder(
+          "post-pr-url-check.sh",
+          { tool_input: event.input, tool_output: event?.result?.output?.output },
+          cwd,
+        )
+        if (prUrl) intoToolResult(event, prUrl)
 
         // Decided in `execute.before`, where the pre-commit diff still existed —
         // this half only delivers it, and consumes it so a call id cannot be
