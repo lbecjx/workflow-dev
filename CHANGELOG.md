@@ -16,9 +16,10 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 ## 1.21.0
 
-- The commit and PR message review (Part 12) is asked only in a workflow-dev
-  project, like the validate reminder. The attribution block is unchanged and
-  still applies in any repo.
+- The commit and PR message review is asked only in a workflow-dev project; the
+  attribution block still applies everywhere.
+- Commit and PR text kept in a file (`--body "$(cat file)"`, `-F`) is read and
+  checked against the reviewed marker.
 
 ## 1.20.0
 

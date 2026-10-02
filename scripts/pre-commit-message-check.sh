@@ -156,10 +156,59 @@ extract_heredoc_body() {
   [[ -n "$body" ]] && printf '%s' "$body"
 }
 
+# The text of a message kept in a file: `-m "$(cat FILE)"`, `--body "$(cat FILE)"`,
+# `--title "$(cat FILE)"`, `-F FILE`, `--file FILE`, `--body-file FILE`. summarize-
+# changes marks a text as `printf '%s' "$text"`, and `$(cat FILE)` drops trailing
+# newlines the same way, so the file's text hashes to the very value that was
+# marked. Nothing is executed: the path is only read, and only `$VAR` / `${VAR}`
+# from the hook's own environment are expanded. A path that cannot be resolved, a
+# file that does not exist yet, or one that is not readable is "text this cannot
+# read", and the hook stays quiet as its header says.
+cat_arg() {
+  printf '%s' "$COMMAND" | grep -oE -- "$1"'[[:space:]]+"\$\(cat[[:space:]]+("[^"]*"|[^[:space:]")]+)[[:space:]]*\)"' | head -1 | sed -E 's/^.*\$\(cat[[:space:]]+//; s/[[:space:]]*\)"$//'
+}
+file_arg() {
+  printf '%s' "$COMMAND" | grep -oE -- '(-F|--file|--body-file)[[:space:]]+("[^"]*"|[^[:space:]]+)' | head -1 | sed -E 's/^(-F|--file|--body-file)[[:space:]]+//'
+}
+resolve_path() {
+  local p="$1" name val
+  p="${p#\"}"; p="${p%\"}"; p="${p#\'}"; p="${p%\'}"
+  while [[ "$p" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} || "$p" =~ \$([A-Za-z_][A-Za-z0-9_]*) ]]; do
+    name="${BASH_REMATCH[1]}"
+    val="${!name-}"
+    [[ -n "$val" ]] || return 1
+    p="${p//"${BASH_REMATCH[0]}"/$val}"
+  done
+  case "$p" in
+    ""|*'$'*|*'`'*|*'*'*|*'?'*|-) return 1 ;;
+    "~/"*) p="$HOME/${p#\~/}" ;;
+  esac
+  printf '%s' "$p"
+}
+file_text() {
+  local f t
+  f=$(resolve_path "$1") || return 1
+  [[ -f "$f" && -r "$f" ]] || return 1
+  t=$(cat "$f")
+  printf '%s' "$t"
+}
+
 BODY=$(extract_heredoc_body "$COMMAND")
 
 if [[ -z "$BODY" ]]; then
   BODY=$(printf '%s' "$COMMAND" | grep -oE -- '(-m|--body)[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^(-m|--body)[[:space:]]+"(.*)"$/\2/')
+  # Inside double quotes the shell expands `$(...)`, `$VAR` and backticks, so what
+  # sits between the quotes is not the message that will be written:
+  # `--body "$(cat file)"` reads as the fragment `$(cat `. Take the text from the
+  # file when that is what the command does; otherwise it cannot be read.
+  if [[ "$BODY" == *'$'* || "$BODY" == *'`'* ]]; then
+    BODY=""
+    TOKEN=$(cat_arg '(-m|--body)')
+    [[ -n "$TOKEN" ]] && BODY=$(file_text "$TOKEN")
+  elif [[ -z "$BODY" ]]; then
+    TOKEN=$(file_arg)
+    [[ -n "$TOKEN" ]] && BODY=$(file_text "$TOKEN")
+  fi
 fi
 
 [[ -n "$BODY" ]] || quiet
@@ -171,6 +220,12 @@ fi
 HASH_TEXT="$BODY"
 if [[ "$PR_VERDICT" != "no" ]]; then
   TITLE=$(printf '%s' "$COMMAND" | grep -oE -- '--title[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^--title[[:space:]]+"(.*)"$/\1/')
+  if [[ "$TITLE" == *'$'* || "$TITLE" == *'`'* ]]; then
+    TOKEN=$(cat_arg '--title')
+    [[ -n "$TOKEN" ]] || quiet
+    TITLE=$(file_text "$TOKEN") || quiet
+    [[ -n "$TITLE" ]] || quiet
+  fi
   [[ -n "$TITLE" ]] && HASH_TEXT=$(printf '%s\n\n%s' "$TITLE" "$BODY")
 fi
 
