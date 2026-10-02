@@ -43,6 +43,16 @@ the Free Software Foundation, either version 3 of the License, or
   gap, not a missed check. `gh pr edit` whose own stdout carries no URL falls
   back to a read-only `gh pr view --json url`, the one script in this plugin
   that calls out to `gh` itself.
+- `scripts/plugin-update-check.sh` tells the developer, at most once per
+  session per version, when a newer copy of this plugin exists (naming the
+  update command) or is already on disk and only needs a session restart
+  (WD-0029). It is **Claude-Code-only, by scope, not an oversight**:
+  OpenCode's update path is a `git pull` in its clone, not
+  `claude plugin update`, so there is nothing for an OpenCode counterpart to
+  tell — this is the one reminder above with no OpenCode side at all, not a
+  gap in the "same script, both harnesses" rule the rest of this file
+  describes. It emits only `additionalContext`, never a permission decision,
+  on both the events it fires on.
 - The one reminder with no verified OpenCode trigger is the compaction pair:
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not

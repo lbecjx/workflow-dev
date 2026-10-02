@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.23.0
+
+- A skill-time reminder tells you, at most once per session per version, when
+  a newer copy of this plugin is available or already on disk and only needs
+  a session restart. Informational only; it never asks, blocks, or denies.
+
 ## 1.22.0
 
 - After a real `gh pr create` or `gh pr edit` succeeds, a reminder hands back
