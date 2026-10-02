@@ -116,5 +116,58 @@ rm -f "$MARKER"
 [[ -z "$(plain "$COMMIT")" ]] && ok "no context dir → --message silent" || no "no context dir → --message silent"
 [[ -z "$(hook "$COMMIT")" ]] && ok "no context dir → hook mode silent" || no "no context dir → hook mode silent"
 
+# --- 7: which commands count as a commit ------------------------------------
+# With no marker, a command the matcher calls a commit gets the reminder and
+# anything else is silent. The old substring match got both columns wrong.
+mkdir -p "$PROJ/.workflow-dev/context"; rm -f "$MARKER"
+fires() { [[ -n "$(plain "$(mk "$1")")" ]]; }
+
+for c in 'echo "done" && git commit -m "x"' \
+         'git -C ../other commit -m "x"' \
+         'git -c user.name=x commit -m "x"' \
+         'git  commit -m "x"' \
+         'cd /tmp/p && git add -A && git commit -m "x"' \
+         'bash -c "git commit -m x"' \
+         'eval "git commit -m x"'; do
+  fires "$c" && ok "real/ambiguous commit gets the reminder: $c" || no "real/ambiguous commit gets the reminder: $c"
+done
+
+for c in 'echo "run git commit later"' \
+         'grep -rn "git commit" docs/' \
+         'git commit-tree HEAD^{tree}' \
+         'git commit-graph write' \
+         'git log --grep="git commit"' \
+         '# git commit later'; do
+  fires "$c" && no "mention stays silent: $c" || ok "mention stays silent: $c"
+done
+
+# A heredoc that writes about committing — the shape that fired live.
+DOC="$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nthen run git commit\nEOF')"
+fires "$DOC" && no "heredoc that mentions a commit stays silent" || ok "heredoc that mentions a commit stays silent"
+# ...and the same hook still asks for the real commit that follows it.
+fires "$(printf '%s\ngit commit -m x' "$DOC")" && ok "a real commit after such a heredoc still asks" || no "a real commit after such a heredoc still asks"
+
+# --- 8: without jq, the fallback extractor reads past an escaped quote -------
+# Everything after the first \" used to be invisible to it. PATH is narrowed to
+# a directory of links to just the tools the script needs, so jq is absent.
+NOJQ="$TMP/nojq-bin"
+mkdir -p "$NOJQ"
+for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
+done
+nojq_fires() { [[ -n "$( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --message "$(mk "$1")" )" ]]; }
+if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
+  echo "  skip  could not hide jq from the fallback checks"
+else
+  nojq_fires 'echo "done" && git commit -m "x"' && ok "no jq: a commit after an escaped quote still asks" || no "no jq: a commit after an escaped quote still asks"
+  nojq_fires 'git commit -m "x"' && ok "no jq: a plain commit asks" || no "no jq: a plain commit asks"
+  # A multi-line command reaches the fallback with \n and \t escaped; the tab
+  # before the closing delimiter of a `<<-` heredoc must come back as a tab.
+  nojq_fires "$(printf 'cat <<-EOF > f\n\tbody\n\tEOF\ngit commit -m x')" && ok "no jq: a commit after a tab-indented <<- heredoc asks" || no "no jq: a commit after a tab-indented <<- heredoc asks"
+  nojq_fires "$(printf 'git\tcommit -m x')" && ok "no jq: a tab between git and commit asks" || no "no jq: a tab between git and commit asks"
+  nojq_fires "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nthen run git commit\nEOF')" && no "no jq: a heredoc mention stays silent" || ok "no jq: a heredoc mention stays silent"
+  nojq_fires 'echo "run git commit later"' && no "no jq: a mention stays silent" || ok "no jq: a mention stays silent"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

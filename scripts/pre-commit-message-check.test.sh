@@ -130,5 +130,119 @@ done
 # pass for the property that just failed.
 [[ $unknown -eq 0 ]] && ok "every verdict is one of ok|notify|block ($WORDS)"
 
+# --- 7: a command that only *mentions* a commit/PR is data, not a command ---
+# The false positives that motivated command-match.sh. Every fixture here is
+# built in-process: typed as a literal into a shell command, the attribution
+# text would trip the very hook this suite is testing.
+ATTR_LINE='Co-Authored-By: Claude <noreply@anthropic.com>'
+
+# The case that fired live: a heredoc that writes a doc mentioning the verbs.
+MENTION_DOC="$(mk "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nRun git commit, then gh pr create.\nEOF')")"
+[[ "$(status "$MENTION_DOC")" == "ok" ]] && ok "heredoc that writes about gh pr create → ok" || no "heredoc that writes about gh pr create → ok (got: $(status "$MENTION_DOC"))"
+[[ -z "$(hook "$MENTION_DOC")" ]] && ok "…and hook mode is silent" || no "…and hook mode is silent"
+
+# The false deny: the same doc, with attribution text as a fixture inside it.
+MENTION_ATTR="$(mk "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nExample: git commit -m x\n%s\nEOF' "$ATTR_LINE")")"
+[[ "$(status "$MENTION_ATTR")" == "ok" ]] && ok "mention + attribution fixture in a heredoc → ok, no deny" || no "mention + attribution fixture in a heredoc → ok, no deny (got: $(status "$MENTION_ATTR"))"
+[[ -z "$(hook "$MENTION_ATTR")" ]] && ok "…and hook mode is silent" || no "…and hook mode is silent"
+
+for c in 'echo "git commit"' 'grep -rn "gh pr edit" docs/' 'git commit-tree HEAD^{tree}' 'git commit-graph write' '# git commit later'; do
+  [[ "$(status "$(mk "$c")")" == "ok" ]] && ok "mention stays quiet: $c" || no "mention stays quiet: $c (got: $(status "$(mk "$c")"))"
+done
+
+# A real commit still blocks, including the forms a substring match missed.
+for c in 'git -C ../r commit -m "x"' 'git -c k=v commit -m "x"' 'git  commit -m "x"' 'echo "a" && git commit -m "x"'; do
+  REAL_ATTR="$(mk "$(printf '%s\n\n%s' "$c" "$ATTR_LINE")")"
+  [[ "$(status "$REAL_ATTR")" == "block" ]] && ok "real commit + attribution blocks: $c" || no "real commit + attribution blocks: $c (got: $(status "$REAL_ATTR"))"
+done
+REAL_PR_ATTR="$(mk "$(printf 'gh pr create --title "t" --body "b\n%s"' "$ATTR_LINE")")"
+[[ "$(status "$REAL_PR_ATTR")" == "block" ]] && ok "real gh pr create + attribution → block" || no "real gh pr create + attribution → block (got: $(status "$REAL_PR_ATTR"))"
+
+# `maybe` (wrapped where the matcher cannot see) with attribution: ask, never deny.
+MAYBE_ATTR="$(mk "$(printf 'bash -c "git commit -m x\n%s"' "$ATTR_LINE")")"
+[[ "$(status "$MAYBE_ATTR")" == "notify" ]] && ok "bash -c commit + attribution → notify, not block" || no "bash -c commit + attribution → notify, not block (got: $(status "$MAYBE_ATTR"))"
+MAYBE_JSON="$(hook "$MAYBE_ATTR")"
+case "$MAYBE_JSON" in
+  *'"permissionDecision":"ask"'*) ok "…hook mode asks, never denies" ;;
+  *) no "…hook mode asks, never denies (got: $MAYBE_JSON)" ;;
+esac
+MAYBE_TEXT="$(plain "$MAYBE_ATTR")"
+case "$MAYBE_TEXT" in
+  *"Part 12.3"*) ok "…and its reason names the attribution rule" ;;
+  *) no "…and its reason names the attribution rule (got: $MAYBE_TEXT)" ;;
+esac
+[[ "$(envelope_reason "$MAYBE_JSON")" == "$MAYBE_TEXT" ]] && ok "…hook JSON and --message carry the same text" || no "…hook JSON and --message carry the same text"
+[[ "$MAYBE_TEXT" != "$ATTR_TEXT" ]] && ok "…and it is not the deny's wording" || no "…and it is not the deny's wording"
+
+# `maybe` without attribution is the ordinary Part 12 reminder (AC #6: err toward asking).
+MAYBE_CLEAN="$(mk 'bash -c "git commit -m \"feat: add a thing\""')"
+[[ "$(status "$MAYBE_CLEAN")" == "notify" || "$(status "$MAYBE_CLEAN")" == "ok" ]] && ok "bash -c commit, clean → never block" || no "bash -c commit, clean → never block (got: $(status "$MAYBE_CLEAN"))"
+
+# --- 8: real commits that sit behind wrappers, options or heredocs -----------
+# Each of these was `block` under the old substring match and went silent under
+# the first matcher (a lost hard block, not just a lost reminder). `real` blocks;
+# `maybe` (handed to a shell to run) asks and never denies.
+HD="$(printf "cat <<EOF>n.md\nhi\nEOF\ngit commit -m \"x\n\n%s\"" "$ATTR_LINE")"
+AR="$(printf 'n=$((1<<2))\ngit commit -m "x\n\n%s"' "$ATTR_LINE")"
+for c in "$HD" "$AR" \
+         "$(printf 'time -p git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+         "$(printf 'sudo -iu bob git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+         "$(printf 'flock /tmp/l git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+         "$(printf 'timeout 60 git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+         "$(printf 'echo a | xargs git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+         "$(printf '&>log git commit -m "x\n\n%s"' "$ATTR_LINE")"; do
+  label="$(printf '%s' "$c" | head -1)"
+  [[ "$(status "$(mk "$c")")" == "block" ]] && ok "real commit + attribution blocks: $label" || no "real commit + attribution blocks: $label (got: $(status "$(mk "$c")"))"
+done
+for c in "$(printf "bash <<'EOF'\ngit commit -m \"x\n\n%s\"\nEOF" "$ATTR_LINE")" \
+         "$(printf 'git submodule foreach git commit -am "x\n\n%s"' "$ATTR_LINE")"; do
+  label="$(printf '%s' "$c" | head -1)"
+  got="$(status "$(mk "$c")")"
+  [[ "$got" == "notify" ]] && ok "handed to a shell, with attribution → asks, never blocks: $label" || no "handed to a shell, with attribution → asks, never blocks: $label (got: $got)"
+done
+
+# A real commit inside an opaque span (`[[ ]]`, an array literal) is still a
+# commit: the span used to be skipped whole, so the hard block never saw it.
+for c in "$(printf '[[ -n "$(git commit -m "x\n\n%s")" ]] && echo ok' "$ATTR_LINE")" \
+         "$(printf 'out=($(git commit -m "x\n\n%s"))' "$ATTR_LINE")"; do
+  label="$(printf '%s' "$c" | head -1)"
+  got="$(status "$(mk "$c")")"
+  [[ "$got" == "block" ]] && ok "real commit inside an opaque span still blocks: $label" || no "real commit inside an opaque span still blocks: $label (got: $got)"
+done
+
+# A real PR's title is folded into the hash; a mention never takes that branch.
+PR_HASH2="$(printf '%s\n\n%s' 'A title' 'A body.' | shasum | cut -d' ' -f1)"
+mkdir -p "$TMPDIR/workflow-dev-validate/messages"
+: > "$TMPDIR/workflow-dev-validate/messages/$PR_HASH2.json"
+[[ "$(status "$(mk 'gh -R o/r pr create --title "A title" --body "A body."')")" == "ok" ]] \
+  && ok "a real PR with -R: marker built from title+body matches" \
+  || no "a real PR with -R: marker built from title+body matches"
+[[ "$(status "$(mk 'echo "gh pr create --title \"A title\" --body \"A body.\""')")" == "ok" ]] \
+  && ok "a mention of a PR command stays ok whatever the markers hold" \
+  || no "a mention of a PR command stays ok whatever the markers hold"
+rm -rf "$TMPDIR/workflow-dev-validate/messages"
+
+# --- 9: without jq, the shared extractor reads past an escaped quote ----------
+# The deny used to keep the old `[^"]*` extractor: the attribution sat after the
+# first \" and the hard block never saw it.
+NOJQ="$TMP/nojq-bin"
+mkdir -p "$NOJQ"
+for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
+  p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
+done
+nojq_status() { PATH="$NOJQ" bash "$SCRIPT" --status "$1"; }
+if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
+  echo "  skip  could not hide jq from the fallback checks"
+else
+  for c in "$(printf 'git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+           "$(printf 'echo "a" && git commit -m "x\n\n%s"' "$ATTR_LINE")" \
+           "$(printf 'git commit -m "$(cat <<'"'"'EOF'"'"'\nx\n\n%s\nEOF\n)"' "$ATTR_LINE")"; do
+    label="$(printf '%s' "$c" | head -1)"
+    got="$(nojq_status "$(mk "$c")")"
+    [[ "$got" == "block" ]] && ok "no jq: attribution still blocks: $label" || no "no jq: attribution still blocks: $label (got: $got)"
+  done
+  [[ "$(nojq_status "$(mk 'echo "run git commit later"')")" == "ok" ]] && ok "no jq: a mention stays ok" || no "no jq: a mention stays ok"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

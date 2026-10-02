@@ -11,9 +11,10 @@
 # Git History Disclosure dimension (references/rules.md Part 12). A skill
 # can be told to self-review the commit message or PR description it just
 # drafted, but "the skill was told to" isn't certainty it happened — this
-# hook fires on every `git commit` / `gh pr create` / `gh pr edit` command
-# regardless of which skill produced it (or whether any workflow-dev skill
-# was involved at all).
+# hook fires on every real `git commit` / `gh pr create` / `gh pr edit`
+# command regardless of which skill produced it (or whether any workflow-dev
+# skill was involved at all) — and stays silent on a command that only
+# mentions one (command-match.sh decides which is which).
 #
 # Two different enforcement levels, not one:
 # - Most of Part 12 (tone, length, disclosure framing) is a judgment call,
@@ -76,23 +77,25 @@ else
   INPUT=$(cat)
 fi
 
-if command -v jq >/dev/null 2>&1; then
-  COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-else
-  # Fallback when jq isn't installed: grab the raw JSON string value. Escaped
-  # newlines/quotes inside it are unescaped best-effort below — a message
-  # containing something this doesn't anticipate just won't match, which
-  # fails toward "hook does nothing," not toward a false positive.
-  COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*: *"(.*)"/\1/')
-  COMMAND=$(printf '%s' "$COMMAND" | sed 's/\\n/\n/g; s/\\"/"/g')
-fi
+# command-match.sh owns both questions every commit hook asks: what the command
+# was (one JSON extractor, shared) and whether it is really a commit/PR (see its
+# header for the real/maybe/no contract). `no` means the words only appear as
+# data (a heredoc body, an `echo`, a `grep`), so there is nothing to review and
+# nothing to deny.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=command-match.sh
+source "$HERE/command-match.sh"
+
+COMMAND=$(command_from_payload "$INPUT")
 
 [[ -n "$COMMAND" ]] || quiet
 
-case "$COMMAND" in
-  *"git commit"*|*"gh pr create"*|*"gh pr edit"*) ;;
-  *) quiet ;;
-esac
+# One scan answers both questions: the strongest verdict over every verb, and the
+# strongest over the PR verbs alone (it decides whether a --title joins the hash).
+SCAN=$(command_match_scan git-commit,gh-pr-create,gh-pr-edit "$COMMAND")
+VERDICT="${SCAN%% *}"
+PR_VERDICT="${SCAN##* }"
+[[ "$VERDICT" == "no" ]] && quiet
 
 # Kept byte-identical to git-message-mark-reviewed.sh's AI_ATTRIBUTION_PATTERN
 # — if you change one, change the other, or a message could get marked
@@ -102,12 +105,24 @@ esac
 AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
 
 if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
-  ATTRIBUTION_REASON="This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."
-  case "$MODE" in
-    status) printf 'block' ;;
-    message) printf '%s' "$ATTRIBUTION_REASON" ;;
-    *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_REASON" ;;
-  esac
+  if [[ "$VERDICT" == "real" ]]; then
+    ATTRIBUTION_REASON="This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."
+    case "$MODE" in
+      status) printf 'block' ;;
+      message) printf '%s' "$ATTRIBUTION_REASON" ;;
+      *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_REASON" ;;
+    esac
+  else
+    # `maybe`: the command could be a commit/PR wrapped in `bash -c`, `eval`
+    # and the like, or merely mention one. An ambiguous command must not be
+    # refused on a guess, so this asks instead of denying.
+    ATTRIBUTION_ASK_REASON="This command may be a commit/PR (it is wrapped in something the hook cannot read) and it contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule). If it is a commit/PR, remove the attribution before running it; every commit and PR here is attributed to the human alone."
+    case "$MODE" in
+      status) printf 'notify' ;;
+      message) printf '%s' "$ATTRIBUTION_ASK_REASON" ;;
+      *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_ASK_REASON" ;;
+    esac
+  fi
   exit 0
 fi
 
@@ -147,12 +162,10 @@ fi
 # (`printf '%s\n\n%s' "<title>" "<description>"`). A commit has no separate
 # title, so HASH_TEXT is just the message body.
 HASH_TEXT="$BODY"
-case "$COMMAND" in
-  *"gh pr create"*|*"gh pr edit"*)
-    TITLE=$(printf '%s' "$COMMAND" | grep -oE -- '--title[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^--title[[:space:]]+"(.*)"$/\1/')
-    [[ -n "$TITLE" ]] && HASH_TEXT=$(printf '%s\n\n%s' "$TITLE" "$BODY")
-    ;;
-esac
+if [[ "$PR_VERDICT" != "no" ]]; then
+  TITLE=$(printf '%s' "$COMMAND" | grep -oE -- '--title[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^--title[[:space:]]+"(.*)"$/\1/')
+  [[ -n "$TITLE" ]] && HASH_TEXT=$(printf '%s\n\n%s' "$TITLE" "$BODY")
+fi
 
 MESSAGE_HASH=$(printf '%s' "$HASH_TEXT" | shasum | cut -d' ' -f1)
 MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/messages/$MESSAGE_HASH.json"

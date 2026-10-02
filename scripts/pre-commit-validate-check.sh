@@ -39,12 +39,18 @@ if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
 else
   INPUT=$(cat)
 fi
-COMMAND=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*: *"(.*)"/\1/')
+# command-match.sh owns both questions every commit hook asks: what the command
+# was (one JSON extractor, shared) and whether it is really a commit — a command
+# that only mentions `git commit` (a heredoc body, an `echo`, a `grep`) is data.
+# `maybe` (`bash -c "…"`, `eval`, an unterminated quote) still asks: this hook
+# only ever asks, and a missed real commit is worse than one extra question.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=command-match.sh
+source "$HERE/command-match.sh"
 
-case "$COMMAND" in
-  *"git commit"*) ;;
-  *) exit 0 ;;
-esac
+COMMAND=$(command_from_payload "$INPUT")
+
+[[ "$(command_match git-commit "$COMMAND")" == "no" ]] && exit 0
 
 [[ -d ".workflow-dev/context" ]] || exit 0
 
