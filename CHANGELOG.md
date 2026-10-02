@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.21.0
+
+- The commit and PR message review (Part 12) is asked only in a workflow-dev
+  project, like the validate reminder. The attribution block is unchanged and
+  still applies in any repo.
+
 ## 1.20.0
 
 - The commit and PR reminders act on the command itself: an `echo`, a `grep` or

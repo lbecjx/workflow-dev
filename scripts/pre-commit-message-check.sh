@@ -126,6 +126,13 @@ if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
   exit 0
 fi
 
+# Everything below is the Part 12 review ask, which belongs to a workflow-dev
+# project: this plugin is installed per user, so without this it would question
+# every commit and PR in every repo on the machine. The attribution rule above is
+# deliberately not behind this gate; it stays as it was. Same test, from the same
+# working directory, as pre-commit-validate-check.sh.
+[[ -d ".workflow-dev/context" ]] || quiet
+
 # Pulls the body of the first heredoc in the command: everything between a
 # `<<[-]['"]DELIM['"]` opener and the next line that is exactly DELIM.
 extract_heredoc_body() {

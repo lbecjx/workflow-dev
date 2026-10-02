@@ -46,10 +46,17 @@ fi
 export TMPDIR="$TMP/tmpdir"
 mkdir -p "$TMPDIR"
 
+# The review ask belongs to a workflow-dev project, so the hook looks for
+# .workflow-dev/context in its working directory. Run it from a throwaway project
+# that has one; PLAIN_DIR (section 10) has none.
+PROJ="$TMP/proj"
+PLAIN_DIR="$TMP/plain"
+mkdir -p "$PROJ/.workflow-dev/context" "$PLAIN_DIR"
+
 mk() { printf '{"tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)"; }
-hook() { printf '%s' "$1" | bash "$SCRIPT"; }
-status() { bash "$SCRIPT" --status "$1"; }
-plain() { bash "$SCRIPT" --message "$1"; }
+hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$SCRIPT" ); }
+status() { ( cd "$PROJ" && bash "$SCRIPT" --status "$1" ); }
+plain() { ( cd "$PROJ" && bash "$SCRIPT" --message "$1" ); }
 envelope_reason() { printf '%s' "$1" | sed -E 's/.*"permissionDecisionReason":"(.*)"\}\}$/\1/'; }
 
 ATTR="$(mk 'git commit -m "feat: x
@@ -230,7 +237,7 @@ mkdir -p "$NOJQ"
 for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
-nojq_status() { PATH="$NOJQ" bash "$SCRIPT" --status "$1"; }
+nojq_status() { ( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --status "$1" ); }
 if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
   echo "  skip  could not hide jq from the fallback checks"
 else
@@ -243,6 +250,22 @@ else
   done
   [[ "$(nojq_status "$(mk 'echo "run git commit later"')")" == "ok" ]] && ok "no jq: a mention stays ok" || no "no jq: a mention stays ok"
 fi
+
+# --- 10: outside a workflow-dev project the review ask stays quiet -----------
+# The attribution rule is not part of that gate: it blocks in any directory.
+in_plain() { ( cd "$PLAIN_DIR" && bash "$SCRIPT" "$@" ); }
+in_plain_hook() { ( cd "$PLAIN_DIR" && printf '%s' "$1" | bash "$SCRIPT" ); }
+[[ "$(in_plain --status "$CLEAN")" == "ok" ]] && ok "no workflow-dev project: a clean unreviewed commit → ok" || no "no workflow-dev project: a clean unreviewed commit → ok (got: $(in_plain --status "$CLEAN"))"
+[[ -z "$(in_plain --message "$CLEAN")" ]] && ok "no workflow-dev project: --message silent" || no "no workflow-dev project: --message silent"
+[[ -z "$(in_plain_hook "$CLEAN")" ]] && ok "no workflow-dev project: hook mode silent" || no "no workflow-dev project: hook mode silent"
+[[ "$(in_plain --status "$PR")" == "ok" ]] && ok "no workflow-dev project: an unreviewed PR → ok" || no "no workflow-dev project: an unreviewed PR → ok"
+[[ "$(in_plain --status "$ATTR")" == "block" ]] && ok "no workflow-dev project: attribution still blocks" || no "no workflow-dev project: attribution still blocks (got: $(in_plain --status "$ATTR"))"
+case "$(in_plain_hook "$ATTR")" in
+  *'"permissionDecision":"deny"'*) ok "no workflow-dev project: hook mode still denies attribution" ;;
+  *) no "no workflow-dev project: hook mode still denies attribution" ;;
+esac
+# ...and the same clean commit does ask inside a project.
+[[ "$(status "$CLEAN")" == "notify" ]] && ok "workflow-dev project: the same clean commit → notify" || no "workflow-dev project: the same clean commit → notify"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))
