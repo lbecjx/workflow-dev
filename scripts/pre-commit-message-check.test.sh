@@ -46,10 +46,17 @@ fi
 export TMPDIR="$TMP/tmpdir"
 mkdir -p "$TMPDIR"
 
+# The review ask belongs to a workflow-dev project, so the hook looks for
+# .workflow-dev/context in its working directory. Run it from a throwaway project
+# that has one; PLAIN_DIR (section 10) has none.
+PROJ="$TMP/proj"
+PLAIN_DIR="$TMP/plain"
+mkdir -p "$PROJ/.workflow-dev/context" "$PLAIN_DIR"
+
 mk() { printf '{"tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)"; }
-hook() { printf '%s' "$1" | bash "$SCRIPT"; }
-status() { bash "$SCRIPT" --status "$1"; }
-plain() { bash "$SCRIPT" --message "$1"; }
+hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$SCRIPT" ); }
+status() { ( cd "$PROJ" && bash "$SCRIPT" --status "$1" ); }
+plain() { ( cd "$PROJ" && bash "$SCRIPT" --message "$1" ); }
 envelope_reason() { printf '%s' "$1" | sed -E 's/.*"permissionDecisionReason":"(.*)"\}\}$/\1/'; }
 
 ATTR="$(mk 'git commit -m "feat: x
@@ -230,7 +237,7 @@ mkdir -p "$NOJQ"
 for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
-nojq_status() { PATH="$NOJQ" bash "$SCRIPT" --status "$1"; }
+nojq_status() { ( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --status "$1" ); }
 if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
   echo "  skip  could not hide jq from the fallback checks"
 else
@@ -243,6 +250,82 @@ else
   done
   [[ "$(nojq_status "$(mk 'echo "run git commit later"')")" == "ok" ]] && ok "no jq: a mention stays ok" || no "no jq: a mention stays ok"
 fi
+
+# --- 10: outside a workflow-dev project the review ask stays quiet -----------
+# The attribution rule is not part of that gate: it blocks in any directory.
+in_plain() { ( cd "$PLAIN_DIR" && bash "$SCRIPT" "$@" ); }
+in_plain_hook() { ( cd "$PLAIN_DIR" && printf '%s' "$1" | bash "$SCRIPT" ); }
+[[ "$(in_plain --status "$CLEAN")" == "ok" ]] && ok "no workflow-dev project: a clean unreviewed commit → ok" || no "no workflow-dev project: a clean unreviewed commit → ok (got: $(in_plain --status "$CLEAN"))"
+[[ -z "$(in_plain --message "$CLEAN")" ]] && ok "no workflow-dev project: --message silent" || no "no workflow-dev project: --message silent"
+[[ -z "$(in_plain_hook "$CLEAN")" ]] && ok "no workflow-dev project: hook mode silent" || no "no workflow-dev project: hook mode silent"
+[[ "$(in_plain --status "$PR")" == "ok" ]] && ok "no workflow-dev project: an unreviewed PR → ok" || no "no workflow-dev project: an unreviewed PR → ok"
+[[ "$(in_plain --status "$ATTR")" == "block" ]] && ok "no workflow-dev project: attribution still blocks" || no "no workflow-dev project: attribution still blocks (got: $(in_plain --status "$ATTR"))"
+case "$(in_plain_hook "$ATTR")" in
+  *'"permissionDecision":"deny"'*) ok "no workflow-dev project: hook mode still denies attribution" ;;
+  *) no "no workflow-dev project: hook mode still denies attribution" ;;
+esac
+# ...and the same clean commit does ask inside a project.
+[[ "$(status "$CLEAN")" == "notify" ]] && ok "workflow-dev project: the same clean commit → notify" || no "workflow-dev project: the same clean commit → notify"
+
+# --- 11: text the shell expands at run time is not guessed at ------------------
+# `--body "$(cat file)"` used to be read as the fragment `$(cat ` and asked about
+# although the real text sat in a file the hook cannot see.
+for c in 'gh pr create --title "A title" --body "$(cat /tmp/pr-body.txt)"' \
+         'gh pr create --title "$(cat /tmp/pr-title.txt)" --body "A body."' \
+         'gh pr create --title "$(cat /tmp/t)" --body "$(cat /tmp/b)"' \
+         'git commit -m "$(cat /tmp/msg.txt)"' \
+         'git commit -m "fix: costs $5"' \
+         'git commit -m "feat: `date`"'; do
+  got="$(status "$(mk "$c")")"
+  [[ "$got" == "ok" ]] && ok "unreadable text stays quiet: $c" || no "unreadable text stays quiet: $c (got: $got)"
+done
+# Readable text is still reviewed, and the prescribed heredoc form still is.
+[[ "$(status "$(mk 'gh pr create --title "A title" --body "A body, not reviewed."')")" == "notify" ]] \
+  && ok "a readable unreviewed PR still asks" || no "a readable unreviewed PR still asks"
+HD_FORM="$(printf 'git commit -m "$(cat <<'"'"'EOF'"'"'\nfeat: not reviewed yet\nEOF\n)"')"
+[[ "$(status "$(mk "$HD_FORM")")" == "notify" ]] && ok "the heredoc message form still asks" || no "the heredoc message form still asks"
+# Attribution in a command that also reads its text from a file is still caught.
+[[ "$(status "$(mk "$(printf 'gh pr create --title "t" --body "$(cat /tmp/b)"\n%s' "$ATTR_LINE")")")" == "block" ]] \
+  && ok "attribution beside an unreadable body still blocks" || no "attribution beside an unreadable body still blocks"
+
+# --- 12: a message kept in a file is read, hashed, and compared with the marker ---
+# `--body "$(cat file)"`, `-F file` and `--body-file file` carry the text in a file
+# the shell reads at run time. The hook reads the same file, so a text that was
+# marked reviewed passes and one that was not still asks.
+MSG_DIR="$TMPDIR/msgs"
+mkdir -p "$MSG_DIR" "$TMPDIR/workflow-dev-validate/messages"
+printf 'Add a thing\n' > "$MSG_DIR/title.txt"
+printf 'A body that was reviewed.\n\nSecond paragraph.\n' > "$MSG_DIR/body.txt"
+printf 'feat: a message kept in a file\n\nWith a body.\n' > "$MSG_DIR/commit.txt"
+mark() { : > "$TMPDIR/workflow-dev-validate/messages/$(printf '%s' "$1" | shasum | cut -d' ' -f1).json"; }
+unmark() { rm -f "$TMPDIR/workflow-dev-validate/messages/"*.json; }
+
+PR_FILES='gh pr create --title "$(cat "$TMPDIR/msgs/title.txt")" --body "$(cat "$TMPDIR/msgs/body.txt")"'
+PR_FILES_ABS="gh pr create --title \"\$(cat $MSG_DIR/title.txt)\" --body \"\$(cat $MSG_DIR/body.txt)\""
+unmark
+[[ "$(status "$(mk "$PR_FILES")")" == "notify" ]] && ok "PR text in files, not reviewed → asks" || no "PR text in files, not reviewed → asks (got: $(status "$(mk "$PR_FILES")"))"
+mark "$(printf '%s\n\n%s' 'Add a thing' "$(cat "$MSG_DIR/body.txt")")"
+[[ "$(status "$(mk "$PR_FILES")")" == "ok" ]] && ok "PR text in files, marked reviewed ($TMPDIR path) → ok" || no "PR text in files, marked reviewed → ok"
+[[ "$(status "$(mk "$PR_FILES_ABS")")" == "ok" ]] && ok "PR text in files, absolute paths → ok" || no "PR text in files, absolute paths → ok"
+printf 'A different body.\n' > "$MSG_DIR/body.txt"
+[[ "$(status "$(mk "$PR_FILES")")" == "notify" ]] && ok "the file changed after review → asks again" || no "the file changed after review → asks again"
+printf 'A body that was reviewed.\n\nSecond paragraph.\n' > "$MSG_DIR/body.txt"
+
+unmark
+GCF='git commit -F "$TMPDIR/msgs/commit.txt"'
+[[ "$(status "$(mk "$GCF")")" == "notify" ]] && ok "git commit -F file, not reviewed → asks" || no "git commit -F file, not reviewed → asks"
+mark "$(cat "$MSG_DIR/commit.txt")"
+[[ "$(status "$(mk "$GCF")")" == "ok" ]] && ok "git commit -F file, marked reviewed → ok" || no "git commit -F file, marked reviewed → ok"
+[[ "$(status "$(mk "git commit --file $MSG_DIR/commit.txt")")" == "ok" ]] && ok "git commit --file path, marked reviewed → ok" || no "git commit --file path, marked reviewed → ok"
+[[ "$(status "$(mk 'git commit -m "$(cat "$TMPDIR/msgs/commit.txt")"')")" == "ok" ]] && ok "git commit -m \"\$(cat file)\", marked reviewed → ok" || no "git commit -m \"\$(cat file)\", marked reviewed → ok"
+[[ "$(status "$(mk 'gh pr create --title "T" --body-file "$TMPDIR/msgs/commit.txt"')")" == "notify" ]] && ok "--body-file, a PR whose text was not marked → asks" || no "--body-file, a PR whose text was not marked → asks"
+
+# What cannot be read stays quiet: a file that is not there, an unset variable, stdin.
+[[ "$(status "$(mk 'git commit -F "$TMPDIR/msgs/missing.txt"')")" == "ok" ]] && ok "a file that does not exist → quiet" || no "a file that does not exist → quiet"
+[[ "$(status "$(mk 'git commit -F "$NO_SUCH_VAR_XYZ/m.txt"')")" == "ok" ]] && ok "an unset variable in the path → quiet" || no "an unset variable in the path → quiet"
+[[ "$(status "$(mk 'git commit -F -')")" == "ok" ]] && ok "-F - (stdin) → quiet" || no "-F - (stdin) → quiet"
+[[ "$(status "$(mk 'gh pr create --title "$(cat "$TMPDIR/msgs/missing.txt")" --body "A body.")')")" == "ok" ]] && ok "a title file that cannot be read → quiet" || no "a title file that cannot be read → quiet"
+unmark
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

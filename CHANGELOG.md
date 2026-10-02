@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.21.0
+
+- The commit and PR message review is asked only in a workflow-dev project; the
+  attribution block still applies everywhere.
+- Commit and PR text kept in a file (`--body "$(cat file)"`, `-F`) is read and
+  checked against the reviewed marker.
+
 ## 1.20.0
 
 - The commit and PR reminders act on the command itself: an `echo`, a `grep` or
