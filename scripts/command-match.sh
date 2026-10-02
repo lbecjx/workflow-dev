@@ -137,19 +137,34 @@ function build_f(n,    i, x) {
 # -c (a command string), -s (read the script from stdin) and how many operands
 # that are not options. `bash script.sh <<EOF` runs the FILE and feeds the
 # heredoc to it as data; only `bash`, `bash -s` or `ssh host` read stdin as code.
-function shell_flags(i, p,    k) {
-  fl_c = 0; fl_s = 0; fl_nopt = 0
+function shell_flags(i, p,    k, a) {
+  fl_c = 0; fl_s = 0; fl_nopt = 0; fl_rem = ""
   for (k = i + 1; k <= nf; k++) {
-    if (p != "ssh" && f[k] ~ /^-[A-Za-z]*c[A-Za-z]*$/) fl_c = 1
-    else if (p != "ssh" && f[k] ~ /^-[A-Za-z]*s[A-Za-z]*$/) fl_s = 1
-    else if (f[k] !~ /^-/) fl_nopt++
+    a = f[k]
+    if (p == "ssh") {
+      if (a ~ /^-[bcDeFIiJLlmOopQRSWw]$/) { k++; continue }
+      if (a ~ /^-/) continue
+      fl_nopt++
+      if (fl_nopt == 2) fl_rem = a
+      continue
+    }
+    if (a == "-" || a == "/dev/stdin") { fl_s = 1; continue }
+    if (a ~ /^[-+][oO]$/ || a == "--rcfile" || a == "--init-file") { k++; continue }
+    if (a ~ /^-[A-Za-z]*c[A-Za-z]*$/) fl_c = 1
+    else if (a ~ /^-[A-Za-z]*s[A-Za-z]*$/) fl_s = 1
+    else if (a !~ /^[-+][A-Za-z-]/) fl_nopt++
   }
 }
 
-function stdin_is_code(i, p) {
+function stdin_is_code(i, p,    rt) {
   if (p !~ /^(bash|sh|zsh|dash|ksh|fish|su|ssh)$/) return 0
   shell_flags(i, p)
-  if (p == "ssh") return (fl_nopt <= 1)
+  if (p == "ssh") {
+    if (fl_nopt <= 1) return 1
+    split(fl_rem, rt, " ")
+    return (basename(rt[1]) ~ /^(bash|sh|zsh|dash|ksh|fish)$/)
+  }
+  if (p == "su") return !fl_c
   if (fl_c) return 0
   return (fl_s || fl_nopt == 0)
 }
@@ -160,7 +175,7 @@ function stdin_is_code(i, p) {
 function is_shell_cmd(    i, p) {
   build_f(nw)
   i = prog_index()
-  if (i > nf) return 0
+  if (i > nf) return sudo_shell
   p = basename(f[i])
   if (p ~ /^(bash|sh|zsh|dash|ksh|fish|ssh|su)$/) return stdin_is_code(i, p)
   if (p ~ /^(docker|podman|kubectl|lima|limactl|vagrant|multipass|nsenter|chroot)$/ && has_shell_word(i)) return 1
@@ -230,6 +245,7 @@ function tokscan(i, p,    k) {
   }
   if (index(p, SUBST) > 0 || p ~ /^\$/) {
     loose(setargs)
+    loose(vartext)
     for (k = i + 1; k <= nf; k++) {
       if (f[k] == "commit") hit("git-commit", 1)
       else if (f[k] == "pr" && (f[k + 1] == "create" || f[k + 1] == "new")) hit("gh-pr-create", 1)
@@ -246,8 +262,8 @@ function has_shell_word(i,    k) {
 
 # Index of the program word in f[]: past assignments, keywords and wrappers (with
 # their options). Anything a wrapper takes as a command string is looked at here.
-function prog_index(    i, x, o) {
-  i = 1
+function prog_index(    i, x, o, k0) {
+  i = 1; sudo_shell = 0
   while (i <= nf) {
     x = f[i]
     if (x ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { vartext = vartext " " x; i++; continue }
@@ -269,17 +285,22 @@ function prog_index(    i, x, o) {
       }
       continue
     }
-    if (x == "sudo")       { i = skipopts(i + 1, "ugCDhprtTU"); continue }
+    if (x == "sudo") {
+      for (k0 = i + 1; k0 <= nf && f[k0] ~ /^-/; k0++)
+        if (f[k0] ~ /^-[A-Za-z]*[si][A-Za-z]*$/) sudo_shell = 1
+      i = skipopts(i + 1, "ugCDhprtTU")
+      continue
+    }
     if (x == "doas")       { i = skipopts(i + 1, "uC"); continue }
     if (x == "nice")       { i = skipopts(i + 1, "n"); continue }
-    if (x == "ionice")     { i = skipopts(i + 1, "cnpt"); continue }
+    if (x == "ionice")     { i = skipopts(i + 1, "cnp"); continue }
     if (x == "stdbuf")     { i = skipopts(i + 1, "ioe"); continue }
     if (x == "caffeinate") { i = skipopts(i + 1, "tw"); continue }
     if (x == "arch")       { i = skipopts(i + 1, ""); continue }
     if (x == "xargs")      { i = skipopts(i + 1, "InPLsEda"); continue }
     if (x == "timeout")    { i = skipopts(i + 1, "sk") + 1; continue }
     if (x == "flock") {
-      i = skipopts(i + 1, "wEn") + 1
+      i = skipopts(i + 1, "wE") + 1
       if (f[i] == "-c" || f[i] == "--command") loose(f[i + 1])
       continue
     }
@@ -297,6 +318,10 @@ function evaluate(    i, k, p, joined, me, usedpipe, hs, codein) {
   for (k = 1; k <= nf; k++) me = me " " f[k]
   me = me hs
   i = prog_index()
+  if (i > nf && sudo_shell) {
+    loose(hs)
+    if (usedpipe && pipeprog ~ /^(echo|printf|cat)$/) { loose(pipetext); pipedshell = 1 }
+  }
   if (i <= nf) {
     p = basename(f[i])
     if (!usedpipe) pipeprog = p
@@ -304,6 +329,8 @@ function evaluate(    i, k, p, joined, me, usedpipe, hs, codein) {
       setargs = ""
       for (k = i + 2; k <= nf; k++) setargs = setargs " " f[k]
     }
+    if (p ~ /^(export|declare|local|readonly|typeset)$/)
+      for (k = i + 1; k <= nf; k++) vartext = vartext " " f[k]
     if (p == "git") check_git(i + 1, 2)
     else if (p == "gh") check_gh(i + 1, 2)
     else if (p ~ /^(bash|sh|zsh|dash|ksh|fish|eval|ssh|watch|su|trap)$/) {
@@ -384,6 +411,12 @@ function arith_end(s, i,    d, L, c, seen1) {
 }
 
 # Index just past the `}` / `)` matching the opener at i, on this line, or 0.
+# Does s[a..b) hold a command substitution? An opaque span that does is scanned
+# normally instead, so `[[ -n "$(git commit)" ]]` keeps its command visible.
+function has_sub(s, a, b) {
+  return index(substr(s, a, b - a), "$(") > 0 || index(substr(s, a, b - a), BT) > 0
+}
+
 function close_at(s, i, opn, cls,    d, L, c) {
   L = length(s); d = 0
   while (i <= L) {
@@ -419,7 +452,7 @@ function scan(s,    i, L, c, c2, nx, prev, top, dash, op, e, k) {
         else cur = cur "\\" nx
         i += 2; continue
       }
-      if (substr(s, i, 3) == "$((" && (e = arith_end(s, i + 1)) > 0) { cur = cur "A"; inword = 1; i = e; continue }
+      if (substr(s, i, 3) == "$((" && (e = arith_end(s, i + 1)) > 0 && !has_sub(s, i + 3, e)) { cur = cur "A"; inword = 1; i = e; continue }
       if (c2 == "$(") { push("sub"); i += 2; continue }
       if (c == BT) { push("bt"); i++; continue }
       cur = cur c; inword = 1; i++; continue
@@ -433,15 +466,16 @@ function scan(s,    i, L, c, c2, nx, prev, top, dash, op, e, k) {
     if (c == SQ) { sp++; st[sp] = "sq"; inword = 1; i++; continue }
     if (c == DQ) { sp++; st[sp] = "dq"; inword = 1; i++; continue }
     if (c == "#" && !inword) { i = L + 1; continue }
-    if (substr(s, i, 3) == "$((" && (e = arith_end(s, i + 1)) > 0) { cur = cur "A"; inword = 1; i = e; continue }
-    if (c2 == "((" && (e = arith_end(s, i)) > 0) { cur = cur "A"; inword = 1; i = e; continue }
+    if (substr(s, i, 3) == "$((" && (e = arith_end(s, i + 1)) > 0 && !has_sub(s, i + 3, e)) { cur = cur "A"; inword = 1; i = e; continue }
+    if (c2 == "((" && (e = arith_end(s, i)) > 0 && !has_sub(s, i, e)) { cur = cur "A"; inword = 1; i = e; continue }
     if (c2 == "$" SQ) { sp++; st[sp] = "ansi"; inword = 1; i += 2; continue }
-    if (c2 == "${" && (e = close_at(s, i + 1, "{", "}")) > 0) { cur = cur "P"; inword = 1; i = e; continue }
-    if (c2 == "$[" && (k = index(substr(s, i + 2), "]")) > 0) { cur = cur "A"; inword = 1; i += k + 2; continue }
-    if (c2 == "[[" && !inword && substr(s, i + 2, 1) ~ /[ \t]/ && (k = index(substr(s, i + 2), " ]]")) > 0) {
+    if (c2 == "${" && (e = close_at(s, i + 1, "{", "}")) > 0 && !has_sub(s, i, e)) { cur = cur "P"; inword = 1; i = e; continue }
+    if (c2 == "$[" && (k = index(substr(s, i + 2), "]")) > 0 && !has_sub(s, i, i + k + 2)) { cur = cur "A"; inword = 1; i += k + 2; continue }
+    if (c2 == "[[" && !inword && substr(s, i + 2, 1) ~ /[ \t]/ && (k = index(substr(s, i + 2), " ]]")) > 0 && !has_sub(s, i, i + k + 4)) {
       cur = cur "T"; inword = 1; i += k + 4; continue
     }
-    if (c == "(" && inword && cur ~ /^[A-Za-z_][A-Za-z0-9_]*[+]?=$/ && (e = close_at(s, i, "(", ")")) > 0) {
+    if (c == "(" && inword && cur ~ /^[A-Za-z_][A-Za-z0-9_]*[+]?=$/ && (e = close_at(s, i, "(", ")")) > 0 && !has_sub(s, i, e)) {
+      vartext = vartext " " substr(s, i, e - i)
       cur = cur "A"; i = e; continue
     }
     if (c2 == "$(") { push("sub"); i += 2; continue }

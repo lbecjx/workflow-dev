@@ -232,6 +232,34 @@ expect $GC maybe "bash -c \"\$(printf ...)\""         "bash -c \"\$(printf 'git 
 expect $GC maybe "sh -c \"\$(echo ...)\""             'sh -c "$(echo git commit -m x)"'
 expect $GC maybe "echo \"\$(heredoc)\" | bash"        "$(printf "echo \"\$(cat <<'EOF'\ngit commit -m x\nEOF\n)\" | bash")"
 
+echo "a real substitution inside an opaque token stays visible"
+expect $GC real "inside [[ ]]"                         '[[ -n "$(git commit -m x 2>&1)" ]] && echo ok'
+expect $GC real "backticks inside [[ ]]"               '[[ -n `git commit -m x` ]]'
+expect $GC real "inside an array literal"              'out=($(git commit -m x 2>&1))'
+expect $PC real "gh inside an array literal"           'ids=($(gh pr create --fill))'
+expect $GC real "inside a dollar-brace default"              'echo ${out:-$(git commit -m x)}'
+expect $GC real "inside a dollar-bracket"                      'echo $[ $(git commit -q -m x; echo 1) + 1 ]'
+expect $GC real "inside (( ... ))"                     '(( $(git commit -q -m x >/dev/null; echo 1) ))'
+expect $GC real "inside dollar-double-paren"                    'echo $(( $(git commit -m x | wc -l) + 1 ))'
+expect $GC maybe "an array holding the command, then \"\${arr[@]}\"" 'cmd=(git commit -m x); "${cmd[@]}"'
+expect $GC maybe "a variable holding the command, then \$cmd"        'cmd="git commit -m x"; $cmd'
+expect $GC maybe "an exported variable run by bash -c"               'export C="git commit -m x"; bash -c "$C"'
+
+echo "wrapper options that take no value"
+expect $GC no   "flock -n takes no value (a mention)"  'flock -n /tmp/l echo git commit -m x'
+expect $GC real "flock -n lockfile git commit"         'flock -n /tmp/l git commit -m x'
+expect $GC no   "ionice -t takes no value (a mention)" 'ionice -t echo git commit -m x'
+expect $GC real "ionice -c 3 git commit"               'ionice -c 3 git commit -m x'
+
+echo "what a shell reads as a script, with options in the way"
+for c in "bash -o pipefail" "sh -o errexit" "bash -O extglob" "bash +x" "bash --rcfile f" "bash -x -" "bash /dev/stdin" "sudo -s" "sudo -iu bob" "su - bob" "sudo su - bob" \
+         "ssh -p 2222 host" "ssh -i key host" "ssh -o Opt=v host" "ssh -l bob host" "ssh -J jump host" "ssh host bash -s" "ssh host sh"; do
+  expect $GC maybe "heredoc into: $c" "$(printf "%s <<'EOF'\ngit commit -m x\nEOF" "$c")"
+done
+expect $GC maybe "piped into bash -o pipefail"         "printf 'git commit -m x\\n' | bash -o pipefail"
+expect $GC no    "ssh host cat <<EOF stays data"        "$(printf "ssh host cat <<'EOF'\ngit commit -m x\nEOF")"
+expect $GC no    "su -c with a data heredoc"            "$(printf "su bob -c 'ls' <<'EOF'\ngit commit -m x\nEOF")"
+
 echo "one scan answers both questions"
 [[ "$(command_match_scan git-commit,gh-pr-create,gh-pr-edit 'gh pr create --fill')" == "real real" ]] && ok "a PR → real real" || no "a PR → real real"
 [[ "$(command_match_scan git-commit,gh-pr-create,gh-pr-edit 'git commit -m x')" == "real no" ]] && ok "a commit → real no" || no "a commit → real no"

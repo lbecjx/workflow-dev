@@ -201,6 +201,15 @@ for c in "$(printf "bash <<'EOF'\ngit commit -m \"x\n\n%s\"\nEOF" "$ATTR_LINE")"
   [[ "$got" == "notify" ]] && ok "handed to a shell, with attribution → asks, never blocks: $label" || no "handed to a shell, with attribution → asks, never blocks: $label (got: $got)"
 done
 
+# A real commit inside an opaque span (`[[ ]]`, an array literal) is still a
+# commit: the span used to be skipped whole, so the hard block never saw it.
+for c in "$(printf '[[ -n "$(git commit -m "x\n\n%s")" ]] && echo ok' "$ATTR_LINE")" \
+         "$(printf 'out=($(git commit -m "x\n\n%s"))' "$ATTR_LINE")"; do
+  label="$(printf '%s' "$c" | head -1)"
+  got="$(status "$(mk "$c")")"
+  [[ "$got" == "block" ]] && ok "real commit inside an opaque span still blocks: $label" || no "real commit inside an opaque span still blocks: $label (got: $got)"
+done
+
 # A real PR's title is folded into the hash; a mention never takes that branch.
 PR_HASH2="$(printf '%s\n\n%s' 'A title' 'A body.' | shasum | cut -d' ' -f1)"
 mkdir -p "$TMPDIR/workflow-dev-validate/messages"
