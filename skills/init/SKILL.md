@@ -193,3 +193,11 @@ Rules:
    Phase 1-alt's extraction steps run. If the marker file doesn't exist,
    skip — `init` proceeds exactly as it would with no `local-backlog`
    installed.
+   Why: without this, a story started via `init` never calls
+   `update-status` mid-story, so `update-status`'s own "propose In
+   Progress + Planner" step (`local-backlog`'s `LB-0008`) never gets a
+   chance to fire — a story stays `Not Started` for the entire time it's
+   actively worked on, then jumps straight to `Done`, never reaching the
+   Planner board. Reported from the `backlog-viewer` project
+   (`BV-0001`, `BV-0003`); tracked as `LB-0018` in `local-backlog`'s own
+   backlog.
