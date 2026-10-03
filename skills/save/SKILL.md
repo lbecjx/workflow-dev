@@ -42,6 +42,8 @@ Context lives in **two files**:
 
 ## Execution
 
+Read ECOSYSTEM SECTION.
+
 ### Step 1: Find the context files
 
 Look for `.workflow-dev/context/` in the current project:
@@ -180,3 +182,10 @@ This has actually happened, wrong, in a real session: the confirmation shown to 
 - Always show the summary before saving — the human confirms what gets persisted.
 - Update the timestamp on every file you touch.
 - If REPO.md doesn't exist yet but repo-level knowledge surfaced, create it — use an existing REPO.md as the structural reference.
+
+## ECOSYSTEM SECTION
+
+Full contract and how-to: see `../../ECOSYSTEM.md`.
+
+Rules:
+1. If Step 5 just wrote `Implementation Status: Done` or `Implementation Status: Won't Do`, the story source is a local `.md` file whose path matches `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part of the filename, e.g. `LB-0018`), and `local-backlog/.backlog-config.json` exists at the repo root, invoke `/local-backlog:update-status <CODE> "Done"`. Always infer the resolution from the story's context — one of `Done`, `Won't Do`, `Duplicate`, `Cannot Reproduce`. With a human present, ask them to confirm or change the inferred resolution; running autonomously, use the inferred one and record it without asking. If the marker file doesn't exist, skip.

@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.24.0
+
+- `/workflow-dev:init` moves a `local-backlog` story to `In Progress` when
+  starting it, and `/workflow-dev:save` closes it when it records `Done` or
+  `Won't Do`.
+- `ECOSYSTEM.md` documents how `lbecjx` plugins detect and call each other.
+
 ## 1.23.0
 
 - A skill-time reminder tells you, at most once per session per version, when

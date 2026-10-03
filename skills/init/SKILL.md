@@ -37,6 +37,8 @@ If the input matches neither shape, ask which one it is before proceeding.
 
 ## Execution
 
+Read ECOSYSTEM SECTION.
+
 **Read every file under `references/` before executing** — they carry the detailed workflow this SKILL.md only summarizes.
 
 ### Phase 0: Resolve the context-tracking preference
@@ -178,3 +180,16 @@ Report back:
 - Both context files are living documents, updated as work progresses.
 - REPO.md accretes — each story may surface new facts about the repo; extend it, never regenerate it from scratch.
 - Story files are disposable — once merged, a story's context file can be archived or deleted. REPO.md persists.
+
+## ECOSYSTEM SECTION
+
+Full contract and how-to: see `../../ECOSYSTEM.md`.
+
+Rules:
+1. If the story source is a local `.md` file whose path matches
+   `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part
+   of the filename, e.g. `LB-0018`, not the whole slug), and
+   `local-backlog/.backlog-config.json` exists at the repo root, invoke
+   `/local-backlog:update-status <CODE> "In Progress"` before any of
+   Phase 1-alt's extraction steps run. If the marker file doesn't exist,
+   skip.
