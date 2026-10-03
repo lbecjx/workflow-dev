@@ -37,6 +37,8 @@ If the input matches neither shape, ask which one it is before proceeding.
 
 ## Execution
 
+Read ECOSYSTEM SECTION.
+
 **Read every file under `references/` before executing** — they carry the detailed workflow this SKILL.md only summarizes.
 
 ### Phase 0: Resolve the context-tracking preference
@@ -58,7 +60,6 @@ If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.
 
 ### Phase 1-alt: Extract from a local `.md` file (replaces Phase 1 when a file path was given)
 
-0. Read ECOSYSTEM SECTION.
 1. Read the file in full.
 2. Extract, best-effort, from its structure: title (first heading, else filename), description, acceptance criteria (look for headings or checkboxes like "AC" or "Acceptance Criteria," including non-English equivalents).
 3. If the file doesn't cleanly separate description from ACs, treat the whole content as description and ask the human to point out the ACs — never invent ACs the file doesn't state.
@@ -185,19 +186,10 @@ Report back:
 Full contract and how-to: see `../../ECOSYSTEM.md`.
 
 Rules:
-1. **Contract #1 — start a story.** Triggered from Phase 1-alt, step 0.
-   If the story source is a local `.md` file whose path matches
-   `local-backlog/<CODE>-*.md`, and `local-backlog/.backlog-config.json`
-   exists at the repo root, invoke
+1. If the story source is a local `.md` file whose path matches
+   `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part
+   of the filename, e.g. `LB-0018`, not the whole slug), and
+   `local-backlog/.backlog-config.json` exists at the repo root, invoke
    `/local-backlog:update-status <CODE> "In Progress"` before any of
    Phase 1-alt's extraction steps run. If the marker file doesn't exist,
-   skip — `init` proceeds exactly as it would with no `local-backlog`
-   installed.
-   Why: without this, a story started via `init` never calls
-   `update-status` mid-story, so `update-status`'s own "propose In
-   Progress + Planner" step (`local-backlog`'s `LB-0008`) never gets a
-   chance to fire — a story stays `Not Started` for the entire time it's
-   actively worked on, then jumps straight to `Done`, never reaching the
-   Planner board. Reported from the `backlog-viewer` project
-   (`BV-0001`, `BV-0003`); tracked as `LB-0018` in `local-backlog`'s own
-   backlog.
+   skip.
