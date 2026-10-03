@@ -58,6 +58,7 @@ If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.
 
 ### Phase 1-alt: Extract from a local `.md` file (replaces Phase 1 when a file path was given)
 
+0. Read ECOSYSTEM SECTION.
 1. Read the file in full.
 2. Extract, best-effort, from its structure: title (first heading, else filename), description, acceptance criteria (look for headings or checkboxes like "AC" or "Acceptance Criteria," including non-English equivalents).
 3. If the file doesn't cleanly separate description from ACs, treat the whole content as description and ask the human to point out the ACs — never invent ACs the file doesn't state.
@@ -178,3 +179,17 @@ Report back:
 - Both context files are living documents, updated as work progresses.
 - REPO.md accretes — each story may surface new facts about the repo; extend it, never regenerate it from scratch.
 - Story files are disposable — once merged, a story's context file can be archived or deleted. REPO.md persists.
+
+## ECOSYSTEM SECTION
+
+Full contract and how-to: see `../../ECOSYSTEM.md`.
+
+Rules:
+1. **Contract #1 — start a story.** Triggered from Phase 1-alt, step 0.
+   If the story source is a local `.md` file whose path matches
+   `local-backlog/<CODE>-*.md`, and `local-backlog/.backlog-config.json`
+   exists at the repo root, invoke
+   `/local-backlog:update-status <CODE> "In Progress"` before any of
+   Phase 1-alt's extraction steps run. If the marker file doesn't exist,
+   skip — `init` proceeds exactly as it would with no `local-backlog`
+   installed.
