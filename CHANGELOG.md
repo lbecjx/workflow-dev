@@ -18,7 +18,8 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 - `/workflow-dev:init` moves a `local-backlog` story to `In Progress` when
   starting it, and `/workflow-dev:save` closes it when it records `Done` or
-  `Won't Do`.
+  `Won't Do`. When it asks which resolution applies, the one inferred from
+  what the story shows happened is listed first as the recommended option.
 - `ECOSYSTEM.md` documents how `lbecjx` plugins detect and call each other.
 
 ## 1.23.0
