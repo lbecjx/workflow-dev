@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.25.0
+
+- The session-start greeting no longer picks a story by filename order. It
+  names the story the git branch points at (a branch carrying the story's code,
+  or one whose words clearly match a single story's title). With several
+  `init`'d stories and no way to tell, it lists them in a table instead of
+  guessing; with exactly one, it behaves as before.
+
 ## 1.24.0
 
 - `/workflow-dev:init` moves a `local-backlog` story to `In Progress` when

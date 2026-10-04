@@ -77,25 +77,58 @@ is_in_progress() {
 # $1 = the reminder text. One copy, two envelopes: `--message` prints it plain
 # for OpenCode's plugin, everything else wraps it in the JSON Claude Code's
 # SessionStart reads. Never build the text twice — a second copy is the bug
-# this split exists to prevent.
+# this split exists to prevent. The text may span lines (the candidate table
+# below does); JSON cannot carry a raw newline, so hook mode escapes each one to
+# `\n`. Callers keep `"` and `\` out of the text, so nothing else needs escaping.
 suggest() {
   if [[ "$MODE" == "message" ]]; then
     printf '%s' "$1"
     exit 0
   fi
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$1"
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' \
+    "$(printf '%s' "$1" | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')"
 }
 
-# Check every story file, not just one — a project can have several (done,
-# won't-do, in-progress) and only the in-progress ones matter here.
-while IFS= read -r STORY_FILE; do
-  # Cheap gate first: only our own Implementation Status matters here — the
-  # section 1.1 Story `Status` just mirrors the source ticket and is a
-  # different clock (it can say "In Review" while we're Done, or "Done" while
-  # we still have task groups left). Done and Won't Do are both closed on our
-  # side, nothing to resume.
-  is_in_progress "$STORY_FILE" || continue
+# --- Which story is the live one? ---------------------------------------------
+# Every `init`'d story reads "In Progress" until it is closed (the template
+# writes it at creation), so "In Progress" means "was init'd", not "is being
+# worked on". Picking the first one by filename order — what this hook used to
+# do — named a finished story, or one nobody touched, as the one to resume.
+# The decision now goes through the branch, strongest signal first:
+#   1. the branch name carries a story's code (wd-0021-… → WD-0021): that story;
+#   2. else the branch name shares at least two words with exactly one story's
+#      title (the first line of its context file), more than any other: that one;
+#   3. else, exactly one init'd story: it is the active one (as before);
+#   4. else nothing can be inferred: list every init'd story in a table and let
+#      the person say which, rather than guess.
+# Only `.workflow-dev/` and git are read — never another plugin's data.
 
+# A story's title: its context file's first line, minus "# " and the code.
+story_title() {
+  head -1 "$1" | sed -E 's/^#+[[:space:]]*//; s/^[A-Za-z]+-[0-9]+:?[[:space:]]*//' | tr -d '"\\' | tr '|' '/'
+}
+
+# Lowercase words of 3+ letters, one per line, sorted, minus names that say
+# nothing about a story (branch prefixes, trunk names, filler).
+words() {
+  printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '\n' \
+    | awk 'length($0) >= 3 && $0 !~ /^(feat|fix|chore|wip|main|master|head|dev|develop|the|and|for|with)$/' | sort -u
+}
+
+# Does branch $1 carry story code $2 (WD-0021 in wd-0021-foo or feat/WD-0021)?
+# Case-insensitive, bounded so WD-21 never matches WD-215. One definition, used
+# for the active story and for the table's Branch column, so the two cannot
+# disagree about what "carries the code" means.
+has_code() {
+  local CODE_RE
+  CODE_RE=$(printf '%s' "$2" | sed 's/[][\.*^$+?(){}|/]/\\&/g')
+  printf '%s' "$1" | grep -qiE "(^|[^A-Za-z0-9])${CODE_RE}([^0-9]|$)"
+}
+
+# The reminder for a story that is the active one — the three wordings this
+# hook always had, unchanged.
+remind_for() {
+  local STORY_FILE="$1"
   if ! grep -qE "^## [0-9]+\. Plan" "$STORY_FILE"; then
     suggest "Active workflow-dev story with no Plan yet ($STORY_FILE). Suggest /workflow-dev:resume, then /workflow-dev:plan."
     exit 0
@@ -112,6 +145,65 @@ while IFS= read -r STORY_FILE; do
     suggest "This workflow-dev story ($STORY_FILE) shows every task group as Done (already validated). Check for uncommitted changes — if any, review and commit; if not, it may be ready to close out."
   fi
   exit 0
-done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
+}
 
+# Candidates: every story file still In Progress on our own clock. Done and
+# Won't Do are closed on our side, and the section 1.1 Story `Status` only
+# mirrors the source ticket — a different clock, not read here.
+CANDIDATES=()
+while IFS= read -r STORY_FILE; do
+  is_in_progress "$STORY_FILE" && CANDIDATES+=("$STORY_FILE")
+done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md" | sort)
+
+[[ ${#CANDIDATES[@]} -gt 0 ]] || exit 0
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null | tr -d '"\\')
+
+if [[ -n "$BRANCH" ]]; then
+  # 1. The branch names a story's code. Two codes in one branch (a merge
+  # branch) is not an answer — falling through to the table beats letting
+  # filename order pick between them.
+  MATCHED=()
+  for STORY_FILE in "${CANDIDATES[@]}"; do
+    has_code "$BRANCH" "$(basename "$STORY_FILE" .md)" && MATCHED+=("$STORY_FILE")
+  done
+  if [[ ${#MATCHED[@]} -eq 1 ]]; then
+    remind_for "${MATCHED[0]}"
+  fi
+  # 2. The branch name is clearly closest to one story's title.
+  BRANCH_WORDS=$(words "$BRANCH")
+  BEST=0; SECOND=0; BEST_FILE=""
+  for STORY_FILE in "${CANDIDATES[@]}"; do
+    SHARED=$(comm -12 <(printf '%s\n' "$BRANCH_WORDS") <(words "$(story_title "$STORY_FILE")") | grep -c .)
+    if (( SHARED > BEST )); then
+      SECOND=$BEST; BEST=$SHARED; BEST_FILE="$STORY_FILE"
+    elif (( SHARED > SECOND )); then
+      SECOND=$SHARED
+    fi
+  done
+  if [[ ${#MATCHED[@]} -eq 0 ]] && (( BEST >= 2 && BEST > SECOND )); then
+    remind_for "$BEST_FILE"
+  fi
+fi
+
+# 3. One init'd story and nothing contradicting it: it is the active one.
+if [[ ${#CANDIDATES[@]} -eq 1 ]]; then
+  remind_for "${CANDIDATES[0]}"
+fi
+
+# 4. Several, and the branch does not say which: list them all.
+TABLE="| Story | Title | Branch |
+|---|---|---|"
+for STORY_FILE in "${CANDIDATES[@]}"; do
+  CODE=$(basename "$STORY_FILE" .md)
+  STORY_BRANCH=""
+  while IFS= read -r REF; do
+    if has_code "$REF" "$CODE"; then STORY_BRANCH=$(printf '%s' "$REF" | tr -d '"\\'); break; fi
+  done < <(git for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
+  TABLE="$TABLE
+| $CODE | $(story_title "$STORY_FILE") | ${STORY_BRANCH:--} |"
+done
+suggest "Could not tell which workflow-dev story is active (branch: ${BRANCH:-none}). Stories started with init, none of them matching the branch:
+$TABLE
+Suggest /workflow-dev:resume to pick one."
 exit 0
