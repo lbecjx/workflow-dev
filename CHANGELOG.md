@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.25.2
+
+- The OpenCode live-catalog notice states how a tool is reached inside Code
+  Mode — `search` for it, then call the returned path — instead of telling the
+  model to call a bare name that cannot resolve there.
+
 ## 1.25.1
 
 - The session-start greeting reads a story's `Implementation Status` value

@@ -386,6 +386,31 @@ check("the same session gets it again on the next call", systemText(ev).includes
 const otherTools = { patch: { description: "d", input: {} }, shell: { description: "d", input: {} } }
 ev = await runContext(catalogEvent("ses_cat2", otherTools))
 check("a different catalog → the notice follows it", /exactly: patch, shell\./.test(systemText(ev)))
+check("a catalog without execute keeps 'Call only these names'",
+  /Call only these names/.test(systemText(ev)))
+
+// A catalog that advertises `execute` is a Code Mode session. There the names
+// above are the session's top-level tools but not callable paths inside
+// `execute` — asserting "call only these names" primed the raw "Unknown tool"
+// this notice exists to prevent (WD-0033). The notice must state the real
+// access rule and must not assert the bare-name call.
+const codeModeTools = {
+  read: { description: "d", input: {} },
+  shell: { description: "d", input: {} },
+  execute: { description: "d", input: {} },
+  search: { description: "d", input: {} },
+}
+const codeModeBefore = JSON.stringify(codeModeTools)
+ev = await runContext(catalogEvent("ses_codemode", codeModeTools))
+const codeModeNotice = systemText(ev)
+check("a Code Mode catalog → the notice is added", codeModeNotice.includes("[workflow-dev]"))
+check("...naming exactly the event's tools", /exactly: read, shell, execute, search\./.test(codeModeNotice))
+check("...and stating the Code Mode access rule",
+  codeModeNotice.includes("Code Mode") && codeModeNotice.includes("returned path"))
+check("...and not asserting a bare-name call", !codeModeNotice.includes("Call only these names"))
+check("...without touching the advertised catalog", JSON.stringify(ev.tools) === codeModeBefore)
+check("...and not as a message, which would read as the human's",
+  !injected(ev).includes("available in this session"))
 
 for (const [label, tools] of [
   ["missing", undefined],
