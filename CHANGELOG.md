@@ -14,6 +14,19 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.26.0
+
+- `validate` gains an **Algorithmic Integrity** dimension (`rules.md` Part 13,
+  run under `wd-judge`): it judges whether an algorithm terminates and makes
+  progress, whether its complexity fits the input it actually sees, and whether
+  an algorithm reachable from untrusted input has a bounded worst case
+  (CWE-407 / CWE-1333 / CWE-400). A confirmed non-termination or an
+  attacker-triggerable blow-up blocks; bounded inefficiency is advisory. It is
+  skipped on a diff with no logic.
+- The `wd-judge` role now also covers Algorithmic Integrity, so the roles
+  registry changed — existing role bindings refresh on the next `setup-models`
+  run.
+
 ## 1.25.3
 
 - The save point tracks the **current** OpenCode session instead of the one a

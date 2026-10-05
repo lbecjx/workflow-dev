@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: reduced-set-on-docs-only
+description: >
+  Guard for the reduced-set gate (validate/SKILL.md Step 3) with the Algorithmic
+  Integrity dimension in the picture (WD-0034). On a docs-only diff — no real
+  logic — /workflow-dev:validate must run the reduced set and must not report the
+  judgment dimensions, Algorithmic Integrity included, as run/passed. If a future
+  edit makes the gate spawn that dimension for a docs-only change, this should
+  start failing.
+tags: [algorithmic-integrity, reduced-set, regression]
+context:
+  scaffold_script: fixture.sh

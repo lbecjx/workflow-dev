@@ -109,9 +109,10 @@ list, and it is the **default**, not an opt-in:
   rename, a config-value change, a version bump). Run only checks the
   orchestrator performs itself: the discovered commands, the `.workflow-dev/`
   ↔ `config.json` drift check, and a direct read of any in-scope `CHANGELOG.md`
-  entry. The judgment dimensions (Code quality, Testing, Architecture) and
-  Adversarial are **SKIP** — with nothing to judge or break, a fresh pair of
-  eyes adds cost and no signal. State the set plainly in the report.
+  entry. The judgment dimensions (Code quality, Testing, Architecture,
+  Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
+  break, a fresh pair of eyes adds cost and no signal. State the set plainly in
+  the report.
 - **Full set — anything else.** The dimensions below, in parallel, plus the
   adversarial decision.
 
@@ -151,6 +152,7 @@ under its role, with its scoped brief, reporting findings as a structured list
 | **Code quality** | `wd-operator` | Part 4. Smells, conventions, patterns. |
 | **Testing** | `wd-operator` | Part 5. Coverage of changes, test quality. |
 | **Architecture** | `wd-judge` | Parts 8–9. Separation of concerns, coupling, performance. |
+| **Algorithmic Integrity** | `wd-judge` | Part 13. Termination/progress, complexity/scalability, and untrusted-input algorithmic risk (ACV/ReDoS). |
 | **Scope** | `wd-operator` | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
 | **CI/CD** | `wd-operator` | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
 
@@ -222,6 +224,7 @@ Validation Results (set: full — the diff carries logic):
 | Code Quality       | WARN   | 2        |
 | Testing           | PASS   | 0        |
 | Architecture      | PASS   | 0        |
+| Algorithmic Integrity | PASS | 0        |
 | Context Hygiene    | PASS   | 0        |
 | Git History Disclosure | SKIP | — (CHANGELOG.md not touched) |
 | Adversarial Correctness | PASS | 0 — ran at no-repro (recommended no-repro: real logic, no write/concurrency/security surface; choice surfaced) |
@@ -277,10 +280,10 @@ the story's context — then the run can be totalled **per story** with
 |---------|---------|
 | **PASS** | Every dimension passes. Safe to commit. |
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
-| **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, or a CONFIRMED adversarial-correctness finding (either depth). Must be fixed before committing. |
+| **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, a CONFIRMED adversarial-correctness finding (either depth), or a CONFIRMED algorithmic-integrity finding. Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), or a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (no-repro) or reproduced live (complete).
-Non-blocking: code smells, missing edge-case tests, style issues, and any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell.
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (no-repro) or reproduced live (complete) — or a **CONFIRMED** algorithmic-integrity finding (Part 13): a non-terminating loop/recursion, or a worst-case complexity blow-up reachable from untrusted input (an Algorithmic Complexity Vulnerability / ReDoS). CONFIRMED here carries Part 11's bar — a concrete trigger traced on paper or reproduced, never an unbacked "looks slow".
+Non-blocking: code smells, missing edge-case tests, style issues, bounded algorithmic inefficiency (Part 13 — a quadratic that fits the `n` this code sees, a redundant recomputation, a suboptimal data structure), and any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell.
 
 ### Step 6: Record the validated diff (only on PASS)
 
@@ -385,12 +388,13 @@ a QA finding is a new, separate signal for the human).
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
 - **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
-- **Scoped, not repeated** — each dimension gets only the rules it needs (not all 554 lines), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
+- **Scoped, not repeated** — each dimension gets only the rules it needs (not the whole rulebook), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
 - **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
 - **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
+- **Algorithmic integrity is judgment, not a linter** — the project's own linters (run by Verification, Part 6) already catch the mechanical loop/overflow shapes; Part 13 is the layer those tools cannot reach: does *this* loop or recursion terminate on *this* input, and is the growth class fit for the `n` this code actually sees. It requires a concrete trigger and `n` for every finding, and follows Part 11's NEEDS TESTING rule for any claim whose truth depends on execution.
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
-- **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, and a CONFIRMED adversarial-correctness finding block (at either depth). A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
+- **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, a CONFIRMED adversarial-correctness finding (at either depth), and a CONFIRMED algorithmic-integrity finding block. A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
 - **Git history disclosure is enforced, not just suggested** — this skill's slice of it (CHANGELOG.md entries in scope) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed. Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.
 - **Manual QA is opt-in and decided elsewhere** — this skill *runs* manual QA (Step 7) only when `plan` recorded "yes"; it never decides that for itself, and never on a non-PASS.

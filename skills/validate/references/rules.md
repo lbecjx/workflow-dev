@@ -191,7 +191,7 @@ through) the change tends to re-confirm the same assumptions that produced it;
 this dimension exists specifically to not share that context.
 
 **This is also, by a wide margin, the most expensive dimension** — the other
-six each run one bounded check (a command, a diff read, a config check) in
+dimensions each run one bounded check (a command, a diff read, a config check) in
 under two minutes combined; the hunt→verify pair below routinely takes longer
 than that on its own, because both agents do open-ended exploration and often
 empirical testing (spinning up a server, firing real concurrent requests,
@@ -200,7 +200,7 @@ reflexively — see §11.0 before spawning anything.
 
 ### 11.0 Deciding whether to run this, and at what depth
 
-The other six dimensions always run — they're cheap enough that skipping them
+The other dimensions always run — they're cheap enough that skipping them
 saves nothing worth the risk. This one is different: it's expensive enough
 that running the full version by default, on every change regardless of what
 the change actually is, wastes real time and tokens for no real return on a
@@ -641,6 +641,120 @@ reviewed.sh` refuses to mark a message containing it, and
 `pre-commit-message-check.sh` **denies** the commit/PR outright (not
 "ask," the only rule in this file that does) if attribution slips through
 some other way. See both scripts' source for the exact patterns matched.
+
+---
+
+## Part 13: Algorithmic Integrity
+
+Every other dimension judges a change against a checklist or, in Part 11's
+case, against "is the output wrong?". This one judges the **algorithm** —
+whether it terminates, whether it makes progress, and whether its cost is fit
+for the input it will actually see. A change can be perfectly readable, secure,
+and correct on the happy path and still hang a process, overflow a stack, or
+turn a linear job quadratic the day the data grows.
+
+**Why this is its own dimension, not a corner of another.** Part 4 sees a deeply
+nested loop as a *smell* (WARN, style). Part 9 is about *where* work happens —
+queries or API calls inside a loop, blocking I/O on a hot path, resource
+cleanup, unbounded growth — and already escalates an obvious production incident
+to FAIL. Part 11 hunts a concrete wrong output. None of them is charged with
+"does this loop ever exit?" or "what is this growth class for the `n` this code
+sees?" — the algorithm's own termination and cost, as distinct from the
+placement of its I/O. The project's own linters (Part 6) catch the *mechanical*
+slice — an unmodified loop condition, a float counter, a too-narrow induction
+variable — but a linter cannot tell you whether *this* recursion bottoms out on
+*this* input, or whether the data structure fits the access pattern. That
+judgment is this dimension's job.
+
+**Why a confirmed finding can block.** Termination and efficiency are not only
+quality concerns. An algorithm whose worst case is reachable from untrusted
+input is a denial-of-service vector — **CWE-407 (Inefficient Algorithmic
+Complexity)**, **CWE-1333 (Inefficient Regular Expression Complexity / ReDoS)**,
+**CWE-400 (Uncontrolled Resource Consumption)**; OWASP documents ReDoS as an
+attack class of its own. A verified hang, or a verified attacker-triggerable
+blow-up, is a correctness/availability bug, so it blocks the way Security does,
+independent of Part 9's own escalation.
+
+### 13.1 Termination and progress
+- [ ] Every loop has a **progress argument**: a variant (an expression over the
+      loop's state) that strictly moves toward the exit condition on a
+      well-founded order each iteration — so the exit is reachable, not merely
+      hoped for. Name the expression when it is not obvious.
+- [ ] No loop whose condition variables are never modified — in the body, the
+      increment, or the condition itself — and with no `break`/`return`/`throw`
+      to compensate. (`while (true)`/`for (;;)` is fine only when every path has
+      a reachable exit.)
+- [ ] The induction variable advances on every path that re-enters the loop; a
+      `continue`, guard clause, or early `break` does not skip the only place
+      that advances it.
+- [ ] The induction variable's type can represent the whole iteration range — no
+      overflow/wrap that returns it to a live condition, and no floating-point
+      counter whose increment cannot change the value at that precision.
+- [ ] Recursion has a base case **reachable** for the inputs this code can
+      receive, and every recursive call strictly decreases a measure toward it
+      (with mutual recursion, one shared measure). No unbounded recursion that
+      can overflow the stack on ordinary input.
+- [ ] A collection is not mutated while iterating in a way that can skip, repeat,
+      or never exhaust the iteration.
+
+### 13.2 Complexity and scalability
+- [ ] The algorithm's **worst-case** time and space are bounded and fit the `n`
+      this code actually sees — not the worst case of an abstract input it will
+      never get. State the `n` when justifying a finding.
+- [ ] No accidental quadratic (or worse): a nested pass over the same collection,
+      a linear scan inside a loop, or a rebuild-per-iteration where one pass or an
+      index (`map`/`set`/`dict`) would do.
+- [ ] Loop-invariant work is not recomputed every iteration (hoist or memoize
+      it), and there is no database/API/filesystem call per iteration (N+1).
+- [ ] The data structure matches the access pattern (a lookup by key is not a
+      scan of a list; a min/max pulled in a loop is not a full sort each time).
+- [ ] No unbounded per-iteration accumulation — memory that grows with the input
+      with no bound and no release.
+- [ ] Recursive branching is bounded or memoized — no exponential blow-up where
+      overlapping subproblems repeat.
+
+### 13.3 Input from outside the process
+- [ ] Every algorithm reachable from untrusted input (a request body, a header, a
+      filename, a query string, a message) has a bounded worst case on **that**
+      input — no crafted input that drives it into CWE-407/CWE-1333/CWE-400
+      territory.
+- [ ] A regular expression applied to untrusted input avoids catastrophic
+      backtracking (nested quantifiers or overlapping alternation inside a
+      repeated group); prefer a non-backtracking or bounded pattern.
+
+**Verdict:**
+- **FAIL** — a confirmed non-terminating loop or recursion (a concrete
+  input/state that never exits), or a confirmed worst-case blow-up reachable from
+  untrusted input (an Algorithmic Complexity Vulnerability / ReDoS). These are
+  bugs, not taste.
+- **WARN** — inefficiency in a bounded context: a quadratic that is fine for the
+  `n` this code sees but would bite if it grew, a redundant recomputation, a
+  suboptimal data structure. Advisory, the human's call — the same tier as
+  Parts 4 and 9.
+- **SKIP** — the diff carries no logic to reason about (docs, a pure rename, a
+  config value). Part of the reduced set, like every judgment dimension.
+
+**Boundary with Part 9.** Where a check here overlaps Part 9's — an N+1, or
+unbounded per-iteration growth — the finding takes **Part 9's** verdict, not
+this dimension's: Part 9 already escalates an obvious production incident to
+FAIL, so the two dimensions cannot report conflicting tiers for the same line.
+Part 13's own FAIL tier is reserved for what Part 9 does not cover — a
+non-terminating loop or recursion, and a worst-case blow-up reachable from
+untrusted input.
+
+**Evidence bar (inherited from Part 11).** A finding names the file, the line,
+and the **concrete trigger** — the input, sequence, or state that reaches it, and
+the `n` that makes it matter. "This looks O(n²)" with no demonstrated path is not
+a finding, and neither is a complexity the code deliberately accepts for a
+bounded `n` dressed up as a bug. A claim whose truth depends on how the code
+behaves **when it runs** — a non-termination that turns on runtime values or
+timing, an empirical complexity measurement — is reported as **NEEDS TESTING**,
+never asserted as CONFIRMED; only execution confirms it. But a loop that is
+**provably** non-terminating by inspection — its condition variable is never
+modified on any path — is CONFIRMED, the same way Part 11's no-repro pass
+confirms a bug it can trace on paper. This is §11.2's rule applied to this
+dimension, and it is what keeps the dimension high-signal instead of a wall of
+speculation.
 
 ---
 
