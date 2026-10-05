@@ -83,6 +83,8 @@ If the extract had content, state this at the top of the Step 4 summary, before 
 
 **Source-aware save point (WD-0007 AC 13).** A story can be worked across harnesses and sessions — started costly in Claude Code, continued in OpenCode, or picked up in a fresh session of either. So `.workflow-dev/context/.compaction-state/[STORY-ID].json` keeps a position **per source** — Claude Code: a transcript path + line count; OpenCode: a session id + message `seq` — plus which is `current`. Switching to a source that has no saved position yet reads it from the start (nothing in it was saved), and the other source's position is kept, so switching back resumes cheaply instead of re-reading everything. The same commands work on both; the script detects the harness and updates the right position.
 
+On OpenCode the position belongs to a **session**, and the script reads the *current* one every run: `OPENCODE_SESSION_ID`, which the harness sets on each command, falling back to the newest session for this project in OpenCode's store. A session different from the one last saved is treated as a new source (read from the start) rather than reusing the old session's position (WD-0008) — so a story continued in a fresh session is never silently skipped. And when OpenCode exposes no usable position at all, the script says so; it never reports "nothing unsaved" in that case.
+
 Scan everything discussed since the "Last updated" timestamp and classify each item:
 
 **Goes to REPO.md:**

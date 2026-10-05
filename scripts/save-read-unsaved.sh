@@ -24,6 +24,16 @@
 # The old Claude-only shape (`transcriptPath`/`length`) is read as the Claude
 # fields, so existing states keep working.
 #
+# On OpenCode the position belongs to a **session**, and a story can be continued
+# in a *new* one (a reopened session, a fresh start). So this resolves the
+# **current** session every run — never the id the state happens to remember.
+# OpenCode hands every shell command its own session id in `OPENCODE_SESSION_ID`
+# (set by the harness), so the current session is known exactly; it is validated
+# against the store, and where the harness exposes no id (an integrated terminal,
+# say) the newest top-level session for this directory is the fallback. When the
+# current session differs from the stored one, the old position is not reused:
+# the new session is a new source and reads from 0 (WD-0008).
+#
 # Usage: save-read-unsaved.sh [--digest|--raw] <STORY-ID>
 # Prints the unsaved extract to stdout. `--digest` (what the save skill uses)
 # prints a readable line per message — channel + text, tool-calls/reasoning
@@ -110,19 +120,45 @@ detect_harness() {
   fi
   echo ""
 }
-resolve_opencode_session() { # $1 = session id to keep if still valid
+# This directory in the store's own spelling — it can differ in case or carry a
+# trailing slash. SQLite's lower() folds ASCII only, same as the rest of the
+# plugin's path matching.
+opencode_dir_clause() {
+  printf "lower(rtrim(directory,'/'))=lower(rtrim('%s','/')) OR lower(rtrim(directory,'/'))=lower(rtrim('%s','/'))" \
+    "$(sqlq "$PWD")" "$(sqlq "$(pwd -P)")"
+}
+# Is $1 a top-level session belonging to this project? The position belongs to
+# the conversation, not to a sub-agent's child session, which shares the
+# directory.
+opencode_session_here() { # $1 = session id
+  local sid
+  sid=$(sqlite3 "$DB" "SELECT id FROM session_v2 WHERE id='$(sqlq "$1")' AND parent_id IS NULL AND ($(opencode_dir_clause)) LIMIT 1;" 2>/dev/null)
+  [[ -n "$sid" ]]
+}
+# The store actually carries the table the save point reads — an existing file
+# that isn't an OpenCode store (or predates this schema) is not a usable
+# position, and calling it "no session exists" would name the wrong reason.
+opencode_store_ok() {
+  sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='session_v2' LIMIT 1;" 2>/dev/null | grep -q .
+}
+resolve_opencode_session() {
   have_sqlite3 || return
   [[ -f "$DB" ]] || return
-  local keep="$1"
-  if [[ -n "$keep" ]]; then printf '%s' "$keep"; return; fi
-  local sid
-  # Top-level only: sub-agents are child sessions in the same directory and can
-  # have a newer time_updated, so without `parent_id IS NULL` a just-finished
-  # sub-agent gets picked as "the session".
-  sid=$(sqlite3 "$DB" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$PWD")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
-  if [[ -z "$sid" ]]; then
-    sid=$(sqlite3 "$DB" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$(pwd -P)")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
+  # OpenCode sets OPENCODE_SESSION_ID on every shell command, so the current
+  # session is known exactly — trusted only once it checks out as a top-level
+  # session of *this* directory, so a stray value (another project's session, a
+  # sub-agent's child) can't point the save point at another session's position.
+  if [[ -n "${OPENCODE_SESSION_ID:-}" ]]; then
+    opencode_session_here "$OPENCODE_SESSION_ID" && { printf '%s' "$OPENCODE_SESSION_ID"; return; }
   fi
+  # No explicit id (an integrated terminal, say): the newest top-level session
+  # for this directory — so a story continued in a new session is detected
+  # rather than reading the one it last saved in. `id DESC` keeps the pick
+  # deterministic when time_updated ties; `parent_id IS NULL` excludes
+  # sub-agents, which are child sessions sharing the directory and can carry a
+  # newer time_updated.
+  local sid
+  sid=$(sqlite3 "$DB" "SELECT id FROM session_v2 WHERE ($(opencode_dir_clause)) AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1;" 2>/dev/null)
   printf '%s' "$sid"
 }
 
@@ -139,18 +175,34 @@ fi
 
 H=$(detect_harness)
 if [[ -z "$H" ]]; then
-  if [[ -n "$(resolve_opencode_session "")" ]]; then H=opencode; elif [[ -n "$CPATH" ]]; then H=claude; fi
+  if [[ -n "$(resolve_opencode_session)" ]]; then H=opencode; elif [[ -n "$CPATH" ]]; then H=claude; fi
 fi
 
 if [[ "$H" == "opencode" ]]; then
-  SID=$(resolve_opencode_session "$OSID")
-  if [[ -z "$SID" ]]; then
-    echo "No compaction state for $STORY_ID — nothing to extract."
+  # A stored position we can't read is NOT "nothing unsaved" — say why, and say
+  # the consequence, so a save doesn't silently treat the story as caught up.
+  OPENCODE_UNAVAILABLE=""
+  if ! have_sqlite3; then
+    OPENCODE_UNAVAILABLE="sqlite3 isn't installed, so OpenCode's message store can't be read"
+  elif [[ ! -f "$DB" ]]; then
+    OPENCODE_UNAVAILABLE="there is no OpenCode store at $DB"
+  elif ! opencode_store_ok; then
+    OPENCODE_UNAVAILABLE="the file at $DB is not a readable OpenCode store"
+  fi
+  if [[ -n "$OPENCODE_UNAVAILABLE" ]]; then
+    echo "OpenCode save point unavailable for $STORY_ID — $OPENCODE_UNAVAILABLE. A save will use the in-context summary only and mark nothing as saved; this is not the same as nothing being unsaved."
     exit 0
   fi
-  # A different session than the one stored is a new source → start at 0.
+  SID=$(resolve_opencode_session)
+  if [[ -z "$SID" ]]; then
+    echo "OpenCode save point unavailable for $STORY_ID — no session for $(pwd) exists in OpenCode's store. A save will use the in-context summary only and mark nothing as saved; this is not the same as nothing being unsaved."
+    exit 0
+  fi
+  # The current session differing from the stored one is a new source: read it
+  # from 0. Never carry the old session's seq over — that would be a position
+  # from a session other than this one.
   [[ -n "$OSID" && "$OSID" != "$SID" ]] && OSEQ=0
-  MAX_SEQ=$(sqlite3 "$DB" "SELECT COALESCE(MAX(seq),0) FROM session_message WHERE session_id='$(sqlq "$SID")';")
+  MAX_SEQ=$(sqlite3 "$DB" "SELECT COALESCE(MAX(seq),0) FROM session_message WHERE session_id='$(sqlq "$SID")';" 2>/dev/null)
   if [[ "${MAX_SEQ:-0}" -le "$OSEQ" ]]; then
     echo "Nothing unsaved for $STORY_ID — OpenCode session $SID has $MAX_SEQ messages, all already covered by the last save."
     exit 0

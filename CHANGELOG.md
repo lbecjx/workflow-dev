@@ -14,6 +14,15 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.25.3
+
+- The save point tracks the **current** OpenCode session instead of the one a
+  story last saved in. OpenCode sets `OPENCODE_SESSION_ID` on every command, and
+  a session change now reads from the start rather than reusing the old session's
+  position — so a story continued in a fresh session is no longer skipped.
+- A save point that can't be read (no `sqlite3`, no OpenCode store, no session)
+  says so, instead of reading as "nothing unsaved".
+
 ## 1.25.2
 
 - The OpenCode live-catalog notice states how a tool is reached inside Code
