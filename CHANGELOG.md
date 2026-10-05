@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.25.1
+
+- The session-start greeting reads a story's `Implementation Status` value
+  instead of scanning the section body for "In Progress", so a `Done` story is
+  no longer listed or offered as active.
+
 ## 1.25.0
 
 - The session-start greeting no longer picks a story by filename order. It
