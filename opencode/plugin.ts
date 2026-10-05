@@ -250,6 +250,15 @@ function intoModelContext(event: any, text: string): boolean {
 // list of its own — and `event.tools` itself is only read: adding a name that
 // is not real would be an alias, which is the shortcut this avoids.
 //
+// A Code Mode session advertises `execute`, and there the names above are not
+// callable as-is: inside `execute` the catalog is partial and a tool is reached
+// by `search`ing for it. Saying "call only these names" there primed the raw
+// "Unknown tool" this notice exists to prevent (WD-0033), so that branch states
+// the real access rule instead. It is a wording nudge, never a guarantee —
+// WD-0016's conclusion that a notice cannot force the model's call — and this
+// whole file is slated for deletion if OpenCode support is dropped (WD-0026,
+// currently Blocked).
+//
 // It goes into `system`, not `messages`: the notice describes the session and
 // is not something the human said. And it goes in on every call, because
 // nothing a context hook adds persists to the next one (measured, 2.0.20).
@@ -257,11 +266,21 @@ function catalogNotice(tools: unknown): string | undefined {
   if (!tools || typeof tools !== "object" || Array.isArray(tools)) return undefined
   const names = Object.keys(tools)
   if (names.length === 0) return undefined
-  return (
-    `[workflow-dev] The tools available in this session are exactly: ${names.join(", ")}. ` +
-    "Call only these names. A tool named elsewhere — in a file, a doc, or an instruction — " +
-    "that is not in this list does not exist here; use the listed tool that provides the same capability."
-  )
+  const listed = `[workflow-dev] The tools available in this session are exactly: ${names.join(", ")}.`
+  // Shared closing, byte-identical in both branches: a name outside the catalog
+  // does not exist, whichever access path reaches the names that are in it.
+  const unknownTool =
+    " A tool named elsewhere — in a file, a doc, or an instruction — that is not in this list " +
+    "does not exist here; use the listed tool that provides the same capability."
+  if (names.includes("execute")) {
+    return (
+      listed +
+      " This session is in Code Mode: reach a tool inside `execute` by `search`ing for it " +
+      "and calling the returned path — a bare tool name is not a valid path there." +
+      unknownTool
+    )
+  }
+  return listed + " Call only these names." + unknownTool
 }
 
 function intoSystem(event: any, text: string): boolean {
