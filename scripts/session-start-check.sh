@@ -55,23 +55,64 @@ REASON=$(printf '%s' "$INPUT" | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
-# Tolerant to how the Implementation Status section is actually worded — the
-# template says "### Implementation Status: In Progress" on one line, but a
-# real /workflow-dev:init run paraphrased it as a "## Implementation Status"
-# heading with the value on its own "**Status:** In Progress" line below.
-# Rather than trust the model to reproduce the template byte-for-byte every
-# time, scan the whole section (heading to next heading) for "In Progress".
+# Read the Implementation Status *property*, deterministically — never scan the
+# section body for the phrase. Every file init writes carries a paragraph under
+# the heading that itself contains "In Progress" ("Set to **In Progress** at
+# creation, always — …"), so a body scan reports a finished story as active: a
+# Done story listed as resumable, which is the greeting being wrong whenever
+# more than one story was ever init'd (WD-0032). The property has two shapes,
+# both real: the value on the heading line ("### Implementation Status: In
+# Progress"), and — when the heading is bare — the value on the immediately-
+# following non-empty line as a status assignment ("**Status:** In Progress").
+# Only that heading line, or that one following "Status:" line, is read. Lines
+# inside a fenced code block are not the property at all: this very bug is
+# documented by quoting the heading in a fence, so a context file whose
+# description carries that quote would otherwise have the example read as its
+# status — the same false positive, one layer up. Fences are matched by type and
+# length (a ``` fence is closed only by ```, never by ~~~), so a fenced example
+# cannot be shut early by content that merely looks like a delimiter; an
+# unclosed fence runs to EOF, as CommonMark says, and then the file has no
+# readable status — the conservative answer, not a wrong one. Any other line
+# (the template paragraph, prose) is not a status value. Tolerant to how init
+# paraphrased the heading, intolerant to the body around it.
 is_in_progress() {
   awk '
-    /^#+[[:space:]].*[Ii]mplementation Status/ {
-      in_section=1
-      if ($0 ~ /In Progress/) { found=1; exit }
+    /^[[:space:]]*(```|~~~)/ {
+      delim = $0
+      sub(/^[[:space:]]*/, "", delim)
+      ch = substr(delim, 1, 1)
+      len = 0
+      while (substr(delim, len + 1, 1) == ch) len++
+      if (!fence) { fence = ch; flen = len; next }
+      if (ch == fence && len >= flen) { fence = ""; next }
       next
     }
-    in_section && /^#+[[:space:]]/ { exit }
-    in_section && /In Progress/ { found=1; exit }
-    END { exit !found }
-  ' "$1"
+    fence { next }
+    /^#+[[:space:]].*[Ii]mplementation Status/ {
+      line = $0
+      sub(/^[^:]*:[[:space:]]*/, "", line)
+      # An inline value only counts when there is one; a bare heading written
+      # with a trailing colon ("## Implementation Status:") has its value on the
+      # next line, and reading the empty string as the value would drop a
+      # genuinely In Progress story.
+      if (line != $0 && line != "") {
+        print (line ~ /In Progress/) ? "yes" : "no"
+        exit
+      }
+      want = 1
+      next
+    }
+    want && /^[[:space:]]*$/ { next }
+    want {
+      line = $0
+      sub(/^[[:space:]]*[*]*/, "", line)
+      rest = line
+      sub(/^[[:space:]]*[Ss]tatus[*]*:[[:space:]]*[*]*/, "", line)
+      if (line == rest) { print "no"; exit }
+      print (line ~ /In Progress/) ? "yes" : "no"
+      exit
+    }
+  ' "$1" | grep -q "^yes$"
 }
 
 # $1 = the reminder text. One copy, two envelopes: `--message` prints it plain

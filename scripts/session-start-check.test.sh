@@ -230,6 +230,133 @@ case "$OUT" in
   *) no "table Branch column does not match WD-21 to WD-215's branch (got: $OUT)" ;;
 esac
 
+# --- 7: candidacy is the status *property*, not the section body ------------
+# The regression (WD-0032): every init-written file carries a paragraph under
+# the heading that itself contains the words "In Progress", so scanning the
+# section body for the phrase counts a finished story as active.
+
+# A Done story that keeps the template paragraph must never surface — not as a
+# suggestion, not in the table. One genuine candidate sits beside it, so a reader
+# that scanned the body would see two candidates, fall through to the table, and
+# name WD-0040.
+fresh_project main
+cat > "$PROJ/.workflow-dev/context/WD-0040.md" <<'MD'
+# WD-0040: Finished long ago
+
+### Implementation Status: Done
+Set to **In Progress** at creation, always — a context file existing at all means work has begun.
+
+### Acceptance Criteria
+| # | Criterion | Status | Notes |
+|---|----------|--------|-------|
+| 1 | Something | ✅ done | |
+MD
+story WD-0041 "Still being worked on"
+OUT="$(plain '{"source":"startup"}')"
+case "$OUT" in *WD-0040*) no "a Done story keeping the template paragraph never surfaces (got: $OUT)" ;; *) ok "a Done story keeping the template paragraph never surfaces" ;; esac
+case "$OUT" in *"no Plan yet"*WD-0041*) ok "the In Progress story beside a Done one is the candidate" ;; *) no "the In Progress story beside a Done one is the candidate (got: $OUT)" ;; esac
+
+# Won't Do is closed the same way, paragraph or not.
+rm -f "$PROJ/.workflow-dev/context/WD-0041.md"
+cat > "$PROJ/.workflow-dev/context/WD-0042.md" <<'MD'
+# WD-0042: Abandoned
+
+### Implementation Status: Won't Do
+Set to **In Progress** at creation, always.
+MD
+[[ -z "$(plain '{"source":"startup"}')" ]] && ok "a Won't Do story with the paragraph is silent" || no "a Won't Do story with the paragraph is silent"
+
+# The paraphrase the tolerant scan exists for stays accepted: a bare
+# "## Implementation Status" heading with a "**Status:** In Progress" line.
+fresh_project wd-0043-paraphrase
+cat > "$PROJ/.workflow-dev/context/WD-0043.md" <<'MD'
+# WD-0043: Paraphrased heading
+
+## Implementation Status
+**Status:** In Progress
+MD
+OUT="$(plain '{"source":"startup"}')"
+case "$OUT" in *"no Plan yet"*WD-0043*) ok "the paraphrased In Progress shape is still a candidate" ;; *) no "the paraphrased In Progress shape is still a candidate (got: $OUT)" ;; esac
+
+# A bare heading with no readable status value is not a candidate, even when the
+# line below it carries the phrase in prose.
+fresh_project main
+cat > "$PROJ/.workflow-dev/context/WD-0044.md" <<'MD'
+# WD-0044: Bare heading, prose below
+
+## Implementation Status
+Set to **In Progress** at creation, always.
+MD
+[[ -z "$(plain '{"source":"startup"}')" ]] && ok "a bare heading with prose below is not a candidate" || no "a bare heading with prose below is not a candidate"
+
+# A heading quoted inside a fenced code block is an example, not the property.
+# This bug is documented by quoting the heading, so a context file can carry a
+# copy of it before its real one; read naively, the example wins.
+fresh_project main
+cat > "$PROJ/.workflow-dev/context/WD-0045.md" <<'MD'
+# WD-0045: Documents the shape
+
+The scanner used to match this heading quoted in a fence:
+
+```
+### Implementation Status: In Progress
+Set to **In Progress** at creation, always.
+```
+
+### Implementation Status: Done
+Set to **In Progress** at creation, always.
+MD
+[[ -z "$(plain '{"source":"startup"}')" ]] && ok "a fenced heading example is not read as the status" || no "a fenced heading example is not read as the status (got: $(plain '{"source":"startup"}'))"
+
+# The real init shape — In Progress and the template paragraph — is a candidate.
+fresh_project wd-0046-real-shape
+cat > "$PROJ/.workflow-dev/context/WD-0046.md" <<'MD'
+# WD-0046: Real init shape
+
+### Implementation Status: In Progress
+Set to **In Progress** at creation, always — a context file existing at all means work has begun.
+MD
+OUT="$(plain '{"source":"startup"}')"
+case "$OUT" in *"no Plan yet"*WD-0046*) ok "the real init shape (In Progress and the paragraph) is a candidate" ;; *) no "the real init shape (In Progress and the paragraph) is a candidate (got: $OUT)" ;; esac
+
+# The paraphrased shape with a closed value is closed too.
+fresh_project main
+cat > "$PROJ/.workflow-dev/context/WD-0047.md" <<'MD'
+# WD-0047: Paraphrased Done
+
+## Implementation Status
+**Status:** Done
+MD
+[[ -z "$(plain '{"source":"startup"}')" ]] && ok "the paraphrased Done shape is silent" || no "the paraphrased Done shape is silent"
+
+# A bare heading written with a trailing colon still carries its value on the
+# next line; the empty inline value must not be read as the status.
+fresh_project wd-0048-colon
+cat > "$PROJ/.workflow-dev/context/WD-0048.md" <<'MD'
+# WD-0048: Trailing colon
+
+## Implementation Status:
+**Status:** In Progress
+MD
+OUT="$(plain '{"source":"startup"}')"
+case "$OUT" in *"no Plan yet"*WD-0048*) ok "a trailing-colon bare heading still reads the next line" ;; *) no "a trailing-colon bare heading still reads the next line (got: $OUT)" ;; esac
+
+# A ``` fence is not closed by a ~~~ (or vice versa): the fenced example stays
+# inside the fence, so it is not read as the status.
+fresh_project main
+cat > "$PROJ/.workflow-dev/context/WD-0049.md" <<'MD'
+# WD-0049: Mixed fence delimiters
+
+```
+~~~
+### Implementation Status: In Progress
+```
+
+### Implementation Status: Done
+Set to **In Progress** at creation, always.
+MD
+[[ -z "$(plain '{"source":"startup"}')" ]] && ok "a ~~~ line does not close a backtick fence" || no "a ~~~ line does not close a backtick fence (got: $(plain '{"source":"startup"}'))"
+
 # no local-backlog/ anywhere in $PROJ above: the decision uses only
 # .workflow-dev/ and git, so this whole section already ran without it.
 [[ ! -e "$PROJ/local-backlog" ]] && ok "decision made without any local-backlog folder" || no "decision made without any local-backlog folder"
