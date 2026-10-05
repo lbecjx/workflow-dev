@@ -38,7 +38,7 @@ landscape moves. A role is stable; the binding is local.
 | Role | Class | Hint shown at setup | What runs under it |
 |------|-------|--------------------|--------------------|
 | `wd-operator` | `operator` | Runs the procedure — a fast model is enough | Mechanical, checklist work: Verification, Git history disclosure, Scope, CI/CD, Code quality, Testing, the inline checks, and `summarize-changes`' Part 12 review. |
-| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Adversarial Correctness (the hunt + verify pair), and `init`'s research sub-agents. |
+| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Algorithmic Integrity, Adversarial Correctness (the hunt + verify pair), and `init`'s research sub-agents. |
 
 `class` is what the setup command sorts and annotates by: `operator` (fastest
 first) vs `judge` (most capable first). It names the *kind of work* — running a
@@ -78,7 +78,7 @@ user's binding.
 ### `wd-judge`
 
 **description:**
-> workflow-dev's judgment sub-agent role (Security, Architecture, Adversarial Correctness's hunt+verify pair, and init's research).
+> workflow-dev's judgment sub-agent role (Security, Architecture, Algorithmic Integrity, Adversarial Correctness's hunt+verify pair, and init's research).
 
 **body:**
 ```

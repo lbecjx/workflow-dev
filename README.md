@@ -26,7 +26,7 @@ When neither harness offers a usable position, `save` says so rather than report
 | `/workflow-dev:init` | Bootstraps persistent context for a story — from Jira, Confluence, GitHub, the repo, or a local `.md` file |
 | `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
 | `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
-| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, an adversarial correctness pass) before commit |
+| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, an adversarial correctness pass) before commit |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
@@ -80,7 +80,7 @@ The same applies to how you invoke a skill: `/workflow-dev:init` on Claude Code 
 
 ## Model tiering
 
-`workflow-dev` spawns sub-agents for two very different jobs: running a fixed checklist (Verification, the Part 12 text review) and making a contested call (Security, Architecture, Adversarial Correctness). The plugin never names a model — it names **roles**, `wd-operator` and `wd-judge`, and you bind each role to a model your harness actually offers:
+`workflow-dev` spawns sub-agents for two very different jobs: running a fixed checklist (Verification, the Part 12 text review) and making a contested call (Security, Architecture, Algorithmic Integrity, Adversarial Correctness). The plugin never names a model — it names **roles**, `wd-operator` and `wd-judge`, and you bind each role to a model your harness actually offers:
 
 ```
 /workflow-dev:setup-models

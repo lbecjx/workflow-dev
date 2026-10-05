@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: reviews-algorithmic-integrity
+description: >
+  Guard for the Algorithmic Integrity dimension (rules.md Part 13, WD-0034). On a
+  logic-bearing diff that contains a concrete algorithmic defect — a loop that
+  never advances to its exit, plus an accidental O(n²) scan — /workflow-dev:validate
+  must run the Algorithmic Integrity dimension under wd-judge and surface the
+  non-termination finding. If a future edit drops the dimension from the full
+  set, or buries the finding, this should start failing.
+tags: [algorithmic-integrity, regression]
+context:
+  scaffold_script: fixture.sh
