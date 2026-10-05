@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.27.0
+
+- OpenCode's two commit reminders are now **real asks**, not post-command notices:
+  the plugin escalates a configured `allow` to a permission request through
+  `ctx.permission.hook("evaluate")`, carrying the wording the same `scripts/*.sh`
+  already own, so the guardrail arrives before the commit on both harnesses.
+  AI/agent attribution remains the one rule that blocks, and it still blocks first.
+- An OpenCode "always" reply does not suppress them: the durable project-scoped
+  `allow` it saves is indistinguishable from the default, so the reminder re-asks
+  rather than let one keystroke retire the guardrail.
+
 ## 1.26.0
 
 - `validate` gains an **Algorithmic Integrity** dimension (`rules.md` Part 13,
