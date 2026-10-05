@@ -50,7 +50,7 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — tells you, at most once per session per version, when a newer copy of this plugin is on GitHub (with the update command) or already on disk and only needs a session restart. Purely informational: it never asks, blocks, or denies.
 
-On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminders themselves are delivered by `opencode/plugin.ts` instead, which asks the **same** `scripts/*.sh` each hook calls, so there is one copy of a reminder's wording and of its "is this warranted?" test rather than two that can drift apart. The plugin targets OpenCode 2's API (`export default { id, setup }`, `ctx.tool.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
+On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminders themselves are delivered by `opencode/plugin.ts` instead, which asks the **same** `scripts/*.sh` each hook calls, so there is one copy of a reminder's wording and of its "is this warranted?" test rather than two that can drift apart. The two commit reminders are raised as real permission asks through `ctx.permission.hook("evaluate")`: a configured `allow` is escalated to a question carrying the script's own wording, and the plugin never denies. The plugin targets OpenCode 2's API (`export default { id, setup }`, `ctx.tool.hook(...)`, `ctx.permission.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
 
 What each harness actually gets, reminder by reminder:
 
@@ -58,13 +58,13 @@ What each harness actually gets, reminder by reminder:
 |---|---|---|
 | Suggest the next skill at session start | injected as context | the same suggestion, injected once per session |
 | Pending-save after a compaction | armed by `PreCompact`, then injected | armed from the subscribed compaction events — **unverified**: those events register but were never observed firing on 2.0.19 |
-| "Did `/workflow-dev:validate` pass?" | asks **before** the commit | a notice **after** the command ran |
-| Git History Disclosure review | asks **before** the commit | a notice **after** the command ran |
+| "Did `/workflow-dev:validate` pass?" | asks **before** the commit | asks **before** the command, through the permission hook |
+| Git History Disclosure review | asks **before** the commit | asks **before** the command, through the permission hook |
 | AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
 | PR URL after `gh pr create`/`gh pr edit` | a notice **after** the command ran | a notice **after** the command ran — no exit code available, so a URL found in the output is the only success signal |
 | Model tiering | asks while the roles are unbound | a notice naming the fix |
 
-Where Claude Code asks, OpenCode currently notifies — so a pre-commit reminder arrives *after* the command there, as a warning rather than a gate. That is where this plugin stands today, not a limit of the harness: OpenCode 2.0.20 lets a plugin turn a permission decision into a real question (`ctx.permission.hook("evaluate")` setting the effect to `ask`), and the reminders do not use it yet.
+Both commit reminders are now real asks on OpenCode, decided by the same scripts that decide them on Claude Code and raised through `ctx.permission.hook("evaluate")`. Two details are worth knowing. An OpenCode **"always"** reply is saved as a durable, project-scoped `allow` — but the plugin cannot tell that apart from the default `allow`, so it does **not** suppress the guardrail reminder; it re-asks on the next qualifying command, deliberately, rather than let one keystroke retire the guardrail. And a configured **`deny`** is final: it never reaches the hook, so that is the one case where the reminder does not run at all.
 
 ### The live tool catalog (OpenCode only)
 

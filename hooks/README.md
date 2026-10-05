@@ -22,11 +22,15 @@ the Free Software Foundation, either version 3 of the License, or
   covers every reminder registered above by calling the **same** `scripts/*.sh`
   from its own hooks — the wording and the "is this warranted?" test stay in the
   script, so the two harnesses cannot come to different conclusions about either.
-  Where a hook above asks, the plugin currently notifies — except AI/agent
-  attribution, which blocks on both. That is this plugin's present choice, not
-  a harness limit: on OpenCode 2.0.20 a plugin's
-  `ctx.permission.hook("evaluate", …)` can set a permission's effect to `ask`,
-  which raises a real question to the human. The reminders do not use it yet.
+  The two commit reminders are real asks here too (WD-0022): a `shell` action's
+  `allow` is escalated to `ask` through `ctx.permission.hook("evaluate", …)`,
+  carrying the script's own wording. The plugin never denies; AI/agent
+  attribution still blocks on both, and it still blocks in `execute.before`.
+  Two limits are documented, not silent: an OpenCode **"always"** reply saves a
+  durable project-scoped `allow` that the hook cannot distinguish from the
+  default, so it does not suppress the reminder (it re-asks); and a configured
+  **`deny`** never reaches the hook, so that is the one case the reminder does
+  not run.
 - The plugin also adds the session's live tool names to every model call in a
   workflow-dev project — OpenCode only, with no Claude Code counterpart — and
   records that it is running so `scripts/opencode-live-check.sh` can tell.

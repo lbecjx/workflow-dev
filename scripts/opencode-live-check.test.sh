@@ -153,7 +153,7 @@ if command -v node >/dev/null 2>&1; then
     process.argv.push('--service')
     const p = (await import('$REAL_PLUGIN')).default
     const noop = async () => ({ dispose: async () => {} })
-    await p.setup({ location: {}, tool: { hook: noop }, session: { hook: noop, synthetic: async () => {} }, event: { subscribe: noop } })
+    await p.setup({ location: {}, tool: { hook: noop }, permission: { hook: noop }, session: { hook: noop, synthetic: async () => {} }, event: { subscribe: noop } })
     console.log(process.pid)
   " 2>/dev/null)"
   got="$(WD_OPENCODE_PLUGIN="$REAL_PLUGIN" WD_OPENCODE_SERVICE_PID="$PID" bash "$SCRIPT" --status)"

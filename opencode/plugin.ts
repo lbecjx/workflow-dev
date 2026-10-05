@@ -27,12 +27,11 @@
 // published `/docs/plugins` page describes v1; the v2 reference is
 // `/v2/docs/build/plugins`.
 //
-// Claude Code can *ask* (a `permissionDecision`); these reminders post notices
-// instead and let the work continue. That is a present choice, not a harness
-// limit: on 2.0.20 `ctx.permission.hook("evaluate", …)` can set a permission's
-// effect to `ask`, which raises a real question to the human (measured). The
-// reminders have not been moved onto it, so they notify rather than ask — and
-// that is documented as such, not as parity.
+// Claude Code can *ask* (a `permissionDecision`); the two commit reminders now
+// ask on OpenCode too, through `ctx.permission.hook("evaluate")` — first
+// measured on 2.0.20 (WD-0017 TG1), then re-measured and wired here on 2.0.23.
+// The hook only ever moves a configured `allow` to `ask`; it never denies. AI/
+// agent attribution stays the one hard block, and it stays in `execute.before`.
 //
 // Three things measured on 2.0.19 (2026-09-29) shape everything below; the full
 // probe record is in `.workflow-dev/context/WD-0019.md`:
@@ -48,18 +47,18 @@
 //     and delivered **nothing** observed — `session.created` did not fire in a
 //     run where the context hook fired twice. Registering is not evidence.
 //
-// One rule blocks rather than notifies, and only one. `execute.before` is the
-// only moment a reminder can still stop something, and blocking everything
-// Claude Code merely *asks* about would be faking a question the human never
-// got — which AC #3 forbids. What it does allow is the single rule with no
-// judgment in it: AI/agent attribution in a commit or PR, which Claude Code
-// denies outright for the same reason. See `pre-commit-message-check.sh`.
+// One rule blocks rather than asks, and only one. `execute.before` is the tool
+// hook that can stop a command outright, and the single rule with no judgment
+// in it — AI/agent attribution in a commit or PR — denies there, exactly as
+// Claude Code denies it. Nothing else here ever denies: the two commit reminders
+// ask, and the remaining ones are notices after the fact.
 //
-// `execute.before` is also where the one *time-sensitive* reminder is decided.
-// The validate check fingerprints the very files a commit consumes, so asking
-// it after the commit can only ever answer "no matching record" — on every
-// commit, validated or deferred. It is therefore evaluated before the command
-// and delivered after it, keyed by the call id both hooks carry.
+// The two commit reminders are decided in the permission hook, not after the
+// command: `permission.evaluate` runs before the command (measured 2.0.23), so
+// the validate marker it fingerprints still matches the diff the commit is
+// about to consume. Deciding it after the commit could only ever answer "no
+// matching record" — on every commit, validated or deferred — which is why the
+// old post-command notice was retired, not kept.
 //
 // Install by symlink. OpenCode loads direct `.ts`/`.js` files from
 // `~/.config/opencode/plugins/`, but this plugin's own checkout sits one level
@@ -190,12 +189,20 @@ function reminder(script: string, payload: unknown, cwd: string): string | undef
 // `pre-commit-message-check.sh` has one, because it is the only script with two
 // enforcement levels — a text-only answer cannot say whether the caller should
 // notify or stop. As with the text, the script decides; this file routes.
+//
+// It carries the same 5000 ms bound `reminder()` does, for the same reason and
+// with more force: this is reached from the permission hook, which sits on a path
+// that gates every shell action, so a script that stopped answering would stall
+// the permission prompt for every shell call in the session rather than just
+// one notice. A timeout throws, which the catch below already reads as "say
+// nothing" — the same answer a genuine all-clear gives.
 function verdict(script: string, payload: unknown, cwd: string): string | undefined {
   try {
     return (
       execFileSync("bash", [join(SCRIPTS, script), "--status", JSON.stringify(payload)], {
         cwd,
         encoding: "utf8",
+        timeout: 5000,
       }).trim() || undefined
     )
   } catch {
@@ -356,15 +363,6 @@ export default {
       }
     }
 
-    // A notice whose *decision* has to be made before the command and whose
-    // *delivery* can only happen after it, keyed by the call id both hooks
-    // carry. Only the validate reminder works this way: the marker it compares
-    // against fingerprints the files the commit is about to consume, so asking
-    // it afterwards could only ever answer "no matching record" — on every
-    // commit, validated or deliberately deferred. A notice that is always wrong
-    // is worse than no notice, and it was exactly that until this was measured.
-    const decidedBefore = new Map<string, string>()
-
     // The one hard block. `execute.before` is the only hook that runs while the
     // command can still be stopped, and the AI-attribution rule is the only one
     // whose stopping is not a stand-in for a question: Claude Code denies it
@@ -385,18 +383,63 @@ export default {
             "workflow-dev: this command was blocked, but pre-commit-message-check.sh printed no reason — the reminder script is broken, not the command.",
         )
       }
-
-      // Decided here, delivered below in `execute.after`. Nothing is stashed for
-      // a command that already threw, so a blocked call cannot leave an orphan
-      // behind; the size check is the belt to that braces, for a build that
-      // somehow runs `before` without an `after`.
-      const callID = String(event?.id ?? "")
-      if (!callID) return
-      const validated = reminder("pre-commit-validate-check.sh", payload, cwd)
-      if (!validated) return
-      if (decidedBefore.size >= 64) decidedBefore.clear()
-      decidedBefore.set(callID, validated)
     })
+
+    // The two commit reminders, as real asks — the OpenCode analogue of Claude
+    // Code's `PreToolUse` `ask`. A configured `allow` is escalated to a real
+    // permission request carrying the wording the same script owns. Only an
+    // `allow` is touched: a configured `deny` never reaches this hook (docs),
+    // an existing `ask` is the harness's own question, and the hook never sets
+    // `deny` — the "never deny" rule holds (AC #5).
+    //
+    // `execute.before` runs before this hook (measured 2.0.23), so the
+    // attribution block above has already thrown for a command that carries it.
+    // The `block` guard here is the belt to that: a hard block must never be
+    // turned into an approvable question by this path.
+    //
+    // Why per-call cost stays bounded, since this runs on a gate rather than
+    // after a notice: three early returns cover every non-shell, non-allow and
+    // empty-resource event before any spawn, and both scripts answer through
+    // command-match.sh, which returns `no` for a command with none of `commit`,
+    // `create`, `edit`, `new` in it without starting awk. Measured 14 ms for an
+    // ordinary command, 75 ms for a real commit. A command past
+    // COMMAND_MATCH_MAX_BYTES answers `maybe` rather than being scanned.
+    try {
+      await ctx.permission.hook("evaluate", async (event: any) => {
+        const cwd = projectDir(ctx)
+        if (!cwd) return
+        if (event?.action !== "shell") return
+        if (event?.effect !== "allow") return
+        // The command is the resource (measured 2.0.23). Anything else this
+        // build hands over is not a commit/PR and is left alone.
+        const command = Array.isArray(event?.resources) ? event.resources[0] : undefined
+        if (typeof command !== "string" || !command) return
+
+        const payload = { tool_input: { command } }
+        // One `--status` call answers every case: `block` is the attribution
+        // rule and stays with `execute.before`, `notify` is the Part 12 review,
+        // `ok` means there is nothing to ask about.
+        const review = verdict("pre-commit-message-check.sh", payload, cwd)
+        if (review === "block") return
+
+        const parts: string[] = []
+        const validate = reminder("pre-commit-validate-check.sh", payload, cwd)
+        if (validate) parts.push(validate)
+        if (review === "notify") {
+          const reason = reminder("pre-commit-message-check.sh", payload, cwd)
+          if (reason) parts.push(reason)
+        }
+        if (parts.length === 0) return
+        event.effect = "ask"
+        event.message = parts.join("\n\n")
+      })
+    } catch {
+      // A build whose ctx has no `permission` surface keeps everything else —
+      // including the attribution block above, which must not depend on the
+      // least-established surface in this file. Registered bare, a missing
+      // surface takes `setup` down and every reminder with it; like
+      // `event.subscribe` below, it degrades to unavailable instead.
+    }
 
     // `execute.after` is the only tool hook that carries both what was invoked
     // (`input`) and a place to put the notice. `execute.before` can inspect the
@@ -427,40 +470,20 @@ export default {
         return
       }
 
-      // The pre-commit reminders. Claude Code fires these *before* the command
-      // and can ask; here the command has already run, so what arrives is a
-      // notice that the moment has passed — a warning, not a gate. Saying so is
-      // the honest shape (AC #2). Both scripts answer through command-match.sh,
-      // which clears a command with none of the verb words in it before starting
-      // awk, so an ordinary call costs a few milliseconds, not a scan.
+      // After a real `gh pr create`/`gh pr edit`, hand back its URL (WD-0024).
+      // No exit code is available here, so a URL found in the output is the
+      // only signal of success this harness can give the script — documented
+      // gap, see hooks/README.md. The two commit reminders do not arrive here:
+      // they are asked in `permission.evaluate`, before the command, and the
+      // validate one could only ever answer "no matching record" afterwards —
+      // on every commit. That is why it was retired rather than kept.
       if (event?.tool === "shell" && event?.status === "completed") {
-        const review = reminder(
-          "pre-commit-message-check.sh",
-          { tool_input: event.input },
-          cwd,
-        )
-        if (review) intoToolResult(event, review)
-
-        // After a real `gh pr create`/`gh pr edit`, hand back its URL (WD-0024).
-        // No exit code is available here, so a URL found in the output is the
-        // only signal of success this harness can give the script — documented
-        // gap, see hooks/README.md.
         const prUrl = reminder(
           "post-pr-url-check.sh",
           { tool_input: event.input, tool_output: event?.result?.output?.output },
           cwd,
         )
         if (prUrl) intoToolResult(event, prUrl)
-
-        // Decided in `execute.before`, where the pre-commit diff still existed —
-        // this half only delivers it, and consumes it so a call id cannot be
-        // answered twice.
-        const callID = String(event?.id ?? "")
-        if (callID) {
-          const validated = decidedBefore.get(callID)
-          decidedBefore.delete(callID)
-          if (validated) intoToolResult(event, validated)
-        }
       }
     })
   },
