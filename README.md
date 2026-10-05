@@ -4,6 +4,15 @@ A human-piloted, agent-executed development workflow for [Claude Code](https://c
 
 Context survives compaction and new sessions. Mechanical state (plan progress, files touched) is kept current automatically as work proceeds; decisions, discoveries, and progress notes are saved **on request** — never automatically, and never without your review.
 
+## Save point
+
+`save` tracks how far the last save read, so a later save only reads what is genuinely new. The position is stored per story in `.workflow-dev/context/.compaction-state/<STORY>.json`, **per harness**:
+
+- **Claude Code** — a transcript path plus a line count.
+- **OpenCode** — a session id plus a message `seq`, read from OpenCode's own store. The current session is the one the harness passes to each command (`OPENCODE_SESSION_ID`); where it exposes no id, the newest session for the project is used. A session other than the one last saved is read from the start, so a story continued in a fresh session is never skipped.
+
+When neither harness offers a usable position, `save` says so rather than reporting "nothing unsaved".
+
 ## What this is not
 
 - Not a spec framework — it doesn't produce design documents.

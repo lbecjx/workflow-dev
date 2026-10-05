@@ -53,6 +53,14 @@ the Free Software Foundation, either version 3 of the License, or
   gap in the "same script, both harnesses" rule the rest of this file
   describes. It emits only `additionalContext`, never a permission decision,
   on both the events it fires on.
+- The compaction-state save point (`scripts/save-read-unsaved.sh`,
+  `scripts/save-mark-saved.sh`) keeps how far each story's last save read, per
+  harness, in `.workflow-dev/context/.compaction-state/<STORY>.json` — Claude Code
+  a transcript path + line count, OpenCode a session id + message `seq`. On
+  OpenCode the current session is the one the harness sets on every command
+  (`OPENCODE_SESSION_ID`), falling back to the newest session for the project; a
+  session other than the one last saved is read from the start rather than reusing
+  an old position (WD-0008).
 - The one reminder with no verified OpenCode trigger is the compaction pair:
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not
