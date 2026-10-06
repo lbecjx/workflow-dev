@@ -80,7 +80,7 @@ The same applies to how you invoke a skill: `/workflow-dev:init` on Claude Code 
 
 ## Model tiering
 
-`workflow-dev` spawns sub-agents for two very different jobs: running a fixed checklist (Verification, the Part 12 text review) and making a contested call (Security, Architecture, Algorithmic Integrity, Adversarial Correctness). The plugin never names a model — it names **roles**, `wd-operator` and `wd-judge`, and you bind each role to a model your harness actually offers:
+`workflow-dev` spawns sub-agents for three jobs: running a fixed checklist (Verification, the Part 12 text review), making a contested call (Security, Architecture, Algorithmic Integrity), and hunting adversarially for the input that breaks a change (Adversarial Correctness). The plugin never names a model — it names **roles**, `wd-operator`, `wd-judge` and `wd-adversary`, and you bind each role to a model your harness actually offers:
 
 ```
 /workflow-dev:setup-models
