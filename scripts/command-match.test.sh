@@ -260,6 +260,32 @@ expect $GC maybe "piped into bash -o pipefail"         "printf 'git commit -m x\
 expect $GC no    "ssh host cat <<EOF stays data"        "$(printf "ssh host cat <<'EOF'\ngit commit -m x\nEOF")"
 expect $GC no    "su -c with a data heredoc"            "$(printf "su bob -c 'ls' <<'EOF'\ngit commit -m x\nEOF")"
 
+echo "vagrant, filter-branch and multi-line arrays (WD-0028)"
+expect $GC maybe "vagrant ssh -c handed a commit"      'vagrant ssh -c "git commit -m x"'
+expect $GC no    "vagrant ssh (interactive)"            'vagrant ssh'
+expect $GC no    "vagrant up"                           'vagrant up'
+expect $GC no    "vagrant mention in quotes"            'echo "vagrant ssh -c git commit"'
+expect $PC maybe "vagrant ssh -c handed a gh pr create" 'vagrant ssh -c "gh pr create --fill"'
+expect $GC maybe "filter-branch --msg-filter"           'git filter-branch --msg-filter "git commit -m x" HEAD~10..HEAD'
+expect $GC maybe "filter-branch --tree-filter"          'git filter-branch --tree-filter "git commit -m x" HEAD'
+expect $GC maybe "filter-branch --index-filter"         'git filter-branch --index-filter "git commit -m x" HEAD'
+expect $GC maybe "filter-branch --commit-filter"        'git filter-branch --commit-filter "git commit -m x" HEAD'
+expect $GC maybe "filter-branch --env-filter"           'git filter-branch --env-filter "git commit -m x" HEAD'
+expect $GC maybe "filter-branch --parent-filter"        'git filter-branch --parent-filter "git commit -m x" HEAD'
+expect $GC maybe "filter-branch --tag-name-filter"      'git filter-branch --tag-name-filter "git commit -m x" -- --all'
+expect $GC maybe "filter-branch --msg-filter=joined"    'git filter-branch --msg-filter="git commit -m x" HEAD'
+expect $GC no    "filter-branch with no command"        'git filter-branch HEAD~10..HEAD'
+expect $GC no    "multi-line array, bare words"         "$(printf 'words=(\ngit\ncommit\n)')"
+expect $GC no    "multi-line array, command on one line" "$(printf 'words=(\ngit commit\n)')"
+expect $GC no    "multi-line array, opener line"        "$(printf 'words=(git commit\n)')"
+expect $GC no    "multi-line array append"              "$(printf 'words+=(\ngit\ncommit\n)')"
+expect $GC no    "multi-line array, a quoted mention"   "$(printf 'words=(\n"git commit"\n)')"
+expect $GC real  "a real commit after the close"        "$(printf 'words=(\ngit\ncommit\n)\ngit commit -m x')"
+expect $GC real  "unterminated array does not swallow"  "$(printf 'words=(\ngit\ncommit\ngit commit -m x')"
+expect $GC real  "a multi-line array with a substitution" "$(printf 'out=(\n$(git commit -m x)\n)')"
+expect $GC no    "heredoc data inside an array substitution" "$(printf 'out=(\n$(cat <<EOF\ngit commit -m x\nEOF\n)\n)')"
+expect $GC real  "line continuation inside an array substitution" "$(printf 'out=(\n$(git \\\n  commit -m x)\n)')"
+
 echo "one scan answers both questions"
 [[ "$(command_match_scan git-commit,gh-pr-create,gh-pr-edit 'gh pr create --fill')" == "real real" ]] && ok "a PR → real real" || no "a PR → real real"
 [[ "$(command_match_scan git-commit,gh-pr-create,gh-pr-edit 'git commit -m x')" == "real no" ]] && ok "a commit → real no" || no "a commit → real no"

@@ -138,6 +138,33 @@ TOT8=$(printf '%s' "$OUT8" | grep TOTAL)
 assert_contains "300" "$TOT8" "--transcripts sums cache_read across transcripts"
 assert_contains "30" "$TOT8" "--transcripts sums input across transcripts"
 
+# --- 6e: an explicit --transcripts wins over a resolvable Claude transcript ---
+# The 2-assert failure this story fixes: from the project root (inside a live
+# session) a transcript resolves, and the old order ran claude_report and exited
+# before --transcripts was read. Make that resolution happen on purpose and pin
+# that the explicit selector is still the source.
+PROJP="$TMP/projp"; FAKEHOME="$TMP/fakehome"
+mkdir -p "$PROJP" "$FAKEHOME"
+SLUG="$( cd "$PROJP" && pwd -P | sed 's#/#-#g' )"
+mkdir -p "$FAKEHOME/.claude/projects/$SLUG"
+printf '{"type":"assistant","message":{"id":"fake1","model":"m","usage":{"input_tokens":999,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' \
+  > "$FAKEHOME/.claude/projects/$SLUG/fake.jsonl"
+# Default (no selector): the implicit resolution does find it...
+OUTD=$( cd "$PROJP" && HOME="$FAKEHOME" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 999" "$OUTD" "implicit resolution finds a resolvable transcript"
+# ...and the explicit selector still wins, ignoring the transcript.
+OUTE=$( cd "$PROJP" && HOME="$FAKEHOME" bash "$SCRIPT" --transcripts "$TMP/tx1.jsonl,$TMP/tx2.jsonl" )
+TOTE=$(printf '%s' "$OUTE" | grep TOTAL)
+assert_contains "300" "$TOTE" "--transcripts wins over a resolvable transcript (cache_read)"
+assert_contains "30" "$TOTE" "--transcripts wins over a resolvable transcript (input)"
+# The other two explicit selectors take the same precedence (the --session
+# branch is reached for the first time here; before the reorder it was dead
+# whenever a transcript resolved).
+OUTS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_child1 )
+assert_contains "explicit sessions" "$OUTS" "--sessions wins over a resolvable transcript"
+OUTSS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --session ses_parent )
+assert_contains "Session: ses_parent" "$OUTSS" "--session wins over a resolvable transcript"
+
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before
 # any other external tool, so this is portable (unlike assuming /bin has no jq).

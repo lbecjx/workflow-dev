@@ -14,6 +14,23 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.28.0
+
+- `scripts/command-match.sh` closes three forms it used to get wrong:
+  `vagrant ssh -c <cmd>` is looked through like the other runners and a
+  `git filter-branch --*-filter <cmd>` like `git rebase -x` (both `maybe`),
+  while `vagrant ssh` / `vagrant up` and a bare `filter-branch` stay `no`; a
+  multi-line `name=(` array literal is opaque across lines instead of read as a
+  command — a later real commit is still `real`, a substitution inside it stays
+  visible, and an unterminated array no longer swallows the lines after it.
+- `scripts/session-usage.sh` gives an explicit `--transcripts` / `--sessions` /
+  `--session` precedence over its implicit source. They sat after the implicit
+  Claude resolution and were silently ignored when a transcript was resolvable,
+  which is why `session-usage.test.sh` failed two assertions from a project root.
+- `scripts/pre-commit-message-check.sh` reads a message body behind combined
+  short flags (`-qm`, `-am`), `--message` and a single-quoted body, and resolves
+  a `$TMPDIR` path even when the hook's own environment has no `TMPDIR`.
+
 ## 1.27.0
 
 - OpenCode's two commit reminders are now **real asks**, not post-command notices:

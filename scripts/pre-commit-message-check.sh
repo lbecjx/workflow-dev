@@ -31,15 +31,15 @@
 #   bypassed somehow; deny is the backstop for that, not the first line
 #   of defense.
 #
-# Message extraction is best-effort, not a real shell parser. It handles the
-# one shape this session's own git/gh conventions actually produce — a
-# `-m "$(cat <<'EOF' ... EOF)"` / `--body "$(cat <<'EOF' ... EOF)"` heredoc —
-# plus a simple single-line `-m "..."` / `--body "..."` fallback. A message
-# built some other way (multiple -m flags, --body-file, a delimiter other
-# than EOF) won't be recognized, and this hook silently does nothing rather
-# than guess — same philosophy as Part 6's "can't discover it, skip, don't
-# fail": a check that can't run confidently shouldn't produce a false sense
-# of either safety or danger.
+# Message extraction is best-effort, not a real shell parser. It reads a quoted
+# body after git's `-m` / `--message` (also inside a combined short-flag cluster
+# such as `-qm` / `-am`) or gh's `--body`, single- or double-quoted, plus the
+# text kept in a file (`-F`, `--file`, `--body-file`, `$(cat FILE)`). An
+# unquoted argument, a flag glued to its value with no space, and a body the
+# shell will expand (`$(...)`, a backtick, `$VAR`) are not guessed at — this
+# hook silently does nothing rather than guess, same philosophy as Part 6's
+# "can't discover it, skip, don't fail": a check that can't run confidently
+# shouldn't produce a false sense of either safety or danger.
 #
 # Three modes, one owner of both the text and the verdict:
 #   pre-commit-message-check.sh
@@ -103,6 +103,13 @@ PR_VERDICT="${SCAN##* }"
 # the whole raw command, not just the extracted body below, so it still
 # catches attribution even if heredoc/-m extraction fails for some reason.
 AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
+
+# The flag that carries a message and the quoted text after it: git's `-m` /
+# `--message` (alone or in a combined short-flag cluster such as `-qm` / `-am`)
+# and gh's `--body`. Only a quoted body is read — an unquoted argument, or a
+# flag glued to its value with no space, is left to the "cannot read it, stay
+# quiet" side on purpose (see the extraction comment below).
+MSG_FLAG='(-[A-Za-z]*m[A-Za-z]*|--message|--body)'
 
 if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
   if [[ "$VERDICT" == "real" ]]; then
@@ -170,12 +177,27 @@ cat_arg() {
 file_arg() {
   printf '%s' "$COMMAND" | grep -oE -- '(-F|--file|--body-file)[[:space:]]+("[^"]*"|[^[:space:]]+)' | head -1 | sed -E 's/^(-F|--file|--body-file)[[:space:]]+//'
 }
+# The temp directory to fall back to when a path names `$TMPDIR` but the hook
+# process has no TMPDIR of its own (whether a live Claude Code hook carries one
+# is not measured; the shell that wrote the file does). macOS: the per-user temp
+# dir, the same value `$TMPDIR` holds there; elsewhere /tmp. Only TMPDIR/TMP get
+# this — any other unset variable stays unreadable.
+temp_dir() {
+  [[ -n "${TMPDIR:-}" ]] && { printf '%s' "$TMPDIR"; return; }
+  local d
+  d="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)" && [[ -n "$d" ]] && { printf '%s' "${d%/}"; return; }
+  printf '%s' /tmp
+}
+
 resolve_path() {
   local p="$1" name val
   p="${p#\"}"; p="${p%\"}"; p="${p#\'}"; p="${p%\'}"
   while [[ "$p" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} || "$p" =~ \$([A-Za-z_][A-Za-z0-9_]*) ]]; do
     name="${BASH_REMATCH[1]}"
     val="${!name-}"
+    if [[ -z "$val" && ( "$name" == "TMPDIR" || "$name" == "TMP" ) ]]; then
+      val="$(temp_dir)"
+    fi
     [[ -n "$val" ]] || return 1
     p="${p//"${BASH_REMATCH[0]}"/$val}"
   done
@@ -196,14 +218,15 @@ file_text() {
 BODY=$(extract_heredoc_body "$COMMAND")
 
 if [[ -z "$BODY" ]]; then
-  BODY=$(printf '%s' "$COMMAND" | grep -oE -- '(-m|--body)[[:space:]]+"[^"]*"' | head -1 | sed -E 's/^(-m|--body)[[:space:]]+"(.*)"$/\2/')
+  BODY=$(printf '%s' "$COMMAND" | grep -oE -- "$MSG_FLAG[[:space:]]+(\"[^\"]*\"|'[^']*')" | head -1 \
+    | sed -E "s/^$MSG_FLAG[[:space:]]+[\"'](.*)[\"']\$/\2/")
   # Inside double quotes the shell expands `$(...)`, `$VAR` and backticks, so what
   # sits between the quotes is not the message that will be written:
   # `--body "$(cat file)"` reads as the fragment `$(cat `. Take the text from the
   # file when that is what the command does; otherwise it cannot be read.
   if [[ "$BODY" == *'$'* || "$BODY" == *'`'* ]]; then
     BODY=""
-    TOKEN=$(cat_arg '(-m|--body)')
+    TOKEN=$(cat_arg "$MSG_FLAG")
     [[ -n "$TOKEN" ]] && BODY=$(file_text "$TOKEN")
   elif [[ -z "$BODY" ]]; then
     TOKEN=$(file_arg)
