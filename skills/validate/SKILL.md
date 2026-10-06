@@ -131,9 +131,10 @@ check rather than a judgment — running the discovered commands, the
 Don't spend a sub-agent on it.
 
 **Model tiering — by role, never by model.** Every sub-agent this skill spawns
-runs under one of two roles, defined once in
+runs under one of three roles, defined once in
 `../setup-models/references/roles.md`: **`wd-operator`** (class `operator`) for
-mechanical, checklist work, and **`wd-judge`** (class `judge`) for judgment.
+mechanical, checklist work, **`wd-judge`** (class `judge`) for judgment, and
+**`wd-adversary`** (class `judge`) for the Adversarial Correctness pair.
 Name the **role** as the sub-agent's type when you spawn it — never a model name
 or alias; the user bound each role to a model once, via
 `/workflow-dev:setup-models`. If the harness cannot select a model per sub-agent
@@ -190,7 +191,7 @@ too slow, apply §11.0's **bound** (scope ceiling + stop rule), not a shallower
 depth — and keep `verify` at either depth: a measured run showed it rejecting a
 wrongly-reasoned hunt claim that would otherwise have blocked the commit.
 
-Both depths are the same two **`wd-judge`** sub-agents (hunt, §11.1, then
+Both depths are the same two **`wd-adversary`** sub-agents (hunt, §11.1, then
 verify, §11.2) — what differs is whether those agents may actually execute
 anything (complete) or must stay on the page (no-repro, §11.1/§11.2's depth
 rules). Neither agent ever
@@ -390,7 +391,7 @@ a QA finding is a new, separate signal for the human).
 - **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not the whole rulebook), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
-- **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
+- **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment, `wd-adversary` for the Adversarial Correctness pair; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
 - **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
 - **Algorithmic integrity is judgment, not a linter** — the project's own linters (run by Verification, Part 6) already catch the mechanical loop/overflow shapes; Part 13 is the layer those tools cannot reach: does *this* loop or recursion terminate on *this* input, and is the growth class fit for the `n` this code actually sees. It requires a concrete trigger and `n` for every finding, and follows Part 11's NEEDS TESTING rule for any claim whose truth depends on execution.
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
