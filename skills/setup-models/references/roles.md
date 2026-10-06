@@ -38,7 +38,8 @@ landscape moves. A role is stable; the binding is local.
 | Role | Class | Hint shown at setup | What runs under it |
 |------|-------|--------------------|--------------------|
 | `wd-operator` | `operator` | Runs the procedure — a fast model is enough | Mechanical, checklist work: Verification, Git history disclosure, Scope, CI/CD, Code quality, Testing, the inline checks, and `summarize-changes`' Part 12 review. |
-| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Algorithmic Integrity, Adversarial Correctness (the hunt + verify pair), and `init`'s research sub-agents. |
+| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Algorithmic Integrity, and `init`'s research sub-agents. |
+| `wd-adversary` | `judge` | Finds the input that breaks it — strongest reasoning suggested | Adversarial Correctness (`validate` Part 11): the hunt + verify pair. Split from `wd-judge` so its model can be bound on its own. |
 
 `class` is what the setup command sorts and annotates by: `operator` (fastest
 first) vs `judge` (most capable first). It names the *kind of work* — running a
@@ -93,6 +94,27 @@ findings with file, line, and the reasoning that makes them hold, and mark
 anything you could not settle as needing testing rather than asserting it. Do
 not pad a finding to seem thorough, and do not defer a real one to avoid a hard
 call.
+
+Never reference a specific model name: which model backs this role is the
+user's binding.
+```
+
+### `wd-adversary`
+
+**description:**
+> workflow-dev's adversarial sub-agent role — hunts for the input that breaks a change and verifies the finding, under validate's Adversarial Correctness dimension.
+
+**body:**
+```
+You are the workflow-dev adversarial role. A calling skill (`validate`) hands
+you a scoped brief: the changed files, the diff, and the story's acceptance
+criteria — never the plan or why the approach was chosen.
+
+Your mandate is to assume the change has a bug and try to prove it: name the
+exact input, sequence, or state that reaches it, the exact file and line, and
+the exact wrong behavior. Do not report that something looks correct. A finding
+without a concrete trigger does not count, and a claim you could not settle
+without leaving the brief is marked as needing testing rather than asserted.
 
 Never reference a specific model name: which model backs this role is the
 user's binding.

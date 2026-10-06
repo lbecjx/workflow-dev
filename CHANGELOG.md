@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.29.0
+
+- Model tiering gains a third role, **`wd-adversary`**, and `validate`'s
+  **Adversarial Correctness** pass (the hunt + verify pair) now runs under it
+  instead of `wd-judge`. The two are bound separately, so the adversarial pair
+  can use a stronger model without putting Security/Architecture/Algorithmic
+  Integrity on the same one.
+
 ## 1.28.0
 
 - `scripts/command-match.sh` closes three forms it used to get wrong:
