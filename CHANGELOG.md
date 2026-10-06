@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.29.2
+
+- `scripts/session-usage.sh`'s default report no longer presents a finished run
+  as the current one: it uses this project's newest transcript while that is
+  still being written, and only then a story-tracked path, so a stale or
+  just-finished path is not reported as the run in progress.
+- The Claude auto-resolution reads the current state shape (`claudePath`) as
+  well as the older `transcriptPath`.
+- The OpenCode default resolves the run from `OPENCODE_SESSION_ID` when that is
+  a top-level session of this directory, rather than always the newest one.
+
 ## 1.29.1
 
 - Correct `wd-judge`'s description, in the role registry and the README: it no

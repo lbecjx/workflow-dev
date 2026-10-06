@@ -118,7 +118,7 @@ INSERT INTO session_v2 VALUES ('ses_parent',NULL,'$PROJDIR','Main run','build','
 INSERT INTO session_v2 VALUES ('ses_child1','ses_parent','$PROJDIR','Sub A','general','{"id":"m1"}',0.5,50,5,2,500,0,0,999);
 INSERT INTO session_message VALUES ('ses_parent',0),('ses_parent',10000),('ses_child1',0),('ses_child1',30000);
 SQL
-OUT6=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBF" bash "$SCRIPT" 2>/dev/null )
+OUT6=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBF" OPENCODE_SESSION_ID= bash "$SCRIPT" 2>/dev/null )
 assert_contains "Workflow usage (OpenCode)" "$OUT6" "OpenCode backend selected"
 assert_contains "Session: ses_parent" "$OUT6" "OpenCode resolves the top-level session, not a newer child"
 assert_contains "Sub A" "$OUT6" "child session listed as sub-agent"
@@ -164,6 +164,98 @@ OUTS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --sess
 assert_contains "explicit sessions" "$OUTS" "--sessions wins over a resolvable transcript"
 OUTSS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --session ses_parent )
 assert_contains "Session: ses_parent" "$OUTSS" "--session wins over a resolvable transcript"
+
+# --- 6f: a stale tracked .compaction-state path must not shadow this run -----
+# The WD-0035 defect: resolve_claude preferred a tracked transcriptPath even
+# when it belonged to a finished run, so the report showed a fixed total while
+# the actual run grew. A stale tracked path now loses to the fresh transcript.
+PROJT="$TMP/tracked"; FAKEHT="$TMP/fakehome-tracked"
+mkdir -p "$PROJT/.workflow-dev/context/.compaction-state" "$FAKEHT"
+SLUGT="$( cd "$PROJT" && pwd -P | sed 's#/#-#g' )"
+mkdir -p "$FAKEHT/.claude/projects/$SLUGT"
+TRACKED_OLD="$FAKEHT/.claude/projects/$SLUGT/old.jsonl"
+printf '{"type":"assistant","message":{"id":"old","model":"m","usage":{"input_tokens":111,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$TRACKED_OLD"
+touch -t 202001010000 "$TRACKED_OLD"
+NEW_RUN="$FAKEHT/.claude/projects/$SLUGT/new.jsonl"
+printf '{"type":"assistant","message":{"id":"new","model":"m","usage":{"input_tokens":222,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$NEW_RUN"
+printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_OLD" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
+OUT_T=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 222" "$OUT_T" "stale tracked transcriptPath does not shadow the current run"
+
+# --- 6f2: freshness is not identity — a fresh path a just-ended run left -----
+# behind still loses to the newer, current transcript.
+TRACKED_ENDED="$TMP/elsewhere/ended.jsonl"
+mkdir -p "$TMP/elsewhere"
+printf '{"type":"assistant","message":{"id":"ended","model":"m","usage":{"input_tokens":111,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$TRACKED_ENDED"
+printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_ENDED" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
+# The current run's transcript is written after it, so it is the newer file.
+printf '{"type":"assistant","message":{"id":"new","model":"m","usage":{"input_tokens":222,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$NEW_RUN"
+OUT_T2=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 222" "$OUT_T2" "a fresh-but-ended tracked path does not win over the newer transcript"
+
+# --- 6g: with no fresh project transcript, a fresh tracked path is the pin ---
+rm -f "$FAKEHT/.claude/projects/$SLUGT/"*.jsonl
+mkdir -p "$TMP/elsewhere"
+TRACKED_FRESH="$TMP/elsewhere/pinned.jsonl"
+printf '{"type":"assistant","message":{"id":"pin","model":"m","usage":{"input_tokens":333,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$TRACKED_FRESH"
+printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_FRESH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
+OUT_P=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 333" "$OUT_P" "a fresh tracked transcriptPath is used when the project has none"
+
+# --- 6h: a stale tracked path with nothing fresh is refused, not reported ----
+PROJR="$TMP/refuse"; FAKEHR="$TMP/fakehome-refuse"
+mkdir -p "$PROJR/.workflow-dev/context/.compaction-state" "$FAKEHR"
+STALE_R="$FAKEHR/old.jsonl"
+printf '{"type":"assistant","message":{"id":"old","model":"m","usage":{"input_tokens":444,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$STALE_R"
+touch -t 202001010000 "$STALE_R"
+printf '{"transcriptPath":"%s","length":0}\n' "$STALE_R" > "$PROJR/.workflow-dev/context/.compaction-state/WD-T.json"
+OUT_R=$( cd "$PROJR" && HOME="$FAKEHR" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>&1 )
+assert_contains "No usage source found" "$OUT_R" "a stale tracked path with no fresh transcript is refused"
+case "$OUT_R" in
+  *"input: 444"*) no "stale tracked totals are not reported as this run" ;;
+  *) ok "stale tracked totals are not reported as this run" ;;
+esac
+
+# --- 6i: the current state shape (`claudePath`) is read too ------------------
+CUR_PATH="$TMP/elsewhere/current.jsonl"
+printf '{"type":"assistant","message":{"id":"cur","model":"m","usage":{"input_tokens":555,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$CUR_PATH"
+printf '{"current":"claude","claudePath":"%s","claudeLength":0}\n' "$CUR_PATH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
+OUT_CP=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 555" "$OUT_CP" "the current state shape (claudePath) is honored"
+# An empty `claudePath` (the OpenCode-shaped state) must not hide the legacy key.
+printf '{"current":"claude","claudePath":"","transcriptPath":"%s","claudeLength":0}\n' "$CUR_PATH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
+OUT_CE=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+assert_contains "input: 555" "$OUT_CE" "an empty claudePath falls back to transcriptPath"
+
+# --- 6j: OpenCode default tracks OPENCODE_SESSION_ID, not the newest ---------
+DBT="$TMP/current.db"
+sqlite3 "$DBT" <<SQL
+CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
+  agent text, model text, cost real, tokens_input integer, tokens_output integer,
+  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
+  time_created integer, time_updated integer);
+CREATE TABLE session_message (session_id text, time_created integer);
+INSERT INTO session_v2 VALUES ('ses_current',NULL,'$PROJDIR','Current run','build','{"id":"m1"}',0.1,11,1,0,0,0,100,100);
+INSERT INTO session_v2 VALUES ('ses_newer',NULL,'$PROJDIR','Other run','build','{"id":"m1"}',9.9,999,0,0,0,0,5000,5000);
+INSERT INTO session_v2 VALUES ('ses_child','ses_current','$PROJDIR','Sub','general','{"id":"m1"}',0,0,0,0,0,0,0,0);
+INSERT INTO session_v2 VALUES ('ses_grand','ses_child','$PROJDIR','Sub-sub','general','{"id":"m1"}',0,0,0,0,0,0,0,0);
+SQL
+OUT_I=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_current bash "$SCRIPT" 2>/dev/null )
+assert_contains "Session: ses_current" "$OUT_I" "OpenCode default uses OPENCODE_SESSION_ID"
+case "$OUT_I" in
+  *"Session: ses_newer"*) no "OPENCODE_SESSION_ID beats the newest top-level session" ;;
+  *) ok "OPENCODE_SESSION_ID beats the newest top-level session" ;;
+esac
+OUT_J=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_child bash "$SCRIPT" 2>/dev/null )
+assert_contains "Session: ses_current" "$OUT_J" "a sub-agent's child OPENCODE_SESSION_ID resolves to its parent run"
+OUT_L=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_grand bash "$SCRIPT" 2>/dev/null )
+assert_contains "Session: ses_current" "$OUT_L" "a nested sub-agent id walks up to the run"
+# ...and so does a top-level one belonging to another directory.
+mkdir -p "$TMP/otherdir"
+OTHER_DIR="$( cd "$TMP/otherdir" && pwd -P )"
+sqlite3 "$DBT" "INSERT INTO session_v2 VALUES ('ses_foreign',NULL,'$OTHER_DIR','Foreign','build','{\"id\":\"m1\"}',0,0,0,0,0,0,9000,9000);"
+OUT_K=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_foreign bash "$SCRIPT" 2>/dev/null )
+assert_contains "Session: ses_newer" "$OUT_K" "an OPENCODE_SESSION_ID from another directory is refused"
 
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before

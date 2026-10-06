@@ -37,10 +37,13 @@
 #
 # Usage: session-usage.sh [--session <id>] [transcript.jsonl]
 #   transcript.jsonl (Claude Code) — explicit path; without it the Claude
-#     source is resolved (story-tracked transcript, else the newest for this
-#     project — but only if it was written in the last 15 minutes).
-#   --session <id> — OpenCode only; without it, the newest session for the
-#     current directory is used.
+#     source is resolved (the newest transcript for this project, else a
+#     story-tracked one when the project has none), each only if it was written
+#     in the last 15 minutes — an older one is another run, and is refused
+#     rather than reported as this one.
+#   --session <id> — OpenCode only; without it, the current session
+#     (OPENCODE_SESSION_ID, only when it validates for this directory) is used,
+#     else the newest session for the current directory.
 #   --sessions <id,id,…> — OpenCode: sum exactly these sessions. A session can
 #     mix several stories, so this is the per-story attribution path: the story
 #     records each sub-agent's session id and this totals just those.
@@ -75,22 +78,29 @@ done
 
 resolve_claude() {
   local state_dir=".workflow-dev/context/.compaction-state" f p slug
+  slug=$(pwd -P | sed 's#/#-#g')
+
+  # The run's own transcript is the newest for this project, and only while it
+  # is still being written. Prefer it: a tracked `.compaction-state` path can be
+  # fresh yet belong to a run that just finished (or to another story's state
+  # file), and letting it win would report that run's totals as this one's
+  # (WD-0035) — freshness alone is not identity.
+  p=$(ls -1t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -1)
+  if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then
+    printf '%s\tnewest' "$p"
+    return
+  fi
+
+  # No fresh transcript under this project: the tracked path is the fallback —
+  # e.g. the session ran from a different cwd, so the slug lookup misses it —
+  # and still only while its transcript is being written. Both state shapes are
+  # read; the current one names it `claudePath`, the older one `transcriptPath`.
   if [[ -d "$state_dir" ]] && have_jq; then
     f=$(ls -1t "$state_dir"/*.json 2>/dev/null | head -1)
     if [[ -n "$f" ]]; then
-      p=$(jq -r '.transcriptPath // empty' "$f" 2>/dev/null)
-      if [[ -n "$p" && -f "$p" ]]; then printf '%s\ttracked' "$p"; return; fi
+      p=$(jq -r 'if (.claudePath // "") == "" then (.transcriptPath // "") else .claudePath end' "$f" 2>/dev/null)
+      if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then printf '%s\ttracked' "$p"; fi
     fi
-  fi
-  # Physical path: the harness names project dirs from the resolved cwd, so a
-  # symlinked component (/tmp -> /private/tmp) makes the logical `pwd` miss.
-  slug=$(pwd -P | sed 's#/#-#g')
-  p=$(ls -1t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -1)
-  # Only trust the newest if it is being written right now; an old one is a
-  # different run, and reporting it as this one is the wrong answer this
-  # script must not produce.
-  if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then
-    printf '%s\tnewest' "$p"
   fi
 }
 
@@ -266,6 +276,25 @@ sessions_report() {
   printf '  %-46s %9s %8s %10s %11s %9s\n' TOTAL "$TI" "$TO" "$TR" "$TCR" "$TC"
 }
 
+# Which session is "this run"? The harness hands every shell command its own id
+# in OPENCODE_SESSION_ID, so trust that when it is a top-level session of this
+# directory — a stray value (another project's session, a sub-agent's child)
+# must not point the default report at another run; otherwise the newest
+# top-level session for the directory. Same rule as the save point's
+# `resolve_opencode_session` (WD-0008), applied to the report (WD-0035).
+opencode_default_session() {
+  local db="$1" dir="$2" sid=""
+  local clause="lower(rtrim(directory,'/'))=lower(rtrim('$(sqlq "$dir")','/'))"
+  if [[ -n "${OPENCODE_SESSION_ID:-}" ]]; then
+    # The id can be a sub-agent's child session (at any depth); walk up to the
+    # run it belongs to before validating. A value that is not this directory's
+    # top-level session is refused, not guessed at.
+    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE parent_id IS NULL AND ($clause) AND id = (WITH RECURSIVE up(id,parent_id) AS (SELECT id,parent_id FROM session_v2 WHERE id='$(sqlq "$OPENCODE_SESSION_ID")' UNION ALL SELECT s.id,s.parent_id FROM session_v2 s JOIN up ON s.id=up.parent_id) SELECT id FROM up WHERE parent_id IS NULL LIMIT 1) LIMIT 1;")
+  fi
+  [[ -n "$sid" ]] || sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE ($clause) AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1;")
+  printf '%s' "$sid"
+}
+
 opencode_report() {
   local db="$1" dir="${PWD}" sid
   if [[ -n "$SESSION_ARG" ]]; then
@@ -274,14 +303,13 @@ opencode_report() {
   else
     # `directory` is stored as typed when the session started; a case-only
     # difference ($PWD can be lowercase where the DB has Projects) must still
-    # match — SQLite's = is case-sensitive, so compare case-folded.
-    # The run's session is the **top-level** one (parent_id IS NULL); sub-agents
-    # are child sessions in the same directory with their own time_updated, so
-    # without this filter a just-finished sub-agent can be picked as the session.
-    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
+    # match — SQLite's = is case-sensitive, so compare case-folded. The second
+    # call retries with the physical path, in case a symlinked component
+    # (/tmp → /private/tmp) changed the spelling the store recorded.
+    sid=$(opencode_default_session "$db" "$dir")
     if [[ -z "$sid" ]]; then
       dir=$(pwd -P)
-      sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE lower(directory)=lower('$(sqlq "$dir")') AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;")
+      sid=$(opencode_default_session "$db" "$dir")
     fi
   fi
   if [[ -z "$sid" ]]; then
@@ -374,8 +402,7 @@ if [[ -n "$SESSION_ARG" ]]; then
 fi
 
 # No explicit selector: resolve the current run implicitly, Claude Code first.
-# (Auto-resolution still prefers a `.compaction-state` tracked `transcriptPath`,
-# which can point at another run — a separate defect, tracked on its own.)
+# A resolvable but stale source is refused here, not reported as this run's.
 SOURCE=""
 TRANSCRIPT=""
 RESOLVED=$(resolve_claude)
@@ -385,7 +412,10 @@ fi
 
 if [[ -n "$SOURCE" ]]; then
   have_jq || { echo "session-usage.sh needs jq for the Claude Code transcript path." >&2; exit 1; }
-  [[ "$SOURCE" == "newest" ]] && echo "Note: transcript auto-resolved to the newest for this project; pass a path explicitly to be sure it is this run." >&2
+  case "$SOURCE" in
+    newest)  echo "Note: transcript auto-resolved to the newest for this project; pass a path explicitly to be sure it is this run." >&2 ;;
+    tracked) echo "Note: transcript resolved from a story-tracked path; pass a path explicitly to be sure it is this run." >&2 ;;
+  esac
   claude_report "$TRANSCRIPT"
   exit 0
 fi
