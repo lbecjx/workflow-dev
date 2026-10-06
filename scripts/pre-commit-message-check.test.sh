@@ -249,7 +249,7 @@ rm -rf "$TMPDIR/workflow-dev-validate/messages"
 # first \" and the hard block never saw it.
 NOJQ="$TMP/nojq-bin"
 mkdir -p "$NOJQ"
-for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
+for t in bash cat grep sed awk head cut sort tr git shasum dirname uname find; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
 nojq_status() { ( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --status "$1" ); }
@@ -375,6 +375,42 @@ got="$( cd "$PROJ" && env -u TMPDIR bash "$SCRIPT" --status "$(mk "$CMD_TMPDIR")
 [[ "$got" == "notify" ]] && ok "a \$TMPDIR path is read when the hook env has no TMPDIR" \
                         || no "a \$TMPDIR path is read when the hook env has no TMPDIR (got: $got)"
 rm -rf "$TEMPD"
+
+# --- 15: an untrusted messages directory asks, never passes as "reviewed" (WD-0027) --
+# Same rule as the validate marker: a matching marker in a directory anyone could
+# have written to is not a review. Every case below has the marker in place.
+unmark
+MSG_DIRECTORY="$TMPDIR/workflow-dev-validate/messages"
+mkdir -p "$MSG_DIRECTORY"; chmod 700 "$MSG_DIRECTORY"
+mark "feat: add a thing"
+[[ "$(status "$CLEAN")" == "ok" ]] && ok "private messages dir + matching marker → ok" || no "private messages dir + matching marker → ok"
+chmod 777 "$MSG_DIRECTORY"
+[[ "$(status "$CLEAN")" == "notify" ]] && ok "world-writable messages dir + matching marker → notify" || no "world-writable messages dir + matching marker → notify (got: $(status "$CLEAN"))"
+MSG_TEXT="$(plain "$CLEAN")"
+case "$MSG_TEXT" in
+  *"group- or world-writable"*) ok "world-writable messages dir → the reason says why" ;;
+  *) no "world-writable messages dir → the reason says why (got: $MSG_TEXT)" ;;
+esac
+chmod 700 "$MSG_DIRECTORY"
+
+LINKED_MSG_DIR="$TMPDIR/linked-messages"
+mv "$MSG_DIRECTORY" "$LINKED_MSG_DIR"
+ln -s "$LINKED_MSG_DIR" "$MSG_DIRECTORY"
+[[ "$(status "$CLEAN")" == "notify" ]] && ok "symlinked messages dir + matching marker → notify" || no "symlinked messages dir + matching marker → notify (got: $(status "$CLEAN"))"
+rm -f "$MSG_DIRECTORY"
+mv "$LINKED_MSG_DIR" "$MSG_DIRECTORY"
+[[ "$(status "$CLEAN")" == "ok" ]] && ok "…and restoring the real directory restores ok" || no "…and restoring the real directory restores ok"
+
+# A private messages directory under a writable root is not enough on its own:
+# the root can be swapped out from under it (WD-0027).
+chmod 777 "$TMPDIR/workflow-dev-validate"
+[[ "$(status "$CLEAN")" == "notify" ]] && ok "private messages dir under a writable root → notify" || no "private messages dir under a writable root → notify (got: $(status "$CLEAN"))"
+chmod 700 "$TMPDIR/workflow-dev-validate"
+
+# The attribution deny never consults a marker or the directory (AC #6): it
+# blocks with the very same on-disk state the review path just refused.
+[[ "$(status "$ATTR")" == "block" ]] && ok "the attribution deny is untouched by the directory check" || no "the attribution deny is untouched by the directory check"
+unmark
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

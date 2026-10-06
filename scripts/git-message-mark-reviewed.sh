@@ -27,6 +27,12 @@
 # the commit-time hook doesn't also enforce.
 AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The marker directory's one owner (WD-0027) — the same path, trust check and
+# safe write pre-commit-message-check.sh reads from. See marker-dir.sh's header.
+# shellcheck source=marker-dir.sh
+source "$HERE/marker-dir.sh"
+
 # Usage: printf '%s' "<final message text>" | git-message-mark-reviewed.sh
 
 MESSAGE=$(cat)
@@ -40,9 +46,15 @@ if printf '%s' "$MESSAGE" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
   exit 1
 fi
 
-MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate/messages"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="$(marker_subdir)"
+# Mode 700 when created; a refusal, with the reason, rather than a write into a
+# directory that is a symlink, someone else's, or group/world-writable.
+marker_ensure_dir "$MARKER_DIR" || exit 1
 MESSAGE_HASH=$(printf '%s' "$MESSAGE" | shasum | cut -d' ' -f1)
-printf '{"reviewedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$MESSAGE_HASH.json"
+printf '{"reviewedAt":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  | marker_write "$MARKER_DIR/$MESSAGE_HASH.json" || {
+  echo "Could not write the reviewed marker to $MARKER_DIR safely — nothing marked." >&2
+  exit 1
+}
 
 echo "Marked commit/PR message as reviewed (hash ${MESSAGE_HASH:0:12}…) — pre-commit-message-check.sh will recognize this exact text and won't ask again. Any edit to it after this point needs re-marking."

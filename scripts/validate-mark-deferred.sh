@@ -26,14 +26,23 @@
 # Usage: validate-mark-deferred.sh (no stdin, no arguments — reads the
 # current git state directly, same as the hook it's paired with)
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The marker directory's one owner (WD-0027): the same path, the same trust
+# check and the same safe write the other three scripts and validate/SKILL.md
+# Step 6 use. See marker-dir.sh's header.
+# shellcheck source=marker-dir.sh
+source "$HERE/marker-dir.sh"
+
 git rev-parse --show-toplevel >/dev/null 2>&1 || {
   echo "Not inside a git repository — nothing to mark." >&2
   exit 1
 }
 
 REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
-MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="$(marker_root)"
+# Mode 700 when created, and a refusal (with the reason) rather than a write
+# into a directory that is a symlink, someone else's, or group/world-writable.
+marker_ensure_dir "$MARKER_DIR" || exit 1
 
 CHANGED=$(
   { git diff --name-only HEAD -- . ':!.workflow-dev';
@@ -56,6 +65,10 @@ DIFF_HASH=$(
   done | shasum | cut -d' ' -f1
 )
 
-printf '{"diffHash":"%s","status":"deferred","deferredAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
+printf '{"diffHash":"%s","status":"deferred","deferredAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  | marker_write "$MARKER_DIR/$REPO_HASH.json" || {
+  echo "Could not write the deferred marker to $MARKER_DIR safely — nothing marked." >&2
+  exit 1
+}
 
 echo "Marked current diff as deferred (hash ${DIFF_HASH:0:12}…) — pre-commit-validate-check.sh will let the commit through with a visible note instead of asking. Runs once, batched, when the story finishes."

@@ -152,7 +152,7 @@ fires "$(printf '%s\ngit commit -m x' "$DOC")" && ok "a real commit after such a
 # a directory of links to just the tools the script needs, so jq is absent.
 NOJQ="$TMP/nojq-bin"
 mkdir -p "$NOJQ"
-for t in bash cat grep sed awk head cut sort tr git shasum dirname uname; do
+for t in bash cat grep sed awk head cut sort tr git shasum dirname uname find; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
 nojq_fires() { [[ -n "$( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --message "$(mk "$1")" )" ]]; }
@@ -168,6 +168,88 @@ else
   nojq_fires "$(printf 'cat > notes.md <<'"'"'EOF'"'"'\nthen run git commit\nEOF')" && no "no jq: a heredoc mention stays silent" || ok "no jq: a heredoc mention stays silent"
   nojq_fires 'echo "run git commit later"' && no "no jq: a mention stays silent" || ok "no jq: a mention stays silent"
 fi
+
+# --- 9: an untrusted marker directory asks, never passes silently (WD-0027) ---
+# A marker is a permission, so a directory anyone could have written to cannot
+# grant it. Every case below has a *matching* marker in place, so a reminder can
+# only be coming from the directory check — never from a missing marker.
+mkdir -p "$PROJ/.workflow-dev/context"; mkdir -p "$MARKER_DIR"; chmod 700 "$MARKER_DIR"
+printf '{"diffHash":"%s","status":"validated","at":"2026-09-29T00:00:00Z"}' "$(current_hash)" > "$MARKER"
+[[ -z "$(hook "$COMMIT")" ]] && ok "private dir + matching marker → silent (the happy path)" || no "private dir + matching marker → silent"
+
+chmod 777 "$MARKER_DIR"
+JSON_OUT="$(hook "$COMMIT")"
+PLAIN_OUT="$(plain "$COMMIT")"
+[[ -n "$PLAIN_OUT" ]] && ok "world-writable dir + matching marker → asks (no silent pass)" || no "world-writable dir + matching marker → asks"
+case "$JSON_OUT" in
+  *'"permissionDecision":"ask"'*) ok "world-writable dir → hook mode asks, never denies" ;;
+  *) no "world-writable dir → hook mode asks (got: $JSON_OUT)" ;;
+esac
+case "$PLAIN_OUT" in
+  *"group- or world-writable"*) ok "world-writable dir → the reminder says why" ;;
+  *) no "world-writable dir → the reminder says why (got: $PLAIN_OUT)" ;;
+esac
+chmod 700 "$MARKER_DIR"
+
+# A symlinked marker directory pointing at a private one that holds the marker:
+# the marker is there and readable, and must still not be trusted.
+LINKED_MARKER_DIR="$TMPDIR/linked-marker-dir"
+mv "$MARKER_DIR" "$LINKED_MARKER_DIR"
+ln -s "$LINKED_MARKER_DIR" "$MARKER_DIR"
+[[ -n "$(plain "$COMMIT")" ]] && ok "symlinked marker dir + matching marker → asks" || no "symlinked marker dir + matching marker → asks"
+[[ -n "$(hook "$COMMIT")" ]] && ok "symlinked marker dir → hook mode is not silent" || no "symlinked marker dir → hook mode is not silent"
+rm -f "$MARKER_DIR"
+mv "$LINKED_MARKER_DIR" "$MARKER_DIR"
+[[ -z "$(hook "$COMMIT")" ]] && ok "…and restoring the real directory restores silence" || no "…and restoring the real directory restores silence"
+
+# --- 10: trust is checked at the read, not before the slow hash (WD-0027) ----
+# The race the change's own adversarial pass found: the trust verdict used to be
+# computed before CURRENT_HASH, so a store created during that pass (the
+# missing-directory rule reads as "trusted") had its marker consumed under a
+# stale verdict. This pins the fix deterministically — a `shasum` shim plants a
+# world-writable store carrying the real current-diff hash on the *second*
+# call (the CURRENT_HASH one), and the gate must still ask.
+RACE_TMP="$TMP/race-tmp"
+RACE_BIN="$TMP/race-bin"
+mkdir -p "$RACE_TMP" "$RACE_BIN"
+REAL_SHASUM="$(command -v shasum)"
+cat > "$RACE_BIN/shasum" <<'SHIM'
+#!/bin/bash
+n=0
+[ -f "$SHASUM_COUNT" ] && n="$(cat "$SHASUM_COUNT")"
+n=$((n + 1))
+printf '%s' "$n" > "$SHASUM_COUNT"
+if [ "$n" -eq 2 ]; then
+  out="$("$SHASUM_REAL")"
+  h="$(printf '%s' "$out" | cut -d' ' -f1)"
+  mkdir -p "$SHASUM_MARKER_DIR"
+  chmod 777 "$SHASUM_MARKER_DIR"
+  printf '{"diffHash":"%s","status":"validated"}' "$h" > "$SHASUM_MARKER_DIR/$SHASUM_REPO_HASH.json"
+  printf '%s\n' "$out"
+else
+  exec "$SHASUM_REAL"
+fi
+SHIM
+chmod +x "$RACE_BIN/shasum"
+
+( cd "$PROJ" \
+  && env TMPDIR="$RACE_TMP" \
+         SHASUM_COUNT="$TMP/race-count" \
+         SHASUM_MARKER_DIR="$RACE_TMP/workflow-dev-validate" \
+         SHASUM_REPO_HASH="$REPO_HASH" \
+         SHASUM_REAL="$REAL_SHASUM" \
+         PATH="$RACE_BIN:$PATH" \
+         bash "$SCRIPT" --message "$COMMIT" ) > "$TMP/race-out" 2>&1
+# The shim must actually have fired, or this passes for the wrong reason.
+[[ "$(cat "$TMP/race-count" 2>/dev/null)" == "2" && -f "$RACE_TMP/workflow-dev-validate/$REPO_HASH.json" ]] \
+  && ok "the race shim planted a marker during the hash pass" \
+  || no "the race shim planted a marker during the hash pass (count: $(cat "$TMP/race-count" 2>/dev/null))"
+RACE_OUT="$(cat "$TMP/race-out")"
+[[ -n "$RACE_OUT" ]] && ok "a store appearing mid-pass is not trusted — the gate asks" || no "a store appearing mid-pass is not trusted — the gate asks (got silence)"
+case "$RACE_OUT" in
+  *"group- or world-writable"*) ok "…and names why" ;;
+  *) no "…and names why (got: $RACE_OUT)" ;;
+esac
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

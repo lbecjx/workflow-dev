@@ -47,6 +47,11 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=command-match.sh
 source "$HERE/command-match.sh"
+# The marker directory's path and its trust check — one owner, shared with the
+# other three scripts and validate/SKILL.md's Step 6 (WD-0027). Never build
+# this path inline again; see marker-dir.sh's header.
+# shellcheck source=marker-dir.sh
+source "$HERE/marker-dir.sh"
 
 COMMAND=$(command_from_payload "$INPUT")
 
@@ -62,7 +67,8 @@ git rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
 # (Found the hard way: this and validate/SKILL.md used to compute it two
 # slightly different ways and never matched.)
 REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
-MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/$REPO_HASH.json"
+MARKER_DIR="$(marker_root)"
+MARKER_FILE="$MARKER_DIR/$REPO_HASH.json"
 
 # Same formula validate/SKILL.md uses to write the marker — .workflow-dev/ is
 # excluded so a /workflow-dev:save write to the story file never invalidates
@@ -89,7 +95,17 @@ CURRENT_HASH=$(
   done | shasum | cut -d' ' -f1
 )
 
-if [[ -f "$MARKER_FILE" ]]; then
+# Trust is checked HERE, immediately before the read — not at the top of the
+# script. The `CURRENT_HASH` pass just above can take seconds on a large diff,
+# and a directory that did not exist when it started reads as "trusted" (the
+# missing-directory rule), so an attacker who could create the store during
+# that window could have its marker consumed under a stale verdict. This is the
+# read side of the same "re-check at the moment of consequence" rule
+# marker_write follows on the write side (WD-0027; found by this change's own
+# adversarial pass). Empty reason = trusted; non-empty = act as if no marker
+# exists and say why. It never denies — only the attribution rule denies.
+MARKER_TRUST_REASON="$(marker_chain_reason "$MARKER_DIR")"
+if [[ -z "$MARKER_TRUST_REASON" && -f "$MARKER_FILE" ]]; then
   SAVED_HASH=$(grep -o '"diffHash"[[:space:]]*:[[:space:]]*"[^"]*"' "$MARKER_FILE" | sed -E 's/.*: *"(.*)"/\1/')
   if [[ "$SAVED_HASH" == "$CURRENT_HASH" ]]; then
     # Three-tier, not two: a marker can now record "validated" (a real PASS)
@@ -112,6 +128,10 @@ if [[ -f "$MARKER_FILE" ]]; then
 fi
 
 REMINDER="This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate."
+# An untrusted directory is a reason to ask *and say why*, not to stay quiet: the
+# marker read above was skipped, so there may well be a matching marker that was
+# ignored. `marker_trust_note` owns the wording and the JSON-safe quoting.
+REMINDER="$REMINDER$(marker_trust_note "$MARKER_TRUST_REASON")"
 if [[ "$MODE" == "message" ]]; then
   printf '%s' "$REMINDER"
 else

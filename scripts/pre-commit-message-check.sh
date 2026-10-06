@@ -111,6 +111,10 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=command-match.sh
 source "$HERE/command-match.sh"
+# The marker directory's path and its trust check — one owner, shared with the
+# other three scripts and validate/SKILL.md's Step 6 (WD-0027).
+# shellcheck source=marker-dir.sh
+source "$HERE/marker-dir.sh"
 
 COMMAND=$(command_from_payload "$INPUT")
 
@@ -270,9 +274,19 @@ if [[ "$PR_VERDICT" != "no" ]]; then
 fi
 
 MESSAGE_HASH=$(printf '%s' "$HASH_TEXT" | shasum | cut -d' ' -f1)
-MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/messages/$MESSAGE_HASH.json"
+MARKER_DIR="$(marker_subdir)"
+MARKER_FILE="$MARKER_DIR/$MESSAGE_HASH.json"
+# Trust is checked immediately before the read, with nothing slow in between —
+# the read side of marker-write's "re-check at the moment of consequence" rule
+# (WD-0027). Empty means trusted; a non-empty reason skips the read below and
+# joins the review ask, so an untrusted directory asks — with the reason —
+# rather than silently treating the message as reviewed. It never denies: the
+# only deny here is the attribution rule above, which never consults a marker.
+MARKER_TRUST_REASON="$(marker_chain_reason "$MARKER_DIR")"
 
-[[ -f "$MARKER_FILE" ]] && quiet
+[[ -z "$MARKER_TRUST_REASON" && -f "$MARKER_FILE" ]] && quiet
 
 REVIEW_REASON="This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh."
+# `marker_trust_note` owns the wording and the JSON-safe quoting of the reason.
+REVIEW_REASON="$REVIEW_REASON$(marker_trust_note "$MARKER_TRUST_REASON")"
 emit notify "$REVIEW_REASON"

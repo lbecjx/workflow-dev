@@ -291,9 +291,9 @@ Non-blocking: code smells, missing edge-case tests, style issues, bounded algori
 On PASS (with or without warnings), write a marker so a later commit attempt can tell these exact changes were already validated, without asking again:
 
 ```bash
+source "$PLUGIN_ROOT"/scripts/marker-dir.sh
 REPO_HASH=$(git rev-parse --show-toplevel | tr -d '\n' | shasum | cut -c1-12)
-MARKER_DIR="${TMPDIR:-/tmp}/workflow-dev-validate"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="$(marker_root)"
 CHANGED=$(
   { git diff --name-only HEAD -- . ':!.workflow-dev';
     git ls-files --others --exclude-standard -- . ':!.workflow-dev';
@@ -305,15 +305,30 @@ if [ -z "$CHANGED" ]; then
   # empty input would write the same constant (da39a3ee…) for every clean tree,
   # a marker that matches nothing and therefore means nothing. Say so instead.
   echo "nothing uncommitted to mark — the validated diff is already committed"
-else
+elif marker_ensure_dir "$MARKER_DIR"; then
+  # marker_ensure_dir created the directory mode 700, or confirmed an existing
+  # one is a real directory owned by this user and not group/world-writable
+  # (WD-0027); it prints the reason and fails otherwise, so nothing is written
+  # into a directory whose markers no reader would trust.
   DIFF_HASH=$(
     printf '%s\n' "$CHANGED" | while IFS= read -r f; do
       [[ -n "$f" ]] && printf '%s\n' "$f" && cat "$f" 2>/dev/null
     done | shasum | cut -d' ' -f1
   )
-  printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER_DIR/$REPO_HASH.json"
+  # marker_write, not `>`: mktemp in the same directory + mv, so a predictable
+  # name a symlink could have been planted at is never followed.
+  printf '{"diffHash":"%s","status":"validated","validatedAt":"%s"}' "$DIFF_HASH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    | marker_write "$MARKER_DIR/$REPO_HASH.json" \
+    || echo "could not write the marker safely — the commit hook will ask" >&2
+else
+  echo "refusing to write the marker: the marker directory is not safe to write to" >&2
 fi
 ```
+
+The path, its permissions and the trust check are defined once, in
+`"$PLUGIN_ROOT"/scripts/marker-dir.sh` — `marker_root`, `marker_ensure_dir` and
+`marker_write` are what every writer and reader of the directory shares
+(WD-0027), so this snippet never builds the path itself.
 
 **A clean tree gets no marker, deliberately.** The marker's job is to let a
 *later* commit recognize the exact changes it is about to make, so with nothing

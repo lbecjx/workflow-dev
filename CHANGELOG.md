@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.30.0
+
+- The validate and message markers are trusted only when their directory — and
+  every directory above it within the marker store — is a real directory, owned
+  by the current user, and not group- or world-writable. Anything else makes the
+  pre-commit gate ask, with the reason in one line.
+- `scripts/marker-dir.sh` is the one owner of the marker path, its permissions
+  (mode 700) and its safe writes (`mktemp` in place plus `mv`, mode 600),
+  shared by the two hooks, the two marker writers and validate's Step 6.
+
 ## 1.29.3
 
 - The OpenCode plugin delivers its session-start greeting and compaction save
