@@ -57,7 +57,7 @@ printf '# WD-0001\n\n### Implementation Status: In Progress\n' > "$PROJECT/.work
 cat > "$TMP/harness.ts" <<'HARNESS'
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, chmodSync, writeFileSync, rmSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -266,6 +266,10 @@ const repoHash = execFileSync("bash", ["-c", 'git rev-parse --show-toplevel | tr
 // resolves `${TMPDIR:-/tmp}` — so write where the script will look.
 const markerDir = join(process.env.TMPDIR!, "workflow-dev-validate")
 mkdirSync(markerDir, { recursive: true })
+// The marker directory is trusted only when it is a real directory, this
+// user's, and not group/world-writable (WD-0027). Pin the mode the plugin's own
+// write side produces rather than inherit the runner's umask.
+chmodSync(markerDir, 0o700)
 const changed = execFileSync("bash", ["-c",
   `{ git diff --name-only HEAD -- . ':!.workflow-dev';
      git ls-files --others --exclude-standard -- . ':!.workflow-dev';
@@ -282,6 +286,7 @@ const writeValidateMarker = (status: string) => writeFileSync(
 // commit looks like.
 const messageDir = join(markerDir, "messages")
 mkdirSync(messageDir, { recursive: true })
+chmodSync(messageDir, 0o700)
 const messageHash = execFileSync("bash", ["-c",
   `printf '%s' 'feat: x' | shasum | cut -d' ' -f1`], { encoding: "utf8" }).trim()
 const writeMessageMarker = () =>
