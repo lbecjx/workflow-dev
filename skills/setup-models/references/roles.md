@@ -79,7 +79,7 @@ user's binding.
 ### `wd-judge`
 
 **description:**
-> workflow-dev's judgment sub-agent role (Security, Architecture, Algorithmic Integrity, Adversarial Correctness's hunt+verify pair, and init's research).
+> workflow-dev's judgment sub-agent role (Security, Architecture, Algorithmic Integrity, and init's research).
 
 **body:**
 ```

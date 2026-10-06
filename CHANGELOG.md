@@ -14,6 +14,11 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.29.1
+
+- Correct `wd-judge`'s description, in the role registry and the README: it no
+  longer lists Adversarial Correctness, which moved to `wd-adversary` in 1.29.0.
+
 ## 1.29.0
 
 - Model tiering gains a third role, **`wd-adversary`**, and `validate`'s
