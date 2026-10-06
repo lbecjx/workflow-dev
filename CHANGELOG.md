@@ -14,6 +14,18 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.29.3
+
+- The OpenCode plugin delivers its session-start greeting and compaction save
+  reminder through the model's `system` channel, as the catalog notice already
+  does.
+- `scripts/pre-commit-message-check.sh` gains a `--verdict` mode that returns the
+  verdict and its reason in a single run, so the OpenCode plugin never pairs a
+  verdict from one invocation with a reason from another.
+- The OpenCode plugin states its per-call subprocess cost and its restart
+  re-greeting behaviour, and gives the compaction-arming spawn the same timeout
+  as the other scripts.
+
 ## 1.29.2
 
 - `scripts/session-usage.sh`'s default report no longer presents a finished run

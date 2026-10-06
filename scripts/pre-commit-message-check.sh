@@ -41,7 +41,7 @@
 # "can't discover it, skip, don't fail": a check that can't run confidently
 # shouldn't produce a false sense of either safety or danger.
 #
-# Three modes, one owner of both the text and the verdict:
+# Four modes, one owner of both the text and the verdict:
 #   pre-commit-message-check.sh
 #       Claude Code `PreToolUse` (matcher: Bash) — emits the JSON envelope.
 #   pre-commit-message-check.sh --status [payload]
@@ -52,6 +52,11 @@
 #   pre-commit-message-check.sh --message [payload]
 #       Prints the reason as plain text for whichever of those two fired, and
 #       nothing when the answer is `ok`.
+#   pre-commit-message-check.sh --verdict [payload]
+#       Prints the verdict and the reason from **one** run: the verdict word on
+#       the first line, and, when there is one, the reason on the rest. OpenCode's
+#       plugin reads this so it never runs the script twice and pairs a verdict
+#       from one run with a reason computed at another moment (WD-0020).
 # The verdict and the wording are both decided here, never re-derived by the
 # caller — a second "should this fire?" test in the plugin would be free to
 # disagree with the one Claude Code gets.
@@ -61,15 +66,36 @@ PAYLOAD_ARG=""
 case "${1:-}" in
   --status)  MODE="status";  PAYLOAD_ARG="${2:-}" ;;
   --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
+  --verdict) MODE="verdict"; PAYLOAD_ARG="${2:-}" ;;
 esac
+
+# The one place a decision becomes an envelope. `verdict` is the one-word form
+# (`ok` / `block` / `notify`), `reason` the text; `--verdict` is the only mode
+# that prints both, which is what lets OpenCode's plugin decide and explain from
+# a single run instead of two runs that could disagree (WD-0020).
+emit() {
+  local verdict="$1" reason="$2" decision
+  case "$MODE" in
+    status)  printf '%s' "$verdict" ;;
+    message) [[ -n "$reason" ]] && printf '%s' "$reason" ;;
+    verdict) printf '%s' "$verdict"; [[ -n "$reason" ]] && printf '\n%s' "$reason" ;;
+    *)
+      # Hook mode: `ok` is silent, the attribution rule denies, everything else
+      # asks — so "silence is not one of the three words" holds for the other
+      # modes without inventing output here.
+      [[ "$verdict" == "ok" ]] && exit 0
+      decision=ask
+      [[ "$verdict" == "block" ]] && decision=deny
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}' "$decision" "$reason"
+      ;;
+  esac
+  exit 0
+}
 
 # Every early exit goes through this, so `--status` always answers a verdict
 # instead of exiting silently — silence is not one of the three words, and a
 # caller that had to read it as one would be guessing.
-quiet() {
-  [[ "$MODE" == "status" ]] && printf 'ok'
-  exit 0
-}
+quiet() { emit ok ""; }
 
 if [[ "$MODE" != "hook" && -n "$PAYLOAD_ARG" ]]; then
   INPUT="$PAYLOAD_ARG"
@@ -114,23 +140,14 @@ MSG_FLAG='(-[A-Za-z]*m[A-Za-z]*|--message|--body)'
 if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
   if [[ "$VERDICT" == "real" ]]; then
     ATTRIBUTION_REASON="This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."
-    case "$MODE" in
-      status) printf 'block' ;;
-      message) printf '%s' "$ATTRIBUTION_REASON" ;;
-      *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_REASON" ;;
-    esac
+    emit block "$ATTRIBUTION_REASON"
   else
     # `maybe`: the command could be a commit/PR wrapped in `bash -c`, `eval`
     # and the like, or merely mention one. An ambiguous command must not be
     # refused on a guess, so this asks instead of denying.
     ATTRIBUTION_ASK_REASON="This command may be a commit/PR (it is wrapped in something the hook cannot read) and it contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule). If it is a commit/PR, remove the attribution before running it; every commit and PR here is attributed to the human alone."
-    case "$MODE" in
-      status) printf 'notify' ;;
-      message) printf '%s' "$ATTRIBUTION_ASK_REASON" ;;
-      *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$ATTRIBUTION_ASK_REASON" ;;
-    esac
+    emit notify "$ATTRIBUTION_ASK_REASON"
   fi
-  exit 0
 fi
 
 # Everything below is the Part 12 review ask, which belongs to a workflow-dev
@@ -258,9 +275,4 @@ MARKER_FILE="${TMPDIR:-/tmp}/workflow-dev-validate/messages/$MESSAGE_HASH.json"
 [[ -f "$MARKER_FILE" ]] && quiet
 
 REVIEW_REASON="This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh."
-case "$MODE" in
-  status) printf 'notify' ;;
-  message) printf '%s' "$REVIEW_REASON" ;;
-  *) printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$REVIEW_REASON" ;;
-esac
-exit 0
+emit notify "$REVIEW_REASON"
