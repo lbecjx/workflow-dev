@@ -37,10 +37,12 @@
 // probe record is in `.workflow-dev/context/WD-0019.md`:
 //
 //   - `ctx.session.hook("context", …)` fires per model call and its event is
-//     **mutable** — pushing a `{role, content:[{type:"text",…}]}` message into
+//     **mutable**. Pushing a `{role, content:[{type:"text",…}]}` message into
 //     `event.messages` reaches the model (verified with a canary absent from the
-//     prompt). The part-array shape is mandatory: a plain string `content`
-//     crashes the request.
+//     prompt), but that reads as a turn the human typed — so this file injects
+//     through `event.system` instead (a documented non-user channel, proven by
+//     the catalog notice). The part-array shape only matters if `messages` is
+//     ever used again: a plain string `content` crashes the request.
 //   - `ctx.session.synthetic` **throws** on this build, so the append-to-output
 //     fallback is the primary path, not a safety net.
 //   - `ctx.event.subscribe(name, …)` registers any name without validating it
@@ -185,10 +187,14 @@ function reminder(script: string, payload: unknown, cwd: string): string | undef
   return out.trim() || undefined
 }
 
-// The one-word verdict counterpart to `reminder()`. Only
-// `pre-commit-message-check.sh` has one, because it is the only script with two
-// enforcement levels — a text-only answer cannot say whether the caller should
-// notify or stop. As with the text, the script decides; this file routes.
+// The verdict and its reason, from one run of the script. Only
+// `pre-commit-message-check.sh` has a verdict, because it is the only script
+// with two enforcement levels — a text-only answer cannot say whether the caller
+// should notify or stop. Asking for both in **one** `--verdict` call is the
+// point: the earlier two-call shape (`--status` then `--message`) read a verdict
+// from one run and a reason computed at a different moment, with nothing making
+// the two agree (WD-0020). The script prints the verdict on the first line and,
+// when there is one, the reason on the rest; as always it decides, this routes.
 //
 // It carries the same 5000 ms bound `reminder()` does, for the same reason and
 // with more force: this is reached from the permission hook, which sits on a path
@@ -196,18 +202,27 @@ function reminder(script: string, payload: unknown, cwd: string): string | undef
 // the permission prompt for every shell call in the session rather than just
 // one notice. A timeout throws, which the catch below already reads as "say
 // nothing" — the same answer a genuine all-clear gives.
-function verdict(script: string, payload: unknown, cwd: string): string | undefined {
+function verdictAndReason(
+  script: string,
+  payload: unknown,
+  cwd: string,
+): { verdict?: string; reason?: string } {
+  let out = ""
   try {
-    return (
-      execFileSync("bash", [join(SCRIPTS, script), "--status", JSON.stringify(payload)], {
-        cwd,
-        encoding: "utf8",
-        timeout: 5000,
-      }).trim() || undefined
-    )
+    out = execFileSync("bash", [join(SCRIPTS, script), "--verdict", JSON.stringify(payload)], {
+      cwd,
+      encoding: "utf8",
+      timeout: 5000,
+    })
   } catch {
-    return undefined
+    return {}
   }
+  // First line is the verdict, the remainder (if any) is the reason. A missing
+  // newline means verdict-only — the `ok` case.
+  const nl = out.indexOf("\n")
+  const verdict = (nl === -1 ? out : out.slice(0, nl)).trim()
+  const reason = nl === -1 ? "" : out.slice(nl + 1).trim()
+  return { verdict: verdict || undefined, reason: reason || undefined }
 }
 
 // Arm the compaction state — the half that has no delivery of its own. On
@@ -219,16 +234,23 @@ function armCompaction(cwd: string): void {
     execFileSync("bash", [join(SCRIPTS, "pre-compact-check.sh"), "--arm", '{"harness":"opencode"}'], {
       cwd,
       encoding: "utf8",
+      // Same 5000 ms bound as every other spawn here. Without it a hung script
+      // would stall the compaction event forever, not just one notice (WD-0020).
+      timeout: 5000,
     })
   } catch {
     // Nothing to arm, or no project context — silence is the correct outcome.
   }
 }
 
-// --- the two delivery channels ---------------------------------------------
+// --- the delivery channels --------------------------------------------------
 // Appending to the tool result the caller already holds. Works for any tool
-// with a string output — measured on the shell tool as well as on skills, which
-// is why it no longer only applies to skill invocations.
+// with a string output — the shell tool carries one (`result.output.output`),
+// measured on 2.0.19, which is why this no longer only applies to skill
+// invocations. That the append is then *read by the agent* is confirmed for a
+// skill call (WD-0015, live) and **not yet observed for a shell one**: the two
+// share the mechanism, but only the skill half has been seen end to end
+// (WD-0020, recorded in REPO.md §7).
 function intoToolResult(event: any, text: string): boolean {
   const output = event?.result?.output
   if (output && typeof output.output === "string") {
@@ -236,16 +258,6 @@ function intoToolResult(event: any, text: string): boolean {
     return true
   }
   return false
-}
-
-// Injecting into the model's own context, for the moments that have no tool
-// result to append to (a session starting; a compaction warning). This is the
-// only channel measured to reach the model, and it is why the reminders that
-// Claude Code *asks* about are not simply lost here.
-function intoModelContext(event: any, text: string): boolean {
-  if (!Array.isArray(event?.messages)) return false
-  event.messages.push({ role: "user", content: [{ type: "text", text: `[workflow-dev] ${text}` }] })
-  return true
 }
 
 // --- the live tool catalog --------------------------------------------------
@@ -290,6 +302,25 @@ function catalogNotice(tools: unknown): string | undefined {
   return listed + " Call only these names." + unknownTool
 }
 
+// Injecting into the system channel. This is where every notice this file
+// delivers goes — the catalog notice above, the session-start greeting, and the
+// compaction reminder. It is deliberately **not** `event.messages`: a message
+// there is read as a turn the human typed, so putting a script's stdout in one
+// hands that output the highest authority there is and mis-attributes who said
+// it (WD-0019's gate called this the most defensible finding of the port).
+// `system` is a documented channel that is not a user turn, and it reaches the
+// model — the catalog notice is the proof, not a guess.
+//
+// **The trust decision, recorded here and in REPO.md §7 (WD-0020).** What may
+// be injected is only the fixed-shape `--message` output of scripts this repo
+// ships (`session-start-check.sh`, `post-compaction-save-check.sh`), never
+// free-form text. That output can still *contain* a repo-controlled token — a
+// git branch name, a story code or filename — and that is an **accepted** risk
+// rather than a sanitized one, for three reasons: it can only reach the model
+// as part of the sentence the script built, it now carries system authority
+// instead of a user turn's, and scrubbing the token would strip the one thing
+// the reminder is about. Sanitizing free-form prose for injection is not a
+// fight worth pretending to win; lowering the authority of the channel is.
 function intoSystem(event: any, text: string): boolean {
   if (!Array.isArray(event?.system)) return false
   event.system.push({ type: "text", text })
@@ -306,8 +337,15 @@ export default {
     // fires on every model call, and Claude Code's own gate for this reminder
     // (`source == "startup"`) is a field its event has and OpenCode's does not —
     // so the "only once per session" half is this plugin's job, and a Set is the
-    // smallest thing that does it. Bounded by the sessions one server process
-    // sees; a restart re-opens every session at most once.
+    // smallest thing that does it.
+    //
+    // The set is per-process and grows for the life of the service — it is not
+    // bounded in any way that matters here, and a service restart empties it, so
+    // every live session is greeted once more. That re-greeting is **accepted**,
+    // not fixed with a durable marker: it costs one extra reminder per live
+    // session after a restart, a marker on disk would need its own expiry, and
+    // it would still race the restart it exists to survive. Recorded in
+    // REPO.md §7 (WD-0020).
     const opened = new Set<string>()
 
     await ctx.session.hook("context", async (event: any) => {
@@ -332,7 +370,7 @@ export default {
       if (session && !opened.has(session)) {
         opened.add(session)
         const welcome = reminder("session-start-check.sh", { source: "startup" }, cwd)
-        if (welcome) intoModelContext(event, welcome)
+        if (welcome) intoSystem(event, `[workflow-dev] ${welcome}`)
       }
 
       // Nothing is armed until a compaction event fires (or Claude Code's
@@ -343,7 +381,7 @@ export default {
         { hook_event_name: "PostToolUse" },
         cwd,
       )
-      if (pending) intoModelContext(event, pending)
+      if (pending) intoSystem(event, `[workflow-dev] ${pending}`)
     })
 
     // The compaction events. Registered because the alternative — assuming they
@@ -376,10 +414,10 @@ export default {
 
       const payload = { tool_input: event.input }
 
-      if (verdict("pre-commit-message-check.sh", payload, cwd) === "block") {
-        const reason = reminder("pre-commit-message-check.sh", payload, cwd)
+      const attribution = verdictAndReason("pre-commit-message-check.sh", payload, cwd)
+      if (attribution.verdict === "block") {
         throw new Error(
-          reason ??
+          attribution.reason ??
             "workflow-dev: this command was blocked, but pre-commit-message-check.sh printed no reason — the reminder script is broken, not the command.",
         )
       }
@@ -401,8 +439,21 @@ export default {
     // after a notice: three early returns cover every non-shell, non-allow and
     // empty-resource event before any spawn, and both scripts answer through
     // command-match.sh, which returns `no` for a command with none of `commit`,
-    // `create`, `edit`, `new` in it without starting awk. Measured 14 ms for an
-    // ordinary command, 75 ms for a real commit. A command past
+    // `create`, `edit`, `new` in it without starting awk.
+    //
+    // The measured bound (2026-10-06, this repo, macOS — WD-0020), stated rather
+    // than reduced. A shell call spawns three `bash` processes: the message
+    // script here and again in `execute.before` (its own hard-block hook), plus
+    // the validate reminder. On an ordinary command that is ~11 ms each (~32 ms
+    // total); the message script is ~33 ms on a real commit. Independently, the
+    // context hook spawns one process per model call (`post-compaction-save-check.sh`,
+    // ~42 ms for its no-op) plus `session-start-check.sh` (~128 ms) once per
+    // session. The two reductions that look obvious are both declined:
+    // pre-filtering a command here would re-derive a decision `command-match.sh`
+    // owns, and caching the verdict across `execute.before`/`permission.evaluate`
+    // would have to assume the two hooks see a byte-identical command — which is
+    // not verified (REPO.md §7), so a cache miss could pair a stale verdict with
+    // a live command. The bound is accepted. A command past
     // COMMAND_MATCH_MAX_BYTES answers `maybe` rather than being scanned.
     try {
       await ctx.permission.hook("evaluate", async (event: any) => {
@@ -416,19 +467,18 @@ export default {
         if (typeof command !== "string" || !command) return
 
         const payload = { tool_input: { command } }
-        // One `--status` call answers every case: `block` is the attribution
-        // rule and stays with `execute.before`, `notify` is the Part 12 review,
-        // `ok` means there is nothing to ask about.
-        const review = verdict("pre-commit-message-check.sh", payload, cwd)
-        if (review === "block") return
+        // One `--verdict` call answers every case and carries the wording:
+        // `block` is the attribution rule and stays with `execute.before`,
+        // `notify` is the Part 12 review, `ok` means there is nothing to ask
+        // about. Verdict and reason come from the same run, so this can never
+        // pair a `notify` with a reason that run did not produce (WD-0020).
+        const review = verdictAndReason("pre-commit-message-check.sh", payload, cwd)
+        if (review.verdict === "block") return
 
         const parts: string[] = []
         const validate = reminder("pre-commit-validate-check.sh", payload, cwd)
         if (validate) parts.push(validate)
-        if (review === "notify") {
-          const reason = reminder("pre-commit-message-check.sh", payload, cwd)
-          if (reason) parts.push(reason)
-        }
+        if (review.verdict === "notify" && review.reason) parts.push(review.reason)
         if (parts.length === 0) return
         event.effect = "ask"
         event.message = parts.join("\n\n")

@@ -151,6 +151,10 @@ const newContextEvent = (sessionID: string) => ({
 const runContext = async (event: any) => { await contextHook!(event); return event }
 const injected = (event: any): string =>
   (event.messages ?? []).map((m: any) => m.content?.[0]?.text ?? "").join("\n")
+// The reminder/notice channel: script output goes into `system`, not `messages`,
+// so it never reads as a turn the human typed (WD-0020).
+const systemText = (event: any): string =>
+  (event.system ?? []).map((p: any) => p?.text ?? "").join("\n")
 const fire = async (event: unknown) => toolHooks["execute.after"](event)
 // A permission evaluation event, measured on 2.0.23: a shell action carrying
 // the command as `resources[0]`, the tool call as `source`, and the configured
@@ -171,24 +175,20 @@ const shellCall = (command: string, output = "stdout\n", id = "call_shell") => (
 })
 
 // --- 2: the session-start reminder reaches the model, once per session ------
+// It goes into `system`, not `messages`: a message would read as a turn the
+// human typed, and this is a script's output (WD-0020).
 let ev = await runContext(newContextEvent("ses_a"))
-check("session start → a notice is injected into the model's context",
-  injected(ev).includes("workflow-dev"))
-const firstGreeting = injected(ev)
+check("session start → a notice is injected into the system channel",
+  systemText(ev).includes("workflow-dev"))
+const firstGreeting = systemText(ev)
 check("the greeting names a skill to run next", /workflow-dev:(resume|plan)/.test(firstGreeting))
+check("...and does not claim to be a user turn", injected(ev) === "")
 
 ev = await runContext(newContextEvent("ses_a"))
-check("the same session is not greeted twice", injected(ev) === "")
+check("the same session is not greeted twice", systemText(ev) === "")
 
 ev = await runContext(newContextEvent("ses_b"))
-check("a different session gets its own greeting", injected(ev).includes("workflow-dev"))
-
-// The injected message must be the part-array shape: a plain string `content`
-// crashes a real request (measured), so a regression here is not cosmetic.
-ev = await runContext(newContextEvent("ses_c"))
-const parts = (ev.messages as any[])[0]
-check("the injected message uses the part-array shape",
-  Array.isArray(parts?.content) && parts.content[0]?.type === "text")
+check("a different session gets its own greeting", systemText(ev).includes("workflow-dev"))
 
 // --- 3: the shell path — a commit is escalated to a real ask ----------------
 // Claude Code asks before the command; on OpenCode the same ask now comes from
@@ -446,9 +446,9 @@ writeFileSync(`${PROJECT}/.workflow-dev/context/.compaction-state/WD-0001.json`,
   '{"current":"opencode","opencodeSession":"ses_a","opencodeSeq":1,"pendingSave":true}')
 ev = await runContext(newContextEvent("ses_d"))
 check("an armed compaction state → the save reminder is injected",
-  /workflow-dev:save/.test(injected(ev)))
+  /workflow-dev:save/.test(systemText(ev)))
 ev = await runContext(newContextEvent("ses_e"))
-check("...and it clears, so it is not repeated", !/workflow-dev:save/.test(injected(ev)))
+check("...and it clears, so it is not repeated", !/workflow-dev:save/.test(systemText(ev)))
 
 // --- 8: firing a compaction event actually arms the state -------------------
 // The only path that ever calls `pre-compact-check.sh --arm`, and the one the
@@ -469,8 +469,6 @@ check("...while the save flow's session fields survive it",
 // is not real is the rejected alias — and must be re-sent on every call, since
 // nothing a context hook adds survives to the next one.
 const catalogEvent = (sessionID: string, tools: unknown) => ({ ...newContextEvent(sessionID), tools })
-const systemText = (event: any): string =>
-  (event.system ?? []).map((p: any) => p?.text ?? "").join("\n")
 const liveTools = {
   read: { description: "d", input: {} },
   shell: { description: "d", input: {} },

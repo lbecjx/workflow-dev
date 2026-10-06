@@ -100,6 +100,20 @@ esac
   && ok "review: hook JSON and --message carry the same text" \
   || no "review: hook JSON and --message carry the same text"
 
+# --- 3b: --verdict returns the verdict and the reason from a single run -----
+# The mode OpenCode's plugin reads (WD-0020): first line the verdict, the rest
+# the same reason --message prints — so the two can never come from runs that
+# disagree.
+verdict() { ( cd "$PROJ" && bash "$SCRIPT" --verdict "$1" ); }
+V_OTHER="$(verdict "$OTHER")"
+[[ "$V_OTHER" == "ok" ]] && ok "--verdict: non-commit → ok, no reason" || no "--verdict: non-commit → ok (got: $V_OTHER)"
+V_ATTR="$(verdict "$ATTR")"
+[[ "${V_ATTR%%$'\n'*}" == "block" ]] && ok "--verdict: attribution → block" || no "--verdict: attribution → block (got: $V_ATTR)"
+[[ "${V_ATTR#*$'\n'}" == "$ATTR_TEXT" ]] && ok "--verdict: attribution reason matches --message" || no "--verdict: attribution reason matches --message"
+V_CLEAN="$(verdict "$CLEAN")"
+[[ "${V_CLEAN%%$'\n'*}" == "notify" ]] && ok "--verdict: unreviewed → notify" || no "--verdict: unreviewed → notify (got: $V_CLEAN)"
+[[ "${V_CLEAN#*$'\n'}" == "$CLEAN_TEXT" ]] && ok "--verdict: review reason matches --message" || no "--verdict: review reason matches --message"
+
 # --- 4: a reviewed message is ok, in both modes -----------------------------
 # Same formula the script uses to key its marker: shasum of the extracted body.
 BODY_HASH="$(printf '%s' 'feat: add a thing' | shasum | cut -d' ' -f1)"
@@ -107,6 +121,7 @@ mkdir -p "$TMPDIR/workflow-dev-validate/messages"
 : > "$TMPDIR/workflow-dev-validate/messages/$BODY_HASH.json"
 [[ "$(status "$CLEAN")" == "ok" ]] && ok "reviewed message → ok" || no "reviewed message → ok (got: $(status "$CLEAN"))"
 [[ -z "$(plain "$CLEAN")" ]] && ok "reviewed message → --message silent" || no "reviewed message → --message silent"
+[[ "$(verdict "$CLEAN")" == "ok" ]] && ok "reviewed message → --verdict ok, no reason" || no "reviewed message → --verdict ok (got: $(verdict "$CLEAN"))"
 [[ -z "$(hook "$CLEAN")" ]] && ok "reviewed message → hook mode silent" || no "reviewed message → hook mode silent"
 # ...and it does not launder attribution: the deny does not consult the marker.
 [[ "$(status "$ATTR")" == "block" ]] && ok "a reviewed marker never un-blocks attribution" || no "a reviewed marker never un-blocks attribution"
