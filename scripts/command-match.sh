@@ -27,9 +27,10 @@
 #          `xargs`, `stdbuf`, `flock`, ...) are looked through, options and all
 #   maybe  the phrase is somewhere this cannot clear: inside `bash -c "..."`,
 #          `sh -c`, `eval`, `ssh`, `watch`, `trap`, a script fed to a shell by
-#          heredoc or pipe, `git submodule foreach`, a program this does not
-#          know that is handed a bare `git`/`gh` word, a program word built from
-#          a variable (or `"$@"` after `set --`), `git rebase -x`, `env -S`,
+#          heredoc or pipe, `git submodule foreach`, `git rebase -x`,
+#          `git filter-branch --*-filter`, `vagrant ssh -c`, a program this
+#          does not know that is handed a bare `git`/`gh` word, a program word
+#          built from a variable (or `"$@"` after `set --`), `env -S`,
 #          `flock -c`, `docker exec ... sh`, an unterminated quote, or a
 #          command too long to scan
 #   no     it is only data: an argument, a quoted string, a heredoc body, a comment
@@ -51,7 +52,11 @@
 # array literals, heredocs, comments, redirections and the
 # separators `; & | ( )` and newline, then looks at each simple command's
 # program word (after env assignments, wrappers, and the global options of git
-# and gh). Aliases and functions are not modelled. awk, not a bash loop: the hooks run it on
+# and gh). A `name=(` / `name+=(` array literal is opaque for as long as its
+# closing `)` is not on the line: bare words inside it stay data, and only a
+# substitution it holds comes back into view (the same rule the single-line
+# array follows). An unterminated array is scanned at end of input, so the
+# lines after it are not swallowed. Aliases and functions are not modelled. awk, not a bash loop: the hooks run it on
 # every shell call, and macOS ships bash 3.2 and a BSD awk, so only what both
 # accept is used here. BSD awk builds a word one character at a time in
 # quadratic time (128 KB of one line took about 2 s), so a command over
@@ -178,7 +183,7 @@ function is_shell_cmd(    i, p) {
   if (i > nf) return sudo_shell
   p = basename(f[i])
   if (p ~ /^(bash|sh|zsh|dash|ksh|fish|ssh|su)$/) return stdin_is_code(i, p)
-  if (p ~ /^(docker|podman|kubectl|lima|limactl|vagrant|multipass|nsenter|chroot)$/ && has_shell_word(i)) return 1
+  if (p ~ /^(docker|podman|kubectl|lima|limactl|vagrant|multipass|nsenter|chroot)$/ && has_runner_cmd(i)) return 1
   return 0
 }
 
@@ -213,6 +218,14 @@ function check_git(j, lvl,    o, k, rest) {
     rest = ""
     for (k = j + 1; k <= nf; k++) rest = rest " " f[k]
     loose(rest)
+  }
+  else if (f[j] == "filter-branch") {
+    # filter-branch --msg-filter <command> (and its siblings) hands the command
+    # to a shell, exactly like rebase -x, so the command string is `maybe`.
+    for (k = j + 1; k <= nf; k++) {
+      if (f[k] ~ /^--(msg|tree|index|commit|env|parent|tag-name)-filter$/) loose(f[k + 1])
+      else if (f[k] ~ /^--(msg|tree|index|commit|env|parent|tag-name)-filter=/) loose(substr(f[k], index(f[k], "=") + 1))
+    }
   }
 }
 
@@ -258,6 +271,61 @@ function has_shell_word(i,    k) {
   for (k = i + 1; k <= nf; k++)
     if (basename(f[k]) ~ /^(bash|sh|zsh|dash|ksh|fish)$/) return 1
   return 0
+}
+
+# Is this runner program handed a command to run? A bash-like word counts for
+# every runner (`docker exec c sh`). `vagrant` is the exception: it takes its
+# command with `vagrant ssh -c <command>`, not with a shell word, so without
+# this a real commit wrapped that way was missed. `vagrant ssh` / `vagrant up`
+# with no `-c` are interactive, not a command, and stay `no`.
+function has_runner_cmd(i,    k, seen_ssh) {
+  if (has_shell_word(i)) return 1
+  if (basename(f[i]) != "vagrant") return 0
+  seen_ssh = 0
+  for (k = i + 1; k <= nf; k++) {
+    if (!seen_ssh) { if (f[k] == "ssh") seen_ssh = 1; continue }
+    if (f[k] == "-c" || f[k] == "--command") return 1
+    if (f[k] ~ /^-c./ || f[k] ~ /^--command=/) return 1
+  }
+  return 0
+}
+
+# Scans a block of buffered text with the SAME per-line logic the main input
+# loop uses. A naive `scan(); endcmd()` per line was wrong: it ignored a
+# trailing backslash (a line continuation, so `git \` + `commit` split into two
+# commands and a real commit was missed) and it ignored heredoc bookkeeping (a
+# `cat <<EOF` inside a re-scanned array had its body read as commands). feed()
+# is that shared per-line step; the main loop and this both go through it.
+function feed(line,    chk) {
+  if (hdactive) {
+    chk = line
+    if (pdash[pi]) sub(/^\t+/, "", chk)
+    if (chk == pd[pi]) {
+      if (pshell[pi]) loose(pbody[pi])
+      if (pipedshell) loose(pbody2[pi])
+      pi++
+      if (pi > np) { hdactive = 0; np = 0; pi = 1; pipedshell = 0 }
+    }
+    else {
+      if (pshell[pi]) pbody[pi] = pbody[pi] line "\n"
+      if (pipedshell) pbody2[pi] = pbody2[pi] line "\n"
+      if (psub[pi]) subbody = subbody line "\n"
+    }
+    return
+  }
+  contline = 0
+  pipedshell = 0
+  scan(line)
+  if (!contline) {
+    if (st[sp] == "sq" || st[sp] == "dq" || st[sp] == "ansi") { cur = cur "\n"; inword = 1 }
+    else endcmd()
+  }
+  if (np >= pi) hdactive = 1
+}
+
+function scan_text(text,    n, a, j) {
+  n = split(text, a, "\n")
+  for (j = 1; j <= n; j++) feed(a[j])
 }
 
 # Index of the program word in f[]: past assignments, keywords and wrappers (with
@@ -350,7 +418,7 @@ function evaluate(    i, k, p, joined, me, usedpipe, hs, codein) {
         if (usedpipe && pipeprog ~ /^(echo|printf|cat)$/) { loose(pipetext); pipedshell = 1 }
       }
     }
-    else if (p ~ /^(docker|podman|kubectl|lima|limactl|vagrant|multipass|nsenter|chroot)$/ && has_shell_word(i)) {
+    else if (p ~ /^(docker|podman|kubectl|lima|limactl|vagrant|multipass|nsenter|chroot)$/ && has_runner_cmd(i)) {
       joined = ""
       for (k = i + 1; k <= nf; k++) joined = joined " " f[k]
       loose(joined)
@@ -428,8 +496,25 @@ function close_at(s, i, opn, cls,    d, L, c) {
   return 0
 }
 
-function scan(s,    i, L, c, c2, nx, prev, top, dash, op, e, k) {
+function scan(s,    i, L, c, c2, nx, prev, top, dash, op, e, k, rest) {
   L = length(s); i = 1
+  if (arr_open > 0) {
+    # This line is part of a `name=(` array literal whose closing `)` is on a
+    # later line. Count parens to learn whether the array closes here; while it
+    # does not, the content is opaque (bare words are data). When it closes, a
+    # substitution it held is scanned so a command inside it stays visible, and
+    # the rest of the line is scanned normally.
+    for (k = 1; k <= L; k++) {
+      c = substr(s, k, 1)
+      if (c == "(") arr_open++
+      else if (c == ")") { arr_open--; if (arr_open == 0) { k++; break } }
+    }
+    if (arr_open > 0) { arr_buf = arr_buf s "\n"; return }
+    if (index(arr_buf, "$(") > 0 || index(arr_buf, BT) > 0) scan_text(arr_buf)
+    arr_buf = ""
+    s = substr(s, k); L = length(s); i = 1
+    if (L <= 0) return
+  }
   while (i <= L) {
     c = substr(s, i, 1); c2 = substr(s, i, 2); top = st[sp]
     if (top == "sq") {
@@ -477,6 +562,23 @@ function scan(s,    i, L, c, c2, nx, prev, top, dash, op, e, k) {
     if (c == "(" && inword && cur ~ /^[A-Za-z_][A-Za-z0-9_]*[+]?=$/ && (e = close_at(s, i, "(", ")")) > 0 && !has_sub(s, i, e)) {
       vartext = vartext " " substr(s, i, e - i)
       cur = cur "A"; i = e; continue
+    }
+    if (c == "(" && inword && cur ~ /^[A-Za-z_][A-Za-z0-9_]*[+]?=$/ && close_at(s, i, "(", ")") == 0) {
+      # `name=(` whose closing `)` is not on this line: the array spans lines, so
+      # its content must not be read as commands. Buffer the rest of this line
+      # and let the pending-array handler at the top of scan() finish it.
+      arr_open = 1
+      rest = substr(s, i + 1)
+      e = length(rest)
+      for (k = 1; k <= e; k++) {
+        c = substr(rest, k, 1)
+        if (c == "(") arr_open++
+        else if (c == ")") arr_open--
+      }
+      cur = cur "A"
+      if (arr_open > 0) arr_buf = rest "\n"; else arr_open = 0
+      i = L + 1
+      continue
     }
     if (c2 == "$(") { push("sub"); i += 2; continue }
     if (c == BT) {
@@ -534,37 +636,16 @@ BEGIN {
   nw = 0; cur = ""; inword = 0
   np = 0; pi = 1; hdactive = 0; want = 0
   psep = 0; vartext = ""; setargs = ""; subbody = ""; pipetext = ""; pipeprog = ""; pipedshell = 0
+  arr_open = 0; arr_buf = ""
 }
 
 {
   raw = raw $0 "\n"
-  if (hdactive) {
-    chk = $0
-    if (pdash[pi]) sub(/^\t+/, "", chk)
-    if (chk == pd[pi]) {
-      if (pshell[pi]) loose(pbody[pi])
-      if (pipedshell) loose(pbody2[pi])
-      pi++
-      if (pi > np) { hdactive = 0; np = 0; pi = 1; pipedshell = 0 }
-    }
-    else {
-      if (pshell[pi]) pbody[pi] = pbody[pi] $0 "\n"
-      if (pipedshell) pbody2[pi] = pbody2[pi] $0 "\n"
-      if (psub[pi]) subbody = subbody $0 "\n"
-    }
-    next
-  }
-  contline = 0
-  pipedshell = 0
-  scan($0)
-  if (!contline) {
-    if (st[sp] == "sq" || st[sp] == "dq" || st[sp] == "ansi") { cur = cur "\n"; inword = 1 }
-    else endcmd()
-  }
-  if (np >= pi) hdactive = 1
+  feed($0)
 }
 
 END {
+  if (arr_open > 0) { arr_open = 0; scan_text(arr_buf); arr_buf = "" }
   endcmd()
   if (hdactive && pshell[pi]) loose(pbody[pi])
   if (hdactive && pipedshell) loose(pbody2[pi])

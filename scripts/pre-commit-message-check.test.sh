@@ -327,5 +327,39 @@ mark "$(cat "$MSG_DIR/commit.txt")"
 [[ "$(status "$(mk 'gh pr create --title "$(cat "$TMPDIR/msgs/missing.txt")" --body "A body.")')")" == "ok" ]] && ok "a title file that cannot be read → quiet" || no "a title file that cannot be read → quiet"
 unmark
 
+# --- 13: message flags the extraction used to miss (WD-0028 AC #8) -----------
+# `-qm` / `-am` (combined short clusters carrying m), `--message`, and a
+# single-quoted body. Each is a real commit whose message is now read, so an
+# unmarked one asks; the double-quoted `-m`/`--body` forms above pin the rest.
+for c in 'git commit -qm "feat: quiet commit"' \
+         'git commit -am "feat: all files commit"' \
+         'git commit --message "feat: long message flag"'; do
+  got="$(status "$(mk "$c")")"
+  [[ "$got" == "notify" ]] && ok "reads the message body: $c" || no "reads the message body: $c (got: $got)"
+done
+SQ='git commit -m '"'"'feat: single quoted body'"'"''
+[[ "$(status "$(mk "$SQ")")" == "notify" ]] && ok "reads a single-quoted message body" || no "reads a single-quoted message body"
+# ...and a marked single-quoted body is recognized, so reading it does not move
+# an already-reviewed message into the ask.
+mark "feat: single quoted body"
+[[ "$(status "$(mk "$SQ")")" == "ok" ]] && ok "a reviewed single-quoted body → ok" || no "a reviewed single-quoted body → ok"
+unmark
+
+# --- 14: a hook with no TMPDIR still reads a $TMPDIR path (WD-0028 AC #7) ------
+# The command names its file under $TMPDIR, expanded by the shell that runs it;
+# the hook's own env may not carry TMPDIR. resolve_path() falls back to the
+# platform temp dir for a temp path, so the review still runs instead of going
+# silently quiet.
+PLATFORM_TMP="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)"; PLATFORM_TMP="${PLATFORM_TMP%/}"
+[[ -n "$PLATFORM_TMP" ]] || PLATFORM_TMP=/tmp
+TEMPD="$PLATFORM_TMP/wd-0028-$$"
+mkdir -p "$TEMPD"
+printf 'feat: a message under the platform temp dir\n' > "$TEMPD/msg.txt"
+CMD_TMPDIR="git commit -m \"\$(cat \"\$TMPDIR/wd-0028-$$/msg.txt\")\""
+got="$( cd "$PROJ" && env -u TMPDIR bash "$SCRIPT" --status "$(mk "$CMD_TMPDIR")" )"
+[[ "$got" == "notify" ]] && ok "a \$TMPDIR path is read when the hook env has no TMPDIR" \
+                        || no "a \$TMPDIR path is read when the hook env has no TMPDIR (got: $got)"
+rm -rf "$TEMPD"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

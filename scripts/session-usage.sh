@@ -332,31 +332,29 @@ opencode_report() {
 # Resolve a source, then report
 # ---------------------------------------------------------------------------
 
-SOURCE=""
-TRANSCRIPT=""
+# An explicit selector names its own source and must win over the implicit
+# resolution below. These branches used to sit *after* `resolve_claude` and the
+# `claude_report` that exits, so whenever a Claude transcript was resolvable
+# (the project root inside a live session) `--transcripts` / `--sessions` /
+# `--session` were silently ignored and the report described the wrong run.
+# That is the cause of the two `session-usage.test.sh` assertions failing from
+# the project root and passing from `/tmp`: from `/tmp` no transcript resolves,
+# so the explicit selector was finally reached.
+OPENCODE_DB_PATH="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
+
 if [[ -n "$TRANSCRIPT_ARG" ]]; then
   if [[ ! -f "$TRANSCRIPT_ARG" ]]; then echo "Not a file: $TRANSCRIPT_ARG" >&2; exit 1; fi
-  TRANSCRIPT="$TRANSCRIPT_ARG"; SOURCE="transcript"
-else
-  RESOLVED=$(resolve_claude)
-  if [[ "$RESOLVED" == *$'\t'* ]]; then
-    TRANSCRIPT="${RESOLVED%%$'\t'*}"; SOURCE="${RESOLVED##*$'\t'}"
-  fi
-fi
-
-if [[ -n "$SOURCE" ]]; then
   have_jq || { echo "session-usage.sh needs jq for the Claude Code transcript path." >&2; exit 1; }
-  [[ "$SOURCE" == "newest" ]] && echo "Note: transcript auto-resolved to the newest for this project; pass a path explicitly to be sure it is this run." >&2
-  claude_report "$TRANSCRIPT"
+  claude_report "$TRANSCRIPT_ARG"
   exit 0
 fi
 
-OPENCODE_DB_PATH="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
 if [[ -n "$TRANSCRIPTS_ARG" ]]; then
   have_jq || { echo "session-usage.sh --transcripts needs jq." >&2; exit 1; }
   transcripts_report "$TRANSCRIPTS_ARG"
   exit 0
 fi
+
 if [[ -n "$SESSIONS_ARG" ]]; then
   if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
     sessions_report "$OPENCODE_DB_PATH" "$SESSIONS_ARG"
@@ -364,6 +362,32 @@ if [[ -n "$SESSIONS_ARG" ]]; then
   fi
   echo "session-usage.sh --sessions needs sqlite3 and the OpenCode database ($OPENCODE_DB_PATH)." >&2
   exit 1
+fi
+
+if [[ -n "$SESSION_ARG" ]]; then
+  if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
+    opencode_report "$OPENCODE_DB_PATH"
+    exit 0
+  fi
+  echo "session-usage.sh --session needs sqlite3 and the OpenCode database ($OPENCODE_DB_PATH)." >&2
+  exit 1
+fi
+
+# No explicit selector: resolve the current run implicitly, Claude Code first.
+# (Auto-resolution still prefers a `.compaction-state` tracked `transcriptPath`,
+# which can point at another run — a separate defect, tracked on its own.)
+SOURCE=""
+TRANSCRIPT=""
+RESOLVED=$(resolve_claude)
+if [[ "$RESOLVED" == *$'\t'* ]]; then
+  TRANSCRIPT="${RESOLVED%%$'\t'*}"; SOURCE="${RESOLVED##*$'\t'}"
+fi
+
+if [[ -n "$SOURCE" ]]; then
+  have_jq || { echo "session-usage.sh needs jq for the Claude Code transcript path." >&2; exit 1; }
+  [[ "$SOURCE" == "newest" ]] && echo "Note: transcript auto-resolved to the newest for this project; pass a path explicitly to be sure it is this run." >&2
+  claude_report "$TRANSCRIPT"
+  exit 0
 fi
 
 if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
