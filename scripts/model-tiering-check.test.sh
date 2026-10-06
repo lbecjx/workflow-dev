@@ -198,6 +198,41 @@ AFTER="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"
 [[ "$BEFORE" == "$AFTER" ]] && ok "second check rewrites no agent file" \
   || no "second check rewrites no agent file"
 
+# --- 17: --role-models — WD-0025's runtime reader (one line per role) --------
+# Consumed by the usage report: `role<TAB>state<TAB>model`. The roles come from
+# the registry headings, so adding/removing a role needs no code change.
+RR() { env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --role-models; }
+OUT="$(RR)"
+has "$FIRST_ROLE	bound	whatever" "$OUT" "--role-models reports a bound role's model"
+NROLES="$(grep -c '^### ' "$ROLES")"
+[[ "$(printf '%s\n' "$OUT" | grep -c .)" == "$NROLES" ]] \
+  && ok "--role-models prints one line per defined role" \
+  || no "--role-models prints one line per defined role (want $NROLES)"
+
+# An alias is shown exactly as written, never resolved to a version it cannot
+# confirm.
+printf -- '---\nname: %s\ndescription: d\nmodel: sonnet\n---\nbody\n\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	bound	sonnet" "$(RR)" "an alias binding is shown as written"
+
+# A stale role (hash predates the registry) → default, never blank.
+printf -- '---\nname: %s\n---\n<!-- workflow-dev:roles-hash deadbeef -->\n' "$FIRST_ROLE" \
+  > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "a stale role reads as default"
+
+# A missing role file → default.
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "a missing role file reads as default"
+
+# Opt-out.
+printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
+has "$FIRST_ROLE	opt-out" "$(RR)" "opt-out reads as opt-out"
+rm -f "$HOME_DIR/.workflow-dev/tiering.json"
+
+# No harness signal → unreadable, never a guessed model.
+OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
+has "unreadable" "$OUT" "no harness signal → unreadable"
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

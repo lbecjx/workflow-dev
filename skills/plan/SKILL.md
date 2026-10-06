@@ -214,6 +214,12 @@ If human approves, write the plan as a new section in the story.md file:
 
 Tell the human the plan is saved and suggest running `/workflow-dev:implement` to start on Task Group 1.
 
+Then record the plan checkpoint (WD-0037):
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage plan`,
+and show the line it prints (this step's spend and the story's running total).
+`PLUGIN_ROOT` resolves as elsewhere in this plugin (`${CLAUDE_PLUGIN_ROOT}` on
+Claude Code; `cd -P "<this skill's directory>/../.." && pwd -P` on OpenCode).
+
 ## Principles
 
 1. **Validation-aware** — every task group is designed to pass `/workflow-dev:validate`. If a task would introduce security issues, missing tests, or broken types, the plan accounts for it.

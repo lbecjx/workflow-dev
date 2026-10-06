@@ -33,6 +33,7 @@ When neither harness offers a usable position, `save` says so rather than report
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
 | `/workflow-dev:setup-models` | Binds each agent role to a model the harness offers, so mechanical sub-agent work runs on a fast model and judgment work on a strong one (one-time setup) |
+| `/workflow-dev:usage` | Shows the active story's total cost and tokens, totalled from its durable ledger across sessions and harnesses |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
 ## Hooks

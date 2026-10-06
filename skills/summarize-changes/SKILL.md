@@ -128,6 +128,14 @@ label, not only a `#n`. `post-pr-url-check.sh` reminds for this after a
 successful command (WD-0024), but the reminder only reaches the agent;
 relaying it to the human is still this step's job.
 
+Before handing back, show the story's **final accumulated cost** (WD-0037): run
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --story [STORY-ID]` and present its
+report — the total by stage and by session, the per-agent/role breakdown, the
+configured role→model binding, and the reminder that roles change via
+`/workflow-dev:setup-models`. This is the story's closing cost, totalled from
+its durable ledger, so it is correct even after the sessions that produced it
+are gone. `PLUGIN_ROOT` resolves as `git-message-mark-reviewed.sh` above does.
+
 ## Principles
 
 - **One skill, three outputs** — commit message, PR title, and PR
