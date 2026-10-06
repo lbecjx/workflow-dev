@@ -56,6 +56,7 @@ case "${1:-}" in
   --expansion) MODE="expansion" ;;
   --status) MODE="status"; PAYLOAD_ARG="${2:-}" ;;
   --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
+  --role-models) MODE="role-models" ;;
 esac
 
 HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
@@ -67,6 +68,69 @@ emit() { printf '%s' "$1"; }
 
 # One line, always exit 0 — the `--status` contract the OpenCode plugin reads.
 status() { emit "$1"; exit 0; }
+
+# The role names, from the registry's `### \`role\`` headings — ONE source, so a
+# renamed/added/removed role is picked up by the reminder and the reader alike
+# without touching either. `--role-models` and the bound/stale check both call
+# this, never their own copy of the grep/sed.
+role_names() {
+  grep '^### ' "$ROLES" 2>/dev/null | sed -E 's/^### `([^`]+)`.*/\1/'
+}
+
+# The harness's agents directory — ONE mapping, shared by the reader and the
+# reminder, so a path change (or a new harness) is edited in a single place.
+agents_dir_for() {
+  case "$1" in
+    claude)   printf '%s' "$HOME/.claude/agents" ;;
+    opencode) printf '%s' "$HOME/.config/opencode/agents" ;;
+    *)        printf '' ;;
+  esac
+}
+
+# --- Role→model reader (WD-0025), consumed by the usage report -------------
+# Prints one line per DEFINED role — from the registry's `### \`role\``
+# headings, never a hardcoded list — as `role<TAB>state<TAB>model`:
+#   bound      a generated agent file whose roles-hash matches the current
+#              registry; `model` is its `model:` value, shown exactly as
+#              written (an alias like `sonnet` is never resolved to a version
+#              we cannot confirm).
+#   default    the role is ungenerated, or its file predates the registry (hash
+#              mismatch): the run falls back to the harness default.
+#   opt-out    ~/.workflow-dev/tiering.json sets optOut: true.
+#   unreadable no harness signal, or the registry cannot be read.
+# The role parsing and the hash both reuse this script's own code and
+# scripts/roles-hash.sh, so no second parser can diverge from the reminder's.
+role_models() {
+  local agents_dir hash optout=0
+  [[ -f "$OPTOUT" ]] && grep -q '"optOut"[[:space:]]*:[[:space:]]*true' "$OPTOUT" && optout=1
+  agents_dir="$(agents_dir_for "$("$HERE/list-models.sh" --print-harness 2>/dev/null)")"
+  hash="$("$HERE/roles-hash.sh" 2>/dev/null)" || hash=""
+  local role state model f
+  while IFS= read -r role; do
+    [[ -n "$role" ]] || continue
+    if [[ "$optout" -eq 1 ]]; then
+      state="opt-out"; model=""
+    elif [[ -z "$agents_dir" || -z "$hash" ]]; then
+      state="unreadable"; model=""
+    else
+      f="$agents_dir/$role.md"
+      if [[ ! -f "$f" ]]; then
+        state="default"; model=""
+      elif ! grep -q "workflow-dev:roles-hash $hash" "$f"; then
+        state="default"; model=""
+      else
+        state="bound"
+        model="$(sed -nE 's/^model:[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$f" | head -1)"
+      fi
+    fi
+    printf '%s\t%s\t%s\n' "$role" "$state" "$model"
+  done < <(role_names)
+}
+
+if [[ "$MODE" == "role-models" ]]; then
+  role_models
+  exit 0
+fi
 
 # JSON-escape a string for embedding in a hand-built JSON envelope. The reminder
 # text contains `"` (around `{"optOut": true}`), which a JSON string value must
@@ -119,19 +183,15 @@ fi
 
 # --- Which harness, so we know which agent files to look for ---------------
 HARNESS="$("$HERE/list-models.sh" --print-harness 2>/dev/null)" || HARNESS=""
-case "$HARNESS" in
-  claude)   AGENTS_DIR="$HOME/.claude/agents" ;;
-  opencode) AGENTS_DIR="$HOME/.config/opencode/agents" ;;
-  *)        [[ "$MODE" == "status" ]] && status "no-harness"; exit 0 ;;
-esac
+AGENTS_DIR="$(agents_dir_for "$HARNESS")"
+[[ -n "$AGENTS_DIR" ]] || { [[ "$MODE" == "status" ]] && status "no-harness"; exit 0; }
 
 # --- Bound and current? ----------------------------------------------------
 HASH="$("$HERE/roles-hash.sh" 2>/dev/null)" || HASH=""
 [[ -n "$HASH" ]] || { [[ "$MODE" == "status" ]] && status "no-registry"; exit 0; }
 
 MISSING=""; STALE=""; NROLES=0
-# Role names are the `### \`role\`` headings of the registry — one source, so a
-# renamed role is picked up here without touching this script.
+# Role names come from the one `role_names` helper (the registry's headings).
 while IFS= read -r role; do
   [[ -n "$role" ]] || continue
   NROLES=$((NROLES + 1))
@@ -141,7 +201,7 @@ while IFS= read -r role; do
   elif ! grep -q "workflow-dev:roles-hash $HASH" "$f"; then
     STALE="$STALE $role"
   fi
-done < <(grep '^### ' "$ROLES" 2>/dev/null | sed -E 's/^### `([^`]+)`.*/\1/')
+done < <(role_names)
 
 # The registry is readable (roles-hash.sh succeeded) but yielded no role
 # headings — a format change this grep no longer matches. Fail loud, not

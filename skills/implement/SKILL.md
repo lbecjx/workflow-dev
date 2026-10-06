@@ -166,6 +166,12 @@ When all tasks in the group are done:
 
 After successful validation:
 - Mark task group as "Done" in Plan Progress table (this one update happens here, directly — it's the literal record of what this skill just did)
+- Record this task group's cost checkpoint (WD-0037): run
+  `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage implement`
+  and show the line it prints (this step's spend and the story's running total).
+  It appends to the story's durable ledger; best-effort, `unavailable` rather
+  than a zero when no source resolves. `PLUGIN_ROOT` resolves as `validate`'s
+  Step 4 notes.
 - Suggest running `/workflow-dev:save` to persist estimated progress, discoveries, and anything else from this task group into the story's Working Memory section — don't duplicate that logic here inline; `save` already owns reviewing the conversation and classifying what goes where
 
 ## Principles

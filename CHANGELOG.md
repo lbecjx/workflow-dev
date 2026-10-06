@@ -14,6 +14,27 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.31.0
+
+- `session-usage.sh` gains `--snapshot <story> --stage <stage>` and
+  `--story <story>`. `--snapshot` normalizes the current run from either harness
+  to one object (dollars and tokens) and records a checkpoint in a durable
+  per-story ledger under `.workflow-dev/context/.usage/`; `--story` totals the
+  story from that ledger — across sessions and harnesses, by stage, session and
+  agent/role — so the number survives deletion of the session or transcript that
+  produced it.
+- The OpenCode snapshot sums the whole recursive sub-agent tree (grandchildren
+  included); the Claude snapshot reads the last `cost-state` `totalCostUSD`
+  (sub-agents already included). The dollar figure is real on both harnesses,
+  not "tokens only".
+- `model-tiering-check.sh --role-models` exposes the runtime role→model binding
+  with honest fallbacks (ungenerated/stale → default, opt-out, no-harness →
+  unreadable, an alias shown as written). `validate` renders it beside the
+  observed spend and flags config-vs-observed discrepancies.
+- Checkpoints are written at the workflow boundaries (`init`, `plan`, each
+  `implement` task group, `validate`, `save`, `summarize-changes`), and a new
+  `/workflow-dev:usage` skill shows the active story's running total.
+
 ## 1.30.0
 
 - The validate and message markers are trusted only when their directory — and

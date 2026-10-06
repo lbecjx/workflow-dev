@@ -161,6 +161,13 @@ Marked [STORY-ID] as saved through line 1234 (2026-01-01 at 5:00 PM) — future 
 
 This has actually happened, wrong, in a real session: the confirmation shown to the human used a shorter line Claude wrote itself instead of relaying the script's output, sourcing the raw UTC `dateTime` from `.compaction-state/[STORY-ID].json` and displaying it as if it were already local — several hours off from the real local time. Never read that JSON file's `dateTime` field yourself for this purpose, no matter how tempting it is to write a shorter or differently-styled summary line — that field exists in UTC specifically for `save-mark-saved.sh` to convert, not for direct display, and the script's own sentence above is what belongs in the confirmation, unedited.
 
+Then record the save checkpoint (WD-0037):
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage save`,
+and show the line it prints (this step's spend and the story's running total).
+`save` is the safety net — it runs on compaction and on session close — so this
+is the checkpoint that most often survives a session that is later deleted.
+`PLUGIN_ROOT` resolves exactly as `save-mark-saved.sh` above does.
+
 ## Classification rules
 
 **Repo-level** = true for every story in this repo; useful even on an unrelated feature.

@@ -155,6 +155,15 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 4. Link to REPO.md at the top instead of duplicating repo-level facts.
 5. Map exemplar files to the ACs they inform.
 6. Mark anything unresolved with ⬜ and a note on what's missing.
+7. **Record the story's base cost checkpoint** (WD-0037). Run
+   `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage init`
+   and show the line it prints — this step's spend and the story's running
+   total. It appends to the story's durable ledger
+   (`.workflow-dev/context/.usage/[STORY-ID].json`), so the cost outlives the
+   session that produced it. Best-effort: an unresolvable source is reported
+   `unavailable`, never a zero. Resolve `PLUGIN_ROOT` as `references/workflow.md`
+   Step 6 does (`${CLAUDE_PLUGIN_ROOT}` on Claude Code; the `cd -P` fallback on
+   OpenCode).
 
 ### Phase 7: Ask the human
 

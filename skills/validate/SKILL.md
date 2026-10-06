@@ -258,22 +258,26 @@ doesn't set that variable, so resolve it from where this skill lives —
 `cd -P "<this skill's directory>/../.." && pwd -P` gives the plugin root either
 way (the `-P` resolves OpenCode's skill symlink; a logical `..` would not).
 
-**Record the run's cost — every run, full or reduced.** You noted the session
-total before spawning (Step 3's gate). After the report, run
-`"$PLUGIN_ROOT"/scripts/session-usage.sh` again and report the **delta**
-as the run's cost — for a reduced run with no sub-agents, that delta is the
-orchestrator's own cost; say so rather than omitting it. This is what ties a run
-to what it actually cost, and what makes the savings measurable rather than
-estimated (WD-0007). The script is best-effort: when the harness's side-chain
-files have been purged it reports `unavailable`, never a misleading zero.
+**Record the run's cost — every run, full or reduced.** After the report, run
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot <STORY-ID> --stage validate`
+and show the line it prints (this run's spend and the story's running total).
+It appends a checkpoint to the story's durable ledger
+(`.workflow-dev/context/.usage/<STORY-ID>.json`), so the cost survives even if
+the session is later deleted — a bare per-session number does not (WD-0037).
+For a reduced run with no sub-agents the delta is the orchestrator's own cost;
+say so rather than omitting it. The script is best-effort: an unresolvable
+source is reported `unavailable`, never a misleading zero.
 
-**Attribute it to the story.** A session can mix several stories (and a story
-can span sessions and harnesses), so a bare per-session number isn't the
-story's cost. When the harness hands you an id for each sub-agent you spawned
-(OpenCode's `subagent sessionID`; Claude Code's transcript path), record it in
-the story's context — then the run can be totalled **per story** with
-`session-usage.sh --sessions <ids>` (OpenCode) or `--transcripts <paths>`
-(Claude Code).
+Then render the **run report** from the ledger with
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --story <STORY-ID>`: the total, the
+per-agent/role breakdown with each cub's model, the configured role→model
+binding (one line per defined role, from the registry — never a fixed list),
+any **config-vs-observed** discrepancy (e.g. a configured role whose spend
+actually landed under the default agent), and the reminder that a role's model
+is changed with `/workflow-dev:setup-models`. The binding is read by
+`model-tiering-check.sh --role-models` (WD-0025's reader); this skill only
+renders it. The total is summed from the ledger, so it stays correct across
+sessions and harnesses.
 
 ### Step 5: Verdict
 

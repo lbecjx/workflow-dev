@@ -71,6 +71,7 @@ Available skills:
   /workflow-dev:resume            — Load context at the start of a new session
   /workflow-dev:refresh           — Check Jira/Confluence/GitHub/the repo for drift since the last save
   /workflow-dev:setup-models      — Bind each agent role to a model the harness offers (one-time)
+  /workflow-dev:usage             — Show the active story's total cost and tokens (from its ledger)
   /workflow-dev:help              — This screen
 ```
 
@@ -142,6 +143,7 @@ One way to produce such files without hand-writing them is the separate **`local
 | New session, picking up where you left off | `/workflow-dev:resume` |
 | Wondering if Jira/Confluence/GitHub/the repo drifted since the last save | `/workflow-dev:refresh` |
 | Want sub-agent work tiered — mechanical on a fast model, judgment on a strong one | `/workflow-dev:setup-models` |
+| Want to see what the active story has cost so far | `/workflow-dev:usage` |
 | Not sure what's next | `/workflow-dev:help` |
 
 ## When not to reach for this workflow
