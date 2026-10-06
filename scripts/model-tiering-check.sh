@@ -74,7 +74,10 @@ status() { emit "$1"; exit 0; }
 # without touching either. `--role-models` and the bound/stale check both call
 # this, never their own copy of the grep/sed.
 role_names() {
-  grep '^### ' "$ROLES" 2>/dev/null | sed -E 's/^### `([^`]+)`.*/\1/'
+  # `-n` + `/p`: only a `### \`role\`` heading yields a name. Without them, sed
+  # prints an unmatched line unchanged, so a prose `### Notas` heading in the
+  # registry surfaced as a phantom role row.
+  grep '^### ' "$ROLES" 2>/dev/null | sed -nE 's/^### `([^`]+)`.*/\1/p'
 }
 
 # The harness's agents directory — ONE mapping, shared by the reader and the
@@ -91,13 +94,19 @@ agents_dir_for() {
 # Prints one line per DEFINED role — from the registry's `### \`role\``
 # headings, never a hardcoded list — as `role<TAB>state<TAB>model`:
 #   bound      a generated agent file whose roles-hash matches the current
-#              registry; `model` is its `model:` value, shown exactly as
-#              written (an alias like `sonnet` is never resolved to a version
-#              we cannot confirm).
-#   default    the role is ungenerated, or its file predates the registry (hash
-#              mismatch): the run falls back to the harness default.
+#              registry; `model` is its front-matter `model:` value, shown
+#              exactly as written (an alias like `sonnet` is never resolved to
+#              a version we cannot confirm).
+#   default    the role is ungenerated, its file predates the registry (hash
+#              mismatch), or it carries no readable `model:` to confirm a
+#              binding from: the run falls back to the harness default. A
+#              hash-matching file with no `model:` is NOT `bound` — claiming so
+#              would render an empty model, the one thing this reader must
+#              never do, and an absent model is the default on both harnesses.
 #   opt-out    ~/.workflow-dev/tiering.json sets optOut: true.
-#   unreadable no harness signal, or the registry cannot be read.
+#   unreadable no harness signal. An unreadable registry prints NOTHING — with
+#              no roles to name there is no row to label — and the consumer
+#              (session-usage.sh) reports that empty case itself.
 # The role parsing and the hash both reuse this script's own code and
 # scripts/roles-hash.sh, so no second parser can diverge from the reminder's.
 role_models() {
@@ -119,8 +128,32 @@ role_models() {
       elif ! grep -q "workflow-dev:roles-hash $hash" "$f"; then
         state="default"; model=""
       else
-        state="bound"
-        model="$(sed -nE 's/^model:[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$f" | head -1)"
+        # Read `model:` from the YAML front-matter ONLY, never the body: a
+        # hand-edited body line starting `model:` must not be mistaken for the
+        # binding (AC 2). The block must actually CLOSE — `print model` runs on
+        # the closing `---` — so an unterminated front matter (no second `---`)
+        # prints nothing and reads `default`, rather than trusting a body
+        # `model:`. A leading UTF-8 BOM is skipped (byte-wise, LC_ALL=C), the way
+        # a YAML parser treats it, so a BOM'd file still reports its binding.
+        model="$(LC_ALL=C awk '
+          NR == 1 && substr($0, 1, 3) == "\357\273\277" { $0 = substr($0, 4) }
+          NR == 1 && $0 !~ /^---[[:space:]]*$/ { exit }
+          NR == 1 { next }
+          /^---[[:space:]]*$/ { print model; exit }
+          !seen && /^model:([[:space:]]|$)/ {
+            v = $0; sub(/^model:[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v)
+            model = v; seen = 1
+          }
+        ' "$f")"
+        if [[ -z "$model" ]]; then
+          # The hash matches but no `model:` is readable in the front matter — a
+          # binding that cannot be confirmed. `bound` would print an empty model
+          # (never honest), and an absent `model:` is the harness default on both
+          # harnesses, so `default` is the true answer.
+          state="default"; model=""
+        else
+          state="bound"
+        fi
       fi
     fi
     printf '%s\t%s\t%s\n' "$role" "$state" "$model"

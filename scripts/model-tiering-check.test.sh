@@ -233,6 +233,62 @@ rm -f "$HOME_DIR/.workflow-dev/tiering.json"
 OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
 has "unreadable" "$OUT" "no harness signal → unreadable"
 
+# --- 18: a hash-matching file with no readable `model:` is never "bound" (N1)
+# A `bound` row with an empty model column is exactly the "never empty" case
+# AC 4 forbids. The hash matches, but there is no `model:` to read — and an
+# absent model is the harness default on both harnesses — so it reads `default`.
+printf -- '---\nname: %s\ndescription: d\n---\nbody\n\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "a bound file with no model reads as default"
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# --- 19: a `### ` heading that is not a `### `role`` entry is not a role (N2)
+# The registry is a prose document; only ``### `role` `` headings name roles.
+# The old `sed` printed an unmatched line unchanged, so `### Notas` surfaced as
+# a phantom role row. Mutates and restores the registry, same pattern as test 9.
+cp "$ROLES" "$ROLES.bak"
+printf '\n### Notas de mantenimiento\nprose, not a role\n' >> "$ROLES"
+OUT="$(RR)"
+mv "$ROLES.bak" "$ROLES"
+case "$OUT" in
+  *'### '*) no "a non-role ### heading never becomes a role row (got: $OUT)" ;;
+  *) ok "a non-role ### heading never becomes a role row" ;;
+esac
+
+# --- 20: `model:` is read from the front matter, never the body (N1/AC 2) ----
+# A hand-edited body line starting `model:` must not be mistaken for the
+# binding — that would hand a bogus model to an empty front-matter `model:` and
+# defeat case 18.
+printf -- '---\nname: %s\ndescription: d\nmodel:\n---\nmodel: bogus\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "a body model: line is not read as the binding"
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# --- 21: an unterminated front matter never supplies a binding --------------
+# With no closing `---` the block never closes, so nothing in it is trusted: a
+# later body `model:` must not masquerade as the binding. This is the edge case
+# that would otherwise defeat case 18/20.
+printf -- '---\nname: %s\ndescription: d\nmodel:\nbody\nmodel: bogus\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "an unterminated front matter yields no binding"
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# --- 22: `model:` with no space after the colon is not a YAML key ------------
+# `model:sonnet` is a single plain scalar, not a `model` key, so it is no
+# binding: the row must read `default`, never `bound` with a fabricated model.
+printf -- '---\nname: %s\nmodel:sonnet\n---\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	default" "$(RR)" "model: with no space is not read as the binding"
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# --- 23: a leading UTF-8 BOM does not hide the binding -----------------------
+# A BOM is a YAML stream prefix, not content: a BOM'd closed front matter still
+# binds its model, so the row must read `bound`, not `default`.
+printf '\xEF\xBB\xBF---\nname: %s\nmodel: sonnet\n---\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+has "$FIRST_ROLE	bound	sonnet" "$(RR)" "a leading BOM does not hide the binding"
+rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
