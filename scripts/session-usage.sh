@@ -742,14 +742,14 @@ ledger_report() {
   binding=$("$PLUGIN_ROOT"/scripts/model-tiering-check.sh --role-models 2>/dev/null)
   echo "  configured binding (role → model):"
   if [[ -z "$binding" ]]; then
-    echo "    (role registry unreadable)"
+    echo "    (no roles: the registry is unreadable, or has no role headings)"
   else
     while IFS=$'\t' read -r role state model; do
       [[ -z "$role" ]] && continue
       case "$state" in
         bound)   printf '    %s → %s (bound)\n' "$role" "$model" ;;
         opt-out) printf '    %s → default (tiering opted out)\n' "$role" ;;
-        default) printf '    %s → default (role ungenerated or stale)\n' "$role" ;;
+        default) printf '    %s → default (role ungenerated, stale, or with no model)\n' "$role" ;;
         *)       printf '    %s → unreadable (no harness signal)\n' "$role" ;;
       esac
     done <<< "$binding"

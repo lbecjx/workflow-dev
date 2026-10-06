@@ -35,6 +35,20 @@ All notable changes to this plugin are documented here. Format loosely follows
   `implement` task group, `validate`, `save`, `summarize-changes`), and a new
   `/workflow-dev:usage` skill shows the active story's running total.
 
+## 1.31.1
+
+- `model-tiering-check.sh --role-models` reads a role's model only from a real
+  `model:` key in the agent file's closed YAML front matter — never a body line,
+  an unterminated block, or a `model:` with no separating space — skips a leading
+  UTF-8 BOM the way a YAML parser does, and reads a hash-matching file with no
+  such key as `default`, not `bound` with an empty model, since an absent model
+  is the harness default on both harnesses.
+- The reader's role list accepts only a ``### `role` `` registry heading, so a
+  prose `###` heading no longer surfaces as a phantom role; an unreadable
+  registry yields no rows, and its comment now says so.
+- The usage report's `default` line now reads "ungenerated, stale, or with no
+  model", matching the reader's broadened `default`.
+
 ## 1.30.0
 
 - The validate and message markers are trusted only when their directory — and
