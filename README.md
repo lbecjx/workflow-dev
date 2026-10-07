@@ -1,8 +1,12 @@
 # workflow-dev
 
-A human-piloted, agent-executed development workflow for [Claude Code](https://code.claude.com). Bootstraps a persistent per-project context from Jira, Confluence, and GitHub via MCP — or from a local Markdown file when no issue tracker is available — then decomposes it into a task plan, executes it with enforced quality rules, and runs a multi-dimensional quality gate before every commit.
+A human-piloted, agent-executed development workflow for [Claude Code](https://code.claude.com) and [OpenCode](https://opencode.ai). Bootstraps a persistent per-project context from Jira, Confluence, and GitHub via MCP — or from a local Markdown file when no issue tracker is available — then decomposes it into a task plan, executes it with enforced quality rules, and runs a multi-dimensional quality gate before every commit.
 
 Context survives compaction and new sessions. Mechanical state (plan progress, files touched) is kept current automatically as work proceeds; decisions, discoveries, and progress notes are saved **on request** — never automatically, and never without your review.
+
+## Harnesses
+
+Both harnesses are supported in full: every skill, hook, reminder and model-tiering path has a Claude Code half and an OpenCode half. The OpenCode half is tested against **OpenCode 2.0.24**. Where a capability genuinely differs between the two — how a reminder is delivered, how a sub-agent's model is bound — the difference and its honest fallback are documented, never papered over; see [Hooks](#hooks) for the reminder-by-reminder split.
 
 ## Save point
 
@@ -58,7 +62,7 @@ What each harness actually gets, reminder by reminder:
 | Reminder | Claude Code | OpenCode |
 |---|---|---|
 | Suggest the next skill at session start | injected as context | the same suggestion, injected once per session |
-| Pending-save after a compaction | armed by `PreCompact`, then injected | armed from the subscribed compaction events — **unverified**: those events register but were never observed firing on 2.0.19 |
+| Pending-save after a compaction | armed by `PreCompact`, then injected | armed from the subscribed compaction events — **unverified**: those events register but have never been observed firing (measured on 2.0.19; not re-run after the upgrade to 2.0.24) |
 | "Did `/workflow-dev:validate` pass?" | asks **before** the commit | asks **before** the command, through the permission hook |
 | Git History Disclosure review | asks **before** the commit | asks **before** the command, through the permission hook |
 | AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
@@ -159,7 +163,7 @@ They're independent plugins, though — install either one on its own, or both; 
 Licensed under the GNU General Public License v3.0 or later — see [LICENSE](./LICENSE) for the full text.
 
 ```
-workflow-dev — a persistent-context development workflow for Claude Code
+workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify

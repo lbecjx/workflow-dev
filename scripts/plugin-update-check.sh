@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code
+# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
