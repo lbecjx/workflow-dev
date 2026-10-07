@@ -14,6 +14,11 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.31.3
+
+- The README points to `local-backlog` for anyone working locally without a
+  cloud ticket service: plain-Markdown stories, on Claude Code and OpenCode.
+
 ## 1.31.2
 
 - The README states that the plugin supports OpenCode and that the support is
