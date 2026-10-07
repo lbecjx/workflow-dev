@@ -2,6 +2,8 @@
 
 A human-piloted, agent-executed development workflow for [Claude Code](https://code.claude.com) and [OpenCode](https://opencode.ai). Bootstraps a persistent per-project context from Jira, Confluence, and GitHub via MCP — or from a local Markdown file when no issue tracker is available — then decomposes it into a task plan, executes it with enforced quality rules, and runs a multi-dimensional quality gate before every commit.
 
+Working on a side project, freelancing, or just prefer to keep everything local? [`local-backlog`](https://github.com/lbecjx/local-backlog) keeps your stories as plain Markdown right next to your code — no cloud account, no subscription, nothing to sync. It runs on both [Claude Code](https://code.claude.com) and [OpenCode](https://opencode.ai), just like this plugin, and the two are built to work together: `init` picks up any local `.md` file as its story source out of the box.
+
 Context survives compaction and new sessions. Mechanical state (plan progress, files touched) is kept current automatically as work proceeds; decisions, discoveries, and progress notes are saved **on request** — never automatically, and never without your review.
 
 ## Harnesses
