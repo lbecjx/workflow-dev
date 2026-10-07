@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code
+workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -13,6 +13,30 @@ the Free Software Foundation, either version 3 of the License, or
 All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
+
+## 1.31.2
+
+- The README states that the plugin supports OpenCode and that the support is
+  tested against **OpenCode 2.0.24**, in a new top-level "Harnesses" section;
+  its first sentence now names both harnesses.
+- The GPL header tagline in every shipped file (README, skills, scripts, hooks,
+  the OpenCode plugin) now names both harnesses instead of Claude Code alone.
+- The reminder table no longer reads 2.0.19 as the current OpenCode version, and
+  1.31.1 sits above 1.31.0 as newest-first order requires.
+
+## 1.31.1
+
+- `model-tiering-check.sh --role-models` reads a role's model only from a real
+  `model:` key in the agent file's closed YAML front matter — never a body line,
+  an unterminated block, or a `model:` with no separating space — skips a leading
+  UTF-8 BOM the way a YAML parser does, and reads a hash-matching file with no
+  such key as `default`, not `bound` with an empty model, since an absent model
+  is the harness default on both harnesses.
+- The reader's role list accepts only a ``### `role` `` registry heading, so a
+  prose `###` heading no longer surfaces as a phantom role; an unreadable
+  registry yields no rows, and its comment now says so.
+- The usage report's `default` line now reads "ungenerated, stale, or with no
+  model", matching the reader's broadened `default`.
 
 ## 1.31.0
 
@@ -34,20 +58,6 @@ All notable changes to this plugin are documented here. Format loosely follows
 - Checkpoints are written at the workflow boundaries (`init`, `plan`, each
   `implement` task group, `validate`, `save`, `summarize-changes`), and a new
   `/workflow-dev:usage` skill shows the active story's running total.
-
-## 1.31.1
-
-- `model-tiering-check.sh --role-models` reads a role's model only from a real
-  `model:` key in the agent file's closed YAML front matter — never a body line,
-  an unterminated block, or a `model:` with no separating space — skips a leading
-  UTF-8 BOM the way a YAML parser does, and reads a hash-matching file with no
-  such key as `default`, not `bound` with an empty model, since an absent model
-  is the harness default on both harnesses.
-- The reader's role list accepts only a ``### `role` `` registry heading, so a
-  prose `###` heading no longer surfaces as a phantom role; an unreadable
-  registry yields no rows, and its comment now says so.
-- The usage report's `default` line now reads "ungenerated, stale, or with no
-  model", matching the reader's broadened `default`.
 
 ## 1.30.0
 
