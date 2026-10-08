@@ -542,6 +542,576 @@ else
   ok "a parent cycle terminates instead of hanging"
 fi
 
+# --- 6l: a repeated subagent_type, and a checkpoint that fails loudly (WD-0049)
+# Two Agent calls of the same subagent_type used to clobber the `agents`
+# accumulator: `orchestrator` vanished, `tokens`/`models` landed at the top
+# level, and ledger_record then died on `Cannot index array with string
+# "cost_usd"` while still exiting 0 with nothing recorded.
+REP_PROJ="$TMP/repproj"
+mkdir -p "$REP_PROJ"
+REP_TX="$TMP/repeated.jsonl"
+cat > "$REP_TX" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-08T00:00:00Z","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}
+{"type":"assistant","timestamp":"2026-10-08T00:00:01Z","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"subagent_type":"wd-operator","prompt":"x"}}]}}
+{"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t2","name":"Agent","input":{"subagent_type":"wd-operator","prompt":"x"}}]}}
+JSONL
+snap_rep() { # $1 story, $2.. extra args; prints stderr, returns the exit code
+  ( cd "$REP_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+      CLAUDECODE=1 bash "$SCRIPT" --snapshot "$1" --stage init "${@:2}" 2>&1 >/dev/null )
+}
+snap_rep FX "$REP_TX" >/dev/null
+[[ $? -eq 0 ]] && ok "a repeated subagent_type snapshot exits 0" || no "a repeated subagent_type snapshot exits 0"
+REP_FILE="$REP_PROJ/.workflow-dev/context/.usage/FX.json"
+[[ "$(jq -r '.checkpoints | length' "$REP_FILE" 2>/dev/null)" == "1" ]] \
+  && ok "a repeated subagent_type still records its checkpoint" \
+  || no "a repeated subagent_type still records its checkpoint"
+[[ "$(jq -c '.checkpoints[0].agents | keys' "$REP_FILE" 2>/dev/null)" == '["orchestrator","wd-operator"]' ]] \
+  && ok "agents keeps exactly orchestrator + the repeated type" \
+  || no "agents keeps exactly orchestrator + the repeated type (got $(jq -c '.checkpoints[0].agents | keys' "$REP_FILE" 2>/dev/null))"
+
+# Each call with its own side-chain: the repeated type accumulates both.
+REP_S1="$TMP/rep-side1.output"; REP_S2="$TMP/rep-side2.output"
+printf '%s\n' '{"type":"assistant","message":{"id":"r1","model":"claude-sonnet-5-5","usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' > "$REP_S1"
+printf '%s\n' '{"type":"assistant","message":{"id":"r2","model":"claude-sonnet-5-5","usage":{"input_tokens":200,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' > "$REP_S2"
+REP_TX2="$TMP/repeated-side.jsonl"
+cat "$REP_TX" > "$REP_TX2"
+cat >> "$REP_TX2" <<JSONL
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"output_file: $REP_S1"}]}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"output_file: $REP_S2"}]}]}}
+JSONL
+snap_rep FX2 "$REP_TX2" >/dev/null
+[[ "$(jq -c '.checkpoints[0].agents["wd-operator"].tokens | [.input,.output]' "$REP_PROJ/.workflow-dev/context/.usage/FX2.json" 2>/dev/null)" == "[300,30]" ]] \
+  && ok "a repeated type sums the tokens of every call's side-chain" \
+  || no "a repeated type sums the tokens of every call's side-chain"
+
+# --transcript is a real flag, equivalent to the positional path.
+snap_rep FX3 --transcript "$REP_TX" >/dev/null
+[[ "$(jq -r '.checkpoints | length' "$REP_PROJ/.workflow-dev/context/.usage/FX3.json" 2>/dev/null)" == "1" ]] \
+  && ok "--transcript <path> records like the positional path" \
+  || no "--transcript <path> records like the positional path"
+TX_ERR=$(snap_rep FX4 --transcript)
+TX_RC=$?
+[[ $TX_RC -ne 0 && -n "$TX_ERR" && ! -e "$REP_PROJ/.workflow-dev/context/.usage/FX4.json" ]] \
+  && ok "--transcript with no value fails loudly and records nothing" \
+  || no "--transcript with no value fails loudly and records nothing (rc $TX_RC)"
+
+# A failing checkpoint computation is loud: stderr says so, no summary line,
+# the ledger is unchanged, and the exit is non-zero. A jq shim fails only the
+# ledger's checkpoint filter (`def cps`), so every other call is the real jq.
+mkdir -p "$TMP/jqshim"
+cat > "$TMP/jqshim/jq" <<SH
+#!$BASH_ABS
+case "\$*" in *"def cps"*) echo "jq: forced failure" >&2; exit 5 ;; esac
+exec "$(command -v jq)" "\$@"
+SH
+chmod +x "$TMP/jqshim/jq"
+BEFORE=$(cat "$REP_FILE")
+FAIL_ERR=$( cd "$REP_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+    PATH="$TMP/jqshim:$PATH" CLAUDECODE=1 bash "$SCRIPT" --snapshot FX --stage plan "$REP_TX" 2>&1 >/dev/null )
+FAIL_RC=$?
+assert_contains 'checkpoint NOT recorded' "$FAIL_ERR" "a failed checkpoint computation says so on stderr"
+case "$FAIL_ERR" in *"story total"*) no "a failed checkpoint prints no summary line" ;; *) ok "a failed checkpoint prints no summary line" ;; esac
+[[ "$(cat "$REP_FILE")" == "$BEFORE" ]] && ok "a failed checkpoint leaves the ledger unchanged" || no "a failed checkpoint leaves the ledger unchanged"
+[[ $FAIL_RC -ne 0 ]] && ok "a failed checkpoint exits non-zero" || no "a failed checkpoint exits non-zero"
+
+# --- 6m: this session's transcript, by id, from any cwd (WD-0049) -----------
+# Two sessions on one repo: "newest" belonged to whichever wrote last, so a
+# parallel session's spend was recorded as this one's. CLAUDE_CODE_SESSION_ID
+# names this session's own file and wins — even when it is not the newest.
+PROJS="$TMP/sidproj"; FAKEHS="$TMP/fakehome-sid"
+mkdir -p "$PROJS"
+SLUGS="$( cd "$PROJS" && pwd -P | sed 's#/#-#g' )"
+mkdir -p "$FAKEHS/.claude/projects/$SLUGS" "$FAKEHS/.claude/projects/-some-other-project"
+tx_line() { printf '{"type":"assistant","message":{"id":"%s","model":"m","usage":{"input_tokens":%s,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$1" "$2"; }
+tx_line mine 555 > "$FAKEHS/.claude/projects/$SLUGS/sid-mine.jsonl"
+touch -t 202001010000 "$FAKEHS/.claude/projects/$SLUGS/sid-mine.jsonl"
+tx_line other 666 > "$FAKEHS/.claude/projects/$SLUGS/sid-other.jsonl"
+snap_sid() { # $1 CLAUDE_CODE_SESSION_ID value ("" = unset), $2 cwd; prints the snapshot
+  if [[ -n "$1" ]]; then
+    ( cd "$2" && HOME="$FAKEHS" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID \
+        CLAUDECODE=1 CLAUDE_CODE_SESSION_ID="$1" bash "$SCRIPT" --snapshot WD-SID --stage t 2>/dev/null )
+  else
+    ( cd "$2" && HOME="$FAKEHS" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+        CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SID --stage t 2>/dev/null )
+  fi
+}
+assert_contains '"input": 555' "$(snap_sid sid-mine "$PROJS")" "CLAUDE_CODE_SESSION_ID wins over a newer transcript in the project"
+assert_contains '"input": 666' "$(snap_sid "" "$PROJS")" "without CLAUDE_CODE_SESSION_ID the newest fresh transcript is used"
+assert_contains '"input": 666' "$(snap_sid sid-missing "$PROJS")" "a session id with no transcript falls back to the newest"
+assert_contains '"input": 666' "$(snap_sid '../sid-mine' "$PROJS")" "a session id that could form a path is ignored"
+tx_line elsewhere 777 > "$FAKEHS/.claude/projects/-some-other-project/sid-away.jsonl"
+assert_contains '"input": 777' "$(snap_sid sid-away "$PROJS")" "a session id is found under another project's slug"
+
+# Called from a subdirectory of the repo (the WD-0043 `plan` case: a skill
+# `cd`ed into .workflow-dev/context/), the transcript resolves and the ledger
+# is written at the git toplevel — never a nested .usage/.
+GREPO="$TMP/gitrepo"; FAKEHG="$TMP/fakehome-git"
+mkdir -p "$GREPO/.workflow-dev/context"
+git -C "$GREPO" init -q
+SLUGG="$( cd "$GREPO" && pwd -P | sed 's#/#-#g' )"
+mkdir -p "$FAKEHG/.claude/projects/$SLUGG"
+tx_line root 888 > "$FAKEHG/.claude/projects/$SLUGG/root.jsonl"
+SUB_OUT=$( cd "$GREPO/.workflow-dev/context" && HOME="$FAKEHG" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+    CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SUB --stage plan 2>/dev/null )
+assert_contains '"input": 888' "$SUB_OUT" "a snapshot from a repo subdirectory resolves the project's transcript"
+[[ -f "$GREPO/.workflow-dev/context/.usage/WD-SUB.json" ]] \
+  && ok "a snapshot from a repo subdirectory writes the ledger at the toplevel" \
+  || no "a snapshot from a repo subdirectory writes the ledger at the toplevel"
+[[ ! -e "$GREPO/.workflow-dev/context/.workflow-dev" ]] \
+  && ok "no nested .workflow-dev/ is created under the cwd" \
+  || no "no nested .workflow-dev/ is created under the cwd"
+assert_contains 'checkpoints: 1' "$( cd "$GREPO/.workflow-dev/context" && bash "$SCRIPT" --story WD-SUB )" "--story from a subdirectory reads the toplevel ledger"
+
+# --- 6n: never a frozen cost — cost-state only while it is up to date (WD-0049)
+# Claude Code writes cost-state on lifecycle events, not per turn, so a live
+# session's is usually stale; a checkpoint then adds the priced tail to it.
+EST_PROJ="$TMP/estproj"
+mkdir -p "$EST_PROJ"
+snap_est() { # $1 story, $2 transcript; prints stdout+stderr
+  ( cd "$EST_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+      CLAUDECODE=1 bash "$SCRIPT" --snapshot "$1" --stage test --transcript "$2" 2>&1 )
+}
+# usage line: $1 id, $2 model, $3 input, $4 output, $5 cache_read, $6 cache_create (all 1h), $7 speed
+use_line() { printf '{"type":"assistant","timestamp":"2026-10-08T00:00:%s","message":{"id":"%s","model":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_read_input_tokens":%s,"cache_creation_input_tokens":%s,"cache_creation":{"ephemeral_1h_input_tokens":%s,"ephemeral_5m_input_tokens":0},"speed":"%s"}}}\n' "${8:-10}" "$1" "$2" "$3" "$4" "$5" "$6" "$6" "${7:-standard}"; }
+
+EST_STALE="$TMP/est-stale.jsonl"
+{ use_line e1 claude-opus-5-5 10 10 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":1.0,"modelUsage":{"claude-opus-5-5":{"costUSD":1.0}}}'
+  use_line e2 claude-opus-5-5 1000 1000 0 1000 standard 20; } > "$EST_STALE"
+EST_OUT=$(snap_est WD-EST "$EST_STALE")
+assert_contains '"cost_usd": 1.032' "$EST_OUT" "a stale cost-state plus the priced tail (4+20+8 per 1000 tokens, 1h write)"
+assert_contains '"cost_basis": "estimated"' "$EST_OUT" "a stale cost-state gives cost_basis estimated"
+assert_contains '"stale": true' "$EST_OUT" "a stale cost-state is marked stale"
+assert_contains '(estimated)' "$EST_OUT" "the summary line marks an estimated step"
+
+EST_NONE="$TMP/est-none.jsonl"
+use_line n1 claude-opus-5-5 1000000 0 0 0 > "$EST_NONE"
+EST_N=$(snap_est WD-ESTN "$EST_NONE")
+assert_contains '"cost_usd": 4' "$EST_N" "no cost-state: the whole run is priced from the table"
+case "$EST_N" in *'"stale"'*) no "no cost-state is not marked stale" ;; *) ok "no cost-state is not marked stale" ;; esac
+
+EST_FAST="$TMP/est-fast.jsonl"
+use_line f1 claude-opus-5-5 1000000 0 0 0 fast > "$EST_FAST"
+assert_contains '"cost_usd": 8' "$(snap_est WD-ESTF "$EST_FAST")" "a fast-mode message is priced with the model's multiplier"
+
+EST_DATED="$TMP/est-dated.jsonl"
+use_line d1 claude-haiku-4-5-20251001 1000000 0 0 0 > "$EST_DATED"
+assert_contains '"cost_usd": 1' "$(snap_est WD-ESTD "$EST_DATED")" "a dated model id falls back to its undated price"
+
+EST_UNK="$TMP/est-unknown.jsonl"
+{ use_line u1 claude-opus-5-5 1000000 0 0 0; use_line u2 claude-imaginary-9 5 5 0 0; } > "$EST_UNK"
+EST_U=$(snap_est WD-ESTU "$EST_UNK")
+assert_contains '"cost_usd": null' "$EST_U" "a model with no price leaves the total null, never a guess"
+assert_contains 'no price for claude-imaginary-9' "$EST_U" "the unpriced model is named on stderr"
+
+# Up to date: the last cost-state comes after every message → its total, exact.
+assert_contains '"cost_basis": "cost-state"' "$SNAP_CL" "an up-to-date cost-state gives cost_basis cost-state"
+
+# Agents are priced per cub; the durable subagents/ copy is found by toolUseId
+# when the tool_result names no output_file (a foreground call).
+EST_AG="$TMP/est-agents.jsonl"
+mkdir -p "$TMP/est-agents/subagents"
+use_line s1 claude-sonnet-5-5 1000000 0 0 0 > "$TMP/est-agents/subagents/agent-abc.jsonl"
+printf '%s\n' '{"agentType":"wd-judge","toolUseId":"tu_fg"}' > "$TMP/est-agents/subagents/agent-abc.meta.json"
+{ use_line a1 claude-opus-5-5 1000000 0 0 0
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_fg","name":"Agent","input":{"subagent_type":"wd-judge"}}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_fg","content":"done"}]}}'; } > "$EST_AG"
+EST_A=$(snap_est WD-ESTA "$EST_AG")
+assert_contains '"cost_usd": 6' "$EST_A" "a foreground sub-agent's durable side-chain is priced into the total"
+[[ "$(jq -c '.checkpoints[0].agents | map_values(.cost_usd)' "$EST_PROJ/.workflow-dev/context/.usage/WD-ESTA.json")" == '{"orchestrator":4,"wd-judge":2}' ]] \
+  && ok "each agent cub carries its own estimated cost" \
+  || no "each agent cub carries its own estimated cost"
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_gone","content":[{"type":"text","text":"output_file: /nonexistent/gone.output"}]}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_gone","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}' >> "$EST_AG"
+# A side-chain with nothing to read (no output_file, no durable copy): its
+# spend is unknown, so the estimate is null — recorded, never a guess.
+EST_G=$(snap_est WD-ESTG "$EST_AG")
+assert_contains '"cost_usd": null' "$EST_G" "a side-chain with nothing to read leaves the estimate null"
+assert_contains 'no side-chain found for wd-operator' "$EST_G" "the missing side-chain is named on stderr"
+
+# An exact cost-state lower than the estimate before it is a correction, not a
+# reset: the story total is the exact figure, not both added up.
+EST_SW="$TMP/est-switch.jsonl"
+use_line w1 claude-opus-5-5 1000000 0 0 0 > "$EST_SW"
+snap_est WD-ESTW "$EST_SW" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":3.9,"modelUsage":{"claude-opus-5-5":{"costUSD":3.9}}}' >> "$EST_SW"
+snap_est WD-ESTW "$EST_SW" >/dev/null
+EST_REP=$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTW )
+assert_contains 'total: $3.9 ' "$EST_REP" "an exact cost-state below an earlier estimate corrects it, no reset"
+assert_contains 'estimated: 1' "$EST_REP" "--story counts the estimated checkpoints"
+
+# A side-chain with a truncated last line (an agent caught mid-write) is
+# unreadable: no checkpoint — never a $0 one with empty models/agents — and a
+# later complete one is not read as a reset.
+EST_TR="$TMP/est-trunc.jsonl"
+mkdir -p "$TMP/est-trunc/subagents"
+{ use_line t1 claude-sonnet-5-5 10 0 0 0; printf '{"type":"assistant","message":{"id":"t2"'; } > "$TMP/est-trunc/subagents/agent-tr.jsonl"
+printf '%s\n' '{"agentType":"wd-operator","toolUseId":"tu_tr"}' > "$TMP/est-trunc/subagents/agent-tr.meta.json"
+{ use_line m1 claude-opus-5-5 1000000 0 0 0
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_tr","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'; } > "$EST_TR"
+EST_T=$(snap_est WD-ESTT "$EST_TR")
+assert_contains 'checkpoint NOT recorded' "$EST_T" "a truncated side-chain refuses the checkpoint"
+[[ ! -e "$EST_PROJ/.workflow-dev/context/.usage/WD-ESTT.json" ]] \
+  && ok "a truncated side-chain never records a \$0 checkpoint" \
+  || no "a truncated side-chain never records a \$0 checkpoint"
+# The write completes: the next checkpoint is the whole run, once.
+{ use_line t1 claude-sonnet-5-5 10 0 0 0; use_line t2 claude-sonnet-5-5 1000000 0 0 0; } > "$TMP/est-trunc/subagents/agent-tr.jsonl"
+snap_est WD-ESTT "$EST_TR" >/dev/null
+[[ "$(jq -r '[.checkpoints[].delta] | add | . * 100000 | round' "$EST_PROJ/.workflow-dev/context/.usage/WD-ESTT.json")" == "600002" ]] \
+  && ok "after a refused checkpoint the run is counted once" \
+  || no "after a refused checkpoint the run is counted once"
+
+# A whole-run estimate, then a cost-state below it with a small tail: the
+# second reading is a correction, not a reset — the run is not counted twice.
+EST_C2="$TMP/est-correct.jsonl"
+use_line c1 claude-opus-5-5 1000000 0 0 0 > "$EST_C2"
+snap_est WD-ESTC "$EST_C2" >/dev/null
+{ printf '%s\n' '{"type":"cost-state","totalCostUSD":3.96,"modelUsage":{"claude-opus-5-5":{"costUSD":3.96}}}'
+  use_line c2 claude-opus-5-5 1000 0 0 0 standard 30; } >> "$EST_C2"
+snap_est WD-ESTC "$EST_C2" >/dev/null
+assert_contains 'total: $3.964 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTC )" "an estimate built on a lower cost-state corrects the earlier estimate, no reset"
+
+# A run's cost never falls within its transcript; a lower cost-state written
+# later is another process's stale view (seen: 211 after 342 under remote
+# control). The highest one stays the reading — no fake reset, no lost spend.
+EST_MX="$TMP/est-mixed.jsonl"
+{ use_line x1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'; } > "$EST_MX"
+snap_est WD-ESTX "$EST_MX" >/dev/null
+use_line x2 claude-opus-5-5 250000 0 0 0 standard 20 >> "$EST_MX"
+snap_est WD-ESTX "$EST_MX" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":1,"modelUsage":{"claude-opus-5-5":{"costUSD":1}}}' >> "$EST_MX"
+snap_est WD-ESTX "$EST_MX" >/dev/null
+assert_contains 'total: $6 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTX )" "a lower cost-state written later is ignored, not read as a reset"
+
+# The same transcript named from two directories is one source, not two runs.
+GR2="$TMP/gitrepo2"
+mkdir -p "$GR2/.workflow-dev/context"
+git -C "$GR2" init -q
+use_line r1 claude-opus-5-5 250000 0 0 0 > "$GR2/main.jsonl"
+for d in "$GR2" "$GR2/.workflow-dev/context"; do
+  ( cd "$d" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+      CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SRC --stage "s$RANDOM" --transcript "$( [[ "$d" == "$GR2" ]] && echo main.jsonl || echo ../../main.jsonl )" >/dev/null 2>&1 )
+done
+assert_contains 'total: $1 ' "$( cd "$GR2" && bash "$SCRIPT" --story WD-SRC )" "a transcript named by two relative paths is one source"
+
+# A session launched in a subdirectory finds its own transcript before a
+# newer one at the toplevel (no CLAUDE_CODE_SESSION_ID).
+GR3="$TMP/gitrepo3"; FAKEH3="$TMP/fakehome-sub"
+mkdir -p "$GR3/pkg"
+git -C "$GR3" init -q
+SL_ROOT="$( cd "$GR3" && pwd -P | sed 's#/#-#g' )"; SL_PKG="$( cd "$GR3/pkg" && pwd -P | sed 's#/#-#g' )"
+mkdir -p "$FAKEH3/.claude/projects/$SL_ROOT" "$FAKEH3/.claude/projects/$SL_PKG"
+tx_line pkg 321 > "$FAKEH3/.claude/projects/$SL_PKG/a.jsonl"
+touch -t "$(date -v-2M +%Y%m%d%H%M 2>/dev/null || date -d '-2 min' +%Y%m%d%H%M)" "$FAKEH3/.claude/projects/$SL_PKG/a.jsonl"
+tx_line root 654 > "$FAKEH3/.claude/projects/$SL_ROOT/b.jsonl"
+SUBL=$( cd "$GR3/pkg" && HOME="$FAKEH3" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+    CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SUBL --stage t 2>/dev/null )
+assert_contains '"input": 321' "$SUBL" "a session launched in a subdirectory resolves its own transcript first"
+
+# Lower cost-states (0.5, then 2) after an exact 5: the base stays 5, and the
+# estimate prices only the tail after it.
+EST_RV="$TMP/est-reset-est.jsonl"
+{ use_line v1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'; } > "$EST_RV"
+snap_est WD-ESTV "$EST_RV" >/dev/null
+{ printf '%s\n' '{"type":"cost-state","totalCostUSD":0.5,"modelUsage":{"claude-opus-5-5":{"costUSD":0.5}}}'
+  use_line v2 claude-opus-5-5 75000 0 0 0 standard 20; } >> "$EST_RV"
+snap_est WD-ESTV "$EST_RV" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}' >> "$EST_RV"
+snap_est WD-ESTV "$EST_RV" >/dev/null
+assert_contains 'total: $5.3 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTV )" "the highest cost-state stays the base under later, lower ones"
+
+# CDPATH must not leak into the recorded source path.
+GR4="$TMP/gitrepo4"
+mkdir -p "$GR4/a/b"
+git -C "$GR4" init -q
+use_line p1 claude-opus-5-5 250000 0 0 0 > "$GR4/main.jsonl"
+( cd "$GR4/a" && CDPATH="$GR4:." env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+    CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-CDP --stage t --transcript b/../../main.jsonl >/dev/null 2>&1 )
+[[ "$(jq -r '.checkpoints[0].source' "$GR4/.workflow-dev/context/.usage/WD-CDP.json" 2>/dev/null)" == "$( cd "$GR4" && pwd -P )/main.jsonl" ]] \
+  && ok "CDPATH does not leak into the source path" \
+  || no "CDPATH does not leak into the source path"
+
+# A transcript that cannot be opened is no source — never a $0 checkpoint.
+NOF=$(snap_est WD-NOF "$TMP/does-not-exist.jsonl")
+[[ ! -e "$EST_PROJ/.workflow-dev/context/.usage/WD-NOF.json" ]] \
+  && ok "a missing transcript records nothing" \
+  || no "a missing transcript records nothing"
+
+# A side-chain read at one checkpoint and gone at the next (its /tmp file
+# deleted, no durable copy) would drop tokens — a fake reset that counts the
+# run twice. The checkpoint is refused, loudly; the total stays right.
+EST_GN="$TMP/est-gone.jsonl"; GN_SIDE="$TMP/gone-side.output"
+use_line g1 claude-haiku-4-5 1000 0 0 0 > "$GN_SIDE"
+{ use_line g0 claude-opus-5-5 1000 0 0 0 standard 01
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_g","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_g","content":[{"type":"text","text":"output_file: %s"}]}]}}\n' "$GN_SIDE"
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'; } > "$EST_GN"
+snap_est WD-ESTGN "$EST_GN" >/dev/null
+rm -f "$GN_SIDE"
+printf '%s\n' '{"type":"cost-state","totalCostUSD":6,"modelUsage":{"claude-opus-5-5":{"costUSD":6}}}' >> "$EST_GN"
+GN_OUT=$(snap_est WD-ESTGN "$EST_GN")
+GN_RC=$?
+assert_contains 'was read before and is gone now — checkpoint NOT recorded' "$GN_OUT" "a side-chain that vanished refuses the checkpoint, naming it"
+[[ $GN_RC -ne 0 ]] && ok "a vanished side-chain exits non-zero" || no "a vanished side-chain exits non-zero"
+assert_contains 'total: $5 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTGN )" "a vanished side-chain never double-counts the run"
+
+# A call that never had anything to read, next to a read one of the same
+# type, still records: only a call seen before and gone now is refused.
+EST_NV="$TMP/est-never.jsonl"; NV_SIDE="$TMP/never-side.output"
+use_line n1 claude-haiku-4-5 1000 0 0 0 > "$NV_SIDE"
+{ use_line n0 claude-opus-5-5 1000 0 0 0 standard 01
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_n1","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_n1","content":[{"type":"text","text":"output_file: %s"}]}]}}\n' "$NV_SIDE"
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'; } > "$EST_NV"
+snap_est WD-ESTNV "$EST_NV" >/dev/null
+{ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_n2","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":6,"modelUsage":{"claude-opus-5-5":{"costUSD":6}}}'; } >> "$EST_NV"
+snap_est WD-ESTNV "$EST_NV" >/dev/null
+assert_contains 'checkpoints: 2' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTNV )" "a never-readable call next to a read one of the same type still records"
+
+# A cost-state of 0 (a process seconds old) is no reading: the run is priced.
+EST_Z="$TMP/est-zero.jsonl"
+{ use_line z1 claude-opus-5-5 1000000 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":0,"modelUsage":{}}'; } > "$EST_Z"
+assert_contains '"cost_usd": 4' "$(snap_est WD-ESTZ "$EST_Z")" "a cost-state of 0 is ignored, the run is priced"
+
+# Sub-agent output: Claude Code logs a placeholder (~8) at stream start. The
+# final message is repaired from the task notification's subagent_tokens
+# (context + output of the last call); any placeholder left marks the cub's
+# cost as a lower bound.
+EST_SO="$TMP/est-subout.jsonl"
+mkdir -p "$TMP/est-subout/subagents"
+{ use_line q1 claude-opus-5-5 10 8 0 0 standard 05
+  use_line q2 claude-opus-5-5 10 8 1000 100 standard 06; } > "$TMP/est-subout/subagents/agent-aq1.jsonl"
+printf '%s\n' '{"agentType":"wd-judge","toolUseId":"tu_q"}' > "$TMP/est-subout/subagents/agent-aq1.meta.json"
+{ use_line m1 claude-opus-5-5 1000000 0 0 0 standard 01
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_q","name":"Agent","input":{"subagent_type":"wd-judge"}}]}}'
+  printf '%s\n' '{"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-08T00:00:30Z","content":"<task-notification>\n<task-id>aq1</task-id>\n<tool-use-id>tu_q</tool-use-id>\n<usage><subagent_tokens>3110</subagent_tokens></usage>"}'; } > "$EST_SO"
+EST_Q=$(snap_est WD-ESTQ "$EST_SO")
+QF="$EST_PROJ/.workflow-dev/context/.usage/WD-ESTQ.json"
+[[ "$(jq -r '.checkpoints[0].agents["wd-judge"].tokens.output' "$QF")" == "2008" ]] \
+  && ok "the final sub-agent message's output is repaired from subagent_tokens (3110 - 1110 = 2000, + 8)" \
+  || no "the final sub-agent message's output is repaired from subagent_tokens (got $(jq -r '.checkpoints[0].agents["wd-judge"].tokens.output' "$QF"))"
+[[ "$(jq -r '.checkpoints[0].agents["wd-judge"].output_partial' "$QF")" == "true" ]] \
+  && ok "a placeholder left in a side-chain marks the cub as a lower bound" \
+  || no "a placeholder left in a side-chain marks the cub as a lower bound"
+assert_contains 'a lower bound' "$EST_Q" "the summary line says the estimate is a lower bound"
+assert_contains 'wd-judge: ≥$' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-ESTQ )" "--story marks a lower-bound cub with ≥"
+[[ "$(jq -c '.checkpoints[0].agents["wd-judge"].models' "$QF")" == '["claude-opus-5-5"]' ]] \
+  && ok "a cub lists each model once" || no "a cub lists each model once"
+
+# A resumed agent: its first notification repairs the message it ended on,
+# and keeps repairing it after the agent writes again — the output never
+# falls back to the placeholder (which the ledger would read as a reset).
+{ use_line q3 claude-opus-5-5 6100 8 0 0 standard 40; } >> "$TMP/est-subout/subagents/agent-aq1.jsonl"
+snap_est WD-ESTQ "$EST_SO" >/dev/null
+[[ "$(jq -r '.checkpoints | last | .agents["wd-judge"].tokens.output' "$QF")" == "2016" && "$(jq -r '.checkpoints | last | .segment' "$QF")" == "1" ]] \
+  && ok "a resumed agent keeps its earlier repair (no fake reset)" \
+  || no "a resumed agent keeps its earlier repair (got $(jq -c '.checkpoints | last | [.agents["wd-judge"].tokens.output, .segment]' "$QF"))"
+
+# A notification quoted in a tool_result (a grep of a transcript) is text,
+# not an event: another agent's figure on the same line is never taken.
+EST_QQ="$TMP/est-quoted.jsonl"
+mkdir -p "$TMP/est-quoted/subagents"
+{ use_line k1 claude-opus-5-5 10 8 1000 100 standard 05; } > "$TMP/est-quoted/subagents/agent-ak1.jsonl"
+printf '%s\n' '{"agentType":"wd-judge","toolUseId":"tu_k"}' > "$TMP/est-quoted/subagents/agent-ak1.meta.json"
+{ use_line m1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_k","name":"Agent","input":{"subagent_type":"wd-judge"}}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_other","content":"<task-id>ak1</task-id> <subagent_tokens>3110</subagent_tokens> <task-id>zz9</task-id> <subagent_tokens>90000</subagent_tokens>"}]}}'; } > "$EST_QQ"
+snap_est WD-ESTK "$EST_QQ" >/dev/null
+[[ "$(jq -r '.checkpoints[0].agents["wd-judge"].tokens.output' "$EST_PROJ/.workflow-dev/context/.usage/WD-ESTK.json")" == "8" ]] \
+  && ok "a notification quoted in a tool_result is not read as one" \
+  || no "a notification quoted in a tool_result is not read as one"
+
+# The agent id comes from the call's own tool_result, never from its prompt.
+EST_AP="$TMP/est-aid.jsonl"
+mkdir -p "$TMP/est-aid/subagents"
+use_line b1 claude-opus-5-5 100 0 0 0 > "$TMP/est-aid/subagents/agent-bbb.jsonl"
+use_line a1 claude-opus-5-5 50000 0 0 0 > "$TMP/est-aid/subagents/agent-aaa.jsonl"
+{ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_b2","name":"Agent","input":{"subagent_type":"y","prompt":"double-check what agentId: aaa found"}}]}}'
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_b2","content":"Async agent launched. agentId: bbb"}]}}'; } > "$EST_AP"
+snap_est WD-ESTP "$EST_AP" >/dev/null
+[[ "$(jq -r '.checkpoints[0].agents.y.tokens.input' "$EST_PROJ/.workflow-dev/context/.usage/WD-ESTP.json")" == "100" ]] \
+  && ok "an agentId quoted in a prompt is not taken for the call's own" \
+  || no "an agentId quoted in a prompt is not taken for the call's own"
+
+# A cost-state rewritten with the same total after a newer turn does not
+# include that turn: the reading's position is where the total first appeared.
+EST_RW="$TMP/est-rewrite.jsonl"
+{ use_line w1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'
+  use_line w2 claude-opus-5-5 250000 0 0 0 standard 20
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}'; } > "$EST_RW"
+EST_R=$(snap_est WD-ESTRW "$EST_RW")
+assert_contains '"cost_usd": 6' "$EST_R" "a same-total cost-state rewritten after a turn still prices that turn"
+assert_contains '"cost_basis": "estimated"' "$EST_R" "a same-total rewrite is not taken as up to date"
+
+# Reconcile: a session whose last checkpoint was an estimate, and whose
+# transcript later gets an exact cost-state, is settled by the next snapshot
+# of the story from ANOTHER session — appended as `reconcile`, never edited.
+RC_A="$TMP/rc-a.jsonl"; RC_B="$TMP/rc-b.jsonl"
+use_line ra1 claude-opus-5-5 1000000 0 0 0 standard 01 > "$RC_A"          # estimate: $4
+use_line rb1 claude-opus-5-5 250000 0 0 0 standard 01 > "$RC_B"           # estimate: $1
+snap_est WD-RC "$RC_A" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":4.2,"modelUsage":{"claude-opus-5-5":{"costUSD":4.2}}}' >> "$RC_A"
+RC_OUT=$(snap_est WD-RC "$RC_B")
+RCF="$EST_PROJ/.workflow-dev/context/.usage/WD-RC.json"
+assert_contains 'stage reconcile' "$RC_OUT" "a snapshot reconciles the story's other estimated session"
+[[ "$(jq -r '[.checkpoints[] | select(.stage == "reconcile")] | length' "$RCF")" == "1" \
+   && "$(jq -r '.checkpoints[0].cost_usd' "$RCF")" == "4" ]] \
+  && ok "reconcile appends a checkpoint and leaves the earlier one as it was" \
+  || no "reconcile appends a checkpoint and leaves the earlier one as it was"
+assert_contains 'total: $5.2 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-RC )" "after reconcile the story total is the exact figure plus the other session"
+( cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-RC >/dev/null 2>&1 )
+[[ "$(jq -r '[.checkpoints[] | select(.stage == "reconcile")] | length' "$RCF")" == "1" ]] \
+  && ok "--reconcile is idempotent (an exact session is not reconciled again)" \
+  || no "--reconcile is idempotent"
+
+# The dashboard API: .usage/.index.json, one summary per story.
+IDX="$EST_PROJ/.workflow-dev/context/.usage/.index.json"
+[[ "$(jq -r '.schema' "$IDX" 2>/dev/null)" == "workflow-dev.usage/1" ]] && ok "the index carries its schema version" || no "the index carries its schema version"
+[[ "$(jq -r '.stories["WD-RC"].total_usd' "$IDX")" == "5.2" && "$(jq -r '.stories["WD-RC"].sessions' "$IDX")" == "2" ]] \
+  && ok "the index total matches --story" || no "the index total matches --story (got $(jq -c '.stories["WD-RC"] | [.total_usd, .sessions]' "$IDX"))"
+[[ "$(jq -r '.stories["WD-RC"].lower_bound' "$IDX")" == "true" && "$(jq -r '.stories["WD-RC"].estimated' "$IDX")" == "true" ]] \
+  && ok "the index flags a story whose latest reading of a session is an estimate" || no "the index flags estimates"
+[[ "$(jq -r '.last_story' "$IDX")" == "WD-RC" ]] && ok "the index names the last story written" || no "the index names the last story written"
+assert_contains 'invalid story id' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story .index )" "the index can never be read as a story"
+
+# Reconcile never takes spend the session did AFTER the story's checkpoint
+# (it may belong to another story): no new work since → reconcile; new work →
+# the estimate stays.
+RC_C="$TMP/rc-c.jsonl"; RC_D="$TMP/rc-d.jsonl"
+use_line rc1 claude-opus-5-5 1000000 0 0 0 standard 01 > "$RC_C"           # S1 estimate: $4
+use_line rd1 claude-opus-5-5 10 0 0 0 standard 01 > "$RC_D"
+snap_est WD-S1 "$RC_C" >/dev/null
+use_line rc2 claude-opus-5-5 250000 0 0 0 standard 20 >> "$RC_C"           # the session moves on: $1 for S2
+snap_est WD-S2 "$RC_C" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":5,"modelUsage":{"claude-opus-5-5":{"costUSD":5}}}' >> "$RC_C"
+snap_est WD-S1 "$RC_D" >/dev/null                                           # another session snapshots S1
+[[ "$(jq -r '[.checkpoints[] | select(.stage == "reconcile")] | length' "$EST_PROJ/.workflow-dev/context/.usage/WD-S1.json")" == "0" ]] \
+  && ok "reconcile skips a session that kept working after the story's checkpoint" \
+  || no "reconcile skips a session that kept working after the story's checkpoint"
+( cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-S1 >/dev/null 2>&1 )
+assert_contains 'total: $4 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-S1 )" "another story's spend is never moved into this one"
+
+# The index: a reconcile never makes an old story the "last" one; a corrupt
+# ledger is skipped, not fatal; entries are keyed by file name, like --story.
+IDX="$EST_PROJ/.workflow-dev/context/.usage/.index.json"
+( cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-RC >/dev/null 2>&1 )
+[[ "$(jq -r '.stories["WD-RC"].last_stage' "$IDX")" != "reconcile" ]] \
+  && ok "the index never reports reconcile as a story's last stage" || no "the index never reports reconcile as a story's last stage"
+printf '{bad' > "$EST_PROJ/.workflow-dev/context/.usage/WD-BAD.json"
+cp "$EST_PROJ/.workflow-dev/context/.usage/WD-S1.json" "$EST_PROJ/.workflow-dev/context/.usage/WD-S1.old.json"
+snap_est WD-S1 "$RC_D" >/dev/null
+[[ "$(jq -r '.stories["WD-S1"].total_usd' "$IDX")" == "$(jq -r '[.checkpoints[].delta | select(type=="number")] | add * 10000 | round / 10000' "$EST_PROJ/.workflow-dev/context/.usage/WD-S1.json")" \
+   && "$(jq -r '.stories | has("WD-BAD")' "$IDX")" == "false" ]] \
+  && ok "a corrupt ledger is skipped and the index stays current, keyed by file name" \
+  || no "a corrupt ledger is skipped and the index stays current, keyed by file name"
+rm -f "$EST_PROJ/.workflow-dev/context/.usage/WD-BAD.json" "$EST_PROJ/.workflow-dev/context/.usage/WD-S1.old.json"
+
+# --reconcile with no value fails at once (it used to loop forever).
+( cd "$EST_PROJ" && bash "$SCRIPT" --reconcile >/dev/null 2>&1 ) & RCPID=$!
+sleep 3
+if kill -0 "$RCPID" 2>/dev/null; then kill "$RCPID" 2>/dev/null; no "--reconcile with no value exits instead of looping"
+else wait "$RCPID"; [[ $? -eq 2 ]] && ok "--reconcile with no value exits 2" || no "--reconcile with no value exits 2"; fi
+
+# verified: every session's latest reading is the exact figure → the story's
+# spend is verified, announced once, served by the index for a dashboard check.
+VF="$TMP/vf.jsonl"
+use_line vf1 claude-opus-5-5 1000000 0 0 0 standard 01 > "$VF"
+VF1=$(snap_est WD-VF "$VF")
+case "$VF1" in *"spend verified"*) no "an estimated story is not announced as verified" ;; *) ok "an estimated story is not announced as verified" ;; esac
+[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "false" ]] && ok "the index serves verified false for an estimate" || no "the index serves verified false for an estimate"
+printf '%s\n' '{"type":"cost-state","totalCostUSD":4.1,"modelUsage":{"claude-opus-5-5":{"costUSD":4.1}}}' >> "$VF"
+VF2=$(snap_est WD-VF "$VF")
+assert_contains 'usage WD-VF · spend verified ✓ $4.1' "$VF2" "the checkpoint that makes a story exact announces it as verified"
+[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "true" && "$(jq -r '.stories["WD-VF"].lower_bound' "$IDX")" == "false" ]] \
+  && ok "the index serves verified true (and no lower bound)" || no "the index serves verified true (and no lower bound)"
+assert_contains 'verified: yes ✓' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-VF )" "--story says the spend is verified"
+VF3=$(cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-VF 2>&1)
+case "$VF3" in *"spend verified"*) no "verified is announced once, not on every write" ;; *) ok "verified is announced once, not on every write" ;; esac
+assert_contains 'verified: no' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-RC )" "--story says a story with an estimated session is not verified"
+
+# verified is strict: (C2) an estimate left in an earlier segment, (C3) a
+# session shared with another story, (N2) a sub-agent still writing after the
+# cost-state — none of these is verified.
+VS="$TMP/vs.jsonl"
+{ use_line s1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'
+  use_line s2 claude-opus-5-5 50000 0 0 0 standard 05; } > "$VS"
+snap_est WD-VS "$VS" >/dev/null                                             # estimate, segment 1
+{ use_line s2 claude-opus-5-5 10 0 0 0 standard 06
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":3,"modelUsage":{"claude-opus-5-5":{"costUSD":3}}}'; } >> "$VS"
+VS_OUT=$(snap_est WD-VS "$VS")                                              # tokens fell: segment 2, exact
+[[ "$(jq -r '.stories["WD-VS"].verified_reason' "$IDX")" == "earlier-estimate" ]] \
+  && ok "an estimate left in an earlier segment blocks verified" || no "an estimate left in an earlier segment blocks verified (got $(jq -r '.stories["WD-VS"].verified_reason' "$IDX"))"
+case "$VS_OUT" in *"spend verified"*) no "no verified notice with an earlier estimate" ;; *) ok "no verified notice with an earlier estimate" ;; esac
+
+VH="$TMP/vh.jsonl"
+{ use_line h1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'; } > "$VH"
+snap_est WD-VHA "$VH" >/dev/null
+printf '%s\n' '{"type":"cost-state","totalCostUSD":6,"modelUsage":{"claude-opus-5-5":{"costUSD":6}}}' >> "$VH"
+VH_OUT=$(snap_est WD-VHB "$VH")
+[[ "$(jq -r '.stories["WD-VHA"].verified_reason' "$IDX")" == "shared-session" && "$(jq -r '.stories["WD-VHB"].verified' "$IDX")" == "false" ]] \
+  && ok "a session shared by two stories verifies neither" || no "a session shared by two stories verifies neither"
+assert_contains 'shared with another story' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-VHB )" "--story explains why a shared session is not verified"
+
+VP="$TMP/vp.jsonl"
+mkdir -p "$TMP/vp/subagents"
+use_line p1 claude-haiku-4-5 1000 0 0 0 standard 30 > "$TMP/vp/subagents/agent-ap1.jsonl"   # written after the cost-state
+printf '%s\n' '{"agentType":"wd-operator","toolUseId":"tu_p"}' > "$TMP/vp/subagents/agent-ap1.meta.json"
+{ use_line m1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"content":[{"type":"tool_use","id":"tu_p","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'; } > "$VP"
+snap_est WD-VP "$VP" >/dev/null
+[[ "$(jq -r '.checkpoints[-1].pending_sidechain' "$EST_PROJ/.workflow-dev/context/.usage/WD-VP.json")" == "true" \
+   && "$(jq -r '.stories["WD-VP"].verified' "$IDX")" == "false" ]] \
+  && ok "a sub-agent writing after the cost-state marks the reading pending, not verified" \
+  || no "a sub-agent writing after the cost-state marks the reading pending, not verified"
+
+# (C4) With no readable previous index, the rebuild is a silent baseline; and
+# only the story this run touched is ever announced.
+VQ="$TMP/vq.jsonl"
+{ use_line q1 claude-opus-5-5 10 0 0 0 standard 01
+  printf '%s\n' '{"type":"cost-state","totalCostUSD":1,"modelUsage":{"claude-opus-5-5":{"costUSD":1}}}'; } > "$VQ"
+rm -f "$IDX"
+VQ_OUT=$(snap_est WD-VQ "$VQ")
+case "$VQ_OUT" in *"spend verified"*) no "a missing previous index announces nothing (baseline)" ;; *) ok "a missing previous index announces nothing (baseline)" ;; esac
+[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "true" ]] && ok "the baseline still serves verified" || no "the baseline still serves verified"
+jq '.stories["WD-VF"].verified = false' "$IDX" > "$IDX.t" && mv "$IDX.t" "$IDX"   # pretend WD-VF was not verified before
+VQ2=$(snap_est WD-VQ "$VQ")
+case "$VQ2" in *"WD-VF"*) no "a story this run did not touch is never announced" ;; *) ok "a story this run did not touch is never announced" ;; esac
+
+# (C1) OpenCode: a child session with no price makes the total partial.
+VODB="$TMP/verified-oc.db"
+sqlite3 "$VODB" <<SQL
+CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
+  agent text, model text, cost real, tokens_input integer, tokens_output integer,
+  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
+  time_created integer, time_updated integer);
+INSERT INTO session_v2 VALUES ('ses_vp',NULL,'$EST_PROJ','R','build','{"id":"m1"}',1.5,10,5,0,0,0,0,1);
+INSERT INTO session_v2 VALUES ('ses_vc','ses_vp','$EST_PROJ','C','general','{"id":"m2"}',NULL,5000,500,0,0,0,0,1);
+SQL
+( cd "$EST_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$VODB" OPENCODE_SESSION_ID=ses_vp \
+    bash "$SCRIPT" --snapshot WD-VOC --stage init >/dev/null 2>&1 )
+[[ "$(jq -r '.stories["WD-VOC"].verified' "$IDX")" == "false" ]] \
+  && ok "an OpenCode total with an unpriced child is not verified" || no "an OpenCode total with an unpriced child is not verified"
+
+# The table reproduces real Claude Code charges: modelUsage from a real
+# cost-state (WD-0043's session; Claude Code writes 1-hour cache entries).
+REAL_MU='{"claude-sonnet-5-5":{"inputTokens":108,"outputTokens":973,"cacheReadInputTokens":308638,"cacheCreationInputTokens":21800,"costUSD":0.1588736},"claude-haiku-4-5-20251001":{"inputTokens":896,"outputTokens":14,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.000966},"claude-opus-5-5":{"inputTokens":50,"outputTokens":10750,"cacheReadInputTokens":1926592,"cacheCreationInputTokens":80258,"costUSD":1.2425824}}'
+OFF=$(jq -r --argjson mu "$REAL_MU" '
+  .models as $t
+  | [ $mu | to_entries[]
+      | ($t[.key] // $t[(.key | sub("-[0-9]{8}$"; ""))]) as $r
+      | ((.value.inputTokens * $r.input + .value.outputTokens * $r.output
+          + .value.cacheReadInputTokens * $r.cache_read + .value.cacheCreationInputTokens * $r.cache_write_1h) / 1000000) as $est
+      | select((($est - .value.costUSD) | fabs) > (.value.costUSD * 0.01)) | .key ] | join(",")' "$HERE/model-prices.json")
+[[ -z "$OFF" ]] && ok "the price table reproduces real cost-state charges within 1%" || no "the price table reproduces real cost-state charges within 1% (off: $OFF)"
+
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before
 # any other external tool, so this is portable (unlike assuming /bin has no jq).

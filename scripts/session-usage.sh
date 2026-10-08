@@ -37,12 +37,16 @@
 # than reported as this run's. See REPO.md's "fail toward doing nothing rather
 # than a false positive".
 #
-# Usage: session-usage.sh [--session <id>] [transcript.jsonl]
-#   transcript.jsonl (Claude Code) — explicit path; without it the Claude
-#     source is resolved (the newest transcript for this project, else a
-#     story-tracked one when the project has none), each only if it was written
-#     in the last 15 minutes — an older one is another run, and is refused
-#     rather than reported as this one.
+# Usage: session-usage.sh [--session <id>] [--transcript <path> | transcript.jsonl]
+#   --transcript <path> / transcript.jsonl (Claude Code) — the same explicit
+#     path, named or positional; a --transcript with no value exits 2. Without
+#     it the Claude source is resolved, in order: this session's own transcript
+#     (CLAUDE_CODE_SESSION_ID, under this project's slug, then any project's);
+#     else the newest transcript for this project, else a story-tracked one —
+#     those two only if written in the last 15 minutes, since an older one is
+#     another run, refused rather than reported as this one. The project is
+#     the git toplevel (the cwd outside git), so a call from a subdirectory
+#     resolves and writes the ledger as if made from the root.
 #   --session <id> — OpenCode only; without it, the current session
 #     (OPENCODE_SESSION_ID, only when it validates for this directory) is used,
 #     else the newest session for the current directory.
@@ -58,6 +62,11 @@
 #     object; the one-line tramo/acumulado summary goes to stderr.
 #   --story <STORY-ID> — total a story from its ledger ONLY (the source is
 #     never touched), across sessions and harnesses, by stage/session/agent.
+#   --reconcile <STORY-ID> — append an exact `reconcile` checkpoint for each of
+#     the story's sessions whose last checkpoint was an estimate and whose
+#     transcript now holds an exact cost-state (`--snapshot` does this too, for
+#     the story's other sessions). Rebuilds `.usage/.index.json`, the
+#     machine-readable summary for dashboards (references/usage-api.md).
 #   OPENCODE_DB env var overrides the OpenCode database path (testing).
 
 set -u
@@ -66,10 +75,31 @@ set -u
 # can be asked rather than re-deriving its signals here — a second copy could
 # disagree with setup-models about which harness this is. `cd -P` resolves the
 # OpenCode symlink; a logical `..` would stop at its parent.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 PLUGIN_ROOT="$(cd -P "$SCRIPT_DIR/.." && pwd -P)"
 
 have_jq() { command -v jq >/dev/null 2>&1; }
+
+# The project is the git toplevel, not the cwd. A skill that `cd`s into
+# `.workflow-dev/context/` before calling `--snapshot` otherwise looked for its
+# transcript under a slug that does not exist, and would have written the
+# ledger to a nested `.workflow-dev/context/.workflow-dev/context/.usage/`
+# (WD-0049). Outside a git repo the cwd is the project, as before.
+PROJECT_BASE="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [[ -n "$PROJECT_BASE" ]]; then
+  PROJECT_BASE="$(CDPATH= cd -- "$PROJECT_BASE" >/dev/null && pwd -P)"
+else
+  PROJECT_BASE="$(pwd -P)"
+fi
+# The cwd's slug goes first: a session launched in a subdirectory keeps its
+# transcripts there, and trying the toplevel first could pick another
+# session's newer file. From a directory no session started in (a skill that
+# `cd`ed into `.workflow-dev/context/`), that slug is simply empty.
+PROJECT_SLUGS=()
+if [[ "$(pwd -P)" != "$PROJECT_BASE" ]]; then
+  PROJECT_SLUGS+=("$(pwd -P | sed 's#/#-#g')")
+fi
+PROJECT_SLUGS+=("$(printf '%s' "$PROJECT_BASE" | sed 's#/#-#g')")
 have_sqlite3() { command -v sqlite3 >/dev/null 2>&1; }
 g() { printf '%s' "$1" | jq -r "$2"; }   # get a field from an AGG result
 sqlq() { printf '%s' "${1//\'/\'\'}"; }  # quote a value for a SQL literal
@@ -81,14 +111,30 @@ TRANSCRIPTS_ARG=""
 SNAPSHOT_STORY=""
 SNAPSHOT_STAGE=""
 STORY_ARG=""
+RECONCILE_STORY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --session) SESSION_ARG="${2:-}"; shift 2 ;;
     --sessions) SESSIONS_ARG="${2:-}"; shift 2 ;;
     --transcripts) TRANSCRIPTS_ARG="${2:-}"; shift 2 ;;
+    --transcript)
+      # The named form of the positional path. A missing value is an error,
+      # never a silent fall-through to auto-resolution — that would record
+      # whichever run resolves instead of the one the caller named.
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "session-usage.sh: --transcript needs a path" >&2
+        exit 2
+      fi
+      TRANSCRIPT_ARG="$2"; shift 2 ;;
     --snapshot) SNAPSHOT_STORY="${2:-}"; shift 2 ;;
     --stage) SNAPSHOT_STAGE="${2:-}"; shift 2 ;;
     --story) STORY_ARG="${2:-}"; shift 2 ;;
+    --reconcile)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "session-usage.sh: --reconcile needs a story id" >&2
+        exit 2
+      fi
+      RECONCILE_STORY="$2"; shift 2 ;;
     *) TRANSCRIPT_ARG="$1"; shift ;;
   esac
 done
@@ -98,19 +144,37 @@ done
 # ---------------------------------------------------------------------------
 
 resolve_claude() {
-  local state_dir=".workflow-dev/context/.compaction-state" f p slug
-  slug=$(pwd -P | sed 's#/#-#g')
+  local state_dir="$PROJECT_BASE/.workflow-dev/context/.compaction-state" f p slug sid
+
+  # Identity first: Claude Code exports the session id to the shell, and it is
+  # the transcript's file name. With it, a second session open on the same repo
+  # can no longer pass its spend off as this one's — "newest" below is only a
+  # guess, and was wrong whenever two sessions ran in parallel (WD-0049). It is
+  # looked up under this project's slug, then under any project, so a session
+  # launched from another directory is still found. An id that could form a
+  # path is ignored.
+  sid="${CLAUDE_CODE_SESSION_ID:-}"
+  if [[ -n "$sid" && "$sid" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    for slug in "${PROJECT_SLUGS[@]}"; do
+      p="$HOME/.claude/projects/$slug/$sid.jsonl"
+      if [[ -f "$p" ]]; then printf '%s\tsession' "$p"; return; fi
+    done
+    p=$(ls -1 "$HOME"/.claude/projects/*/"$sid.jsonl" 2>/dev/null | head -1)
+    if [[ -n "$p" && -f "$p" ]]; then printf '%s\tsession' "$p"; return; fi
+  fi
 
   # The run's own transcript is the newest for this project, and only while it
   # is still being written. Prefer it: a tracked `.compaction-state` path can be
   # fresh yet belong to a run that just finished (or to another story's state
   # file), and letting it win would report that run's totals as this one's
   # (WD-0035) — freshness alone is not identity.
-  p=$(ls -1t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -1)
-  if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then
-    printf '%s\tnewest' "$p"
-    return
-  fi
+  for slug in "${PROJECT_SLUGS[@]}"; do
+    p=$(ls -1t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -1)
+    if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then
+      printf '%s\tnewest' "$p"
+      return
+    fi
+  done
 
   # No fresh transcript under this project: the tracked path is the fallback —
   # e.g. the session ran from a different cwd, so the slug lookup misses it —
@@ -125,7 +189,31 @@ resolve_claude() {
   fi
 }
 
+# The price table (WD-0049): what a message costs when no up-to-date
+# `cost-state` covers it. Loaded once; a missing or unreadable table leaves
+# every estimate null, never a 0.
+PRICES_JSON="$(jq -c . "$SCRIPT_DIR/model-prices.json" 2>/dev/null)"
+[[ -n "$PRICES_JSON" ]] || PRICES_JSON='{}'
+
+# Per message, from the table: a rate is looked up by the exact model id, then
+# without a `-YYYYMMDD` snapshot suffix. Cache writes are split by TTL (Claude
+# Code writes 1-hour entries, priced 2x input, not the 1.25x of 5-minute ones);
+# a fast-mode message is priced only when the model carries a multiplier. Any
+# unknown leaves the cost null. A model with zero tokens (e.g. `<synthetic>`
+# error records) costs 0, since nothing was billed.
 AGG='
+  def rate($m): ($prices.models // {}) as $t | ($t[$m] // $t[($m | sub("-[0-9]{8}$"; ""))]);
+  def ntok: (.message.usage) as $u
+    | (($u.input_tokens // 0) + ($u.output_tokens // 0) + ($u.cache_read_input_tokens // 0) + ($u.cache_creation_input_tokens // 0));
+  def msgcost: (.message.usage) as $u | rate(.message.model // "") as $r
+    | if $r == null then null else
+        ( if ($u.speed // "standard") == "fast" then ($r.fast_multiplier // null) else 1 end ) as $k
+        | if $k == null then null else
+            ($u.cache_creation.ephemeral_1h_input_tokens // 0) as $h
+            | ( (($u.cache_creation_input_tokens // 0) - $h) | if . < 0 then 0 else . end ) as $f
+            | $k * ( ($u.input_tokens // 0) * $r.input + ($u.output_tokens // 0) * $r.output
+                   + ($u.cache_read_input_tokens // 0) * $r.cache_read
+                   + $f * $r.cache_write_5m + $h * $r.cache_write_1h ) / 1000000 end end;
   [ .[] | select(.message.usage) ] as $raw
   | ( reduce $raw[] as $r ({};
         if ($r.message.id // "") == "" then . else .[$r.message.id] = $r end) ) as $byid
@@ -145,7 +233,9 @@ AGG='
           input:  ([ .[].message.usage.input_tokens // 0 ]  | add // 0),
           output: ([ .[].message.usage.output_tokens // 0 ] | add // 0),
           cr:     ([ .[].message.usage.cache_read_input_tokens // 0 ]     | add // 0),
-          cc:     ([ .[].message.usage.cache_creation_input_tokens // 0 ] | add // 0)
+          cc:     ([ .[].message.usage.cache_creation_input_tokens // 0 ] | add // 0),
+          cost:   ( [ .[] | select(ntok > 0) | msgcost ] as $cs
+                    | if any($cs[]; . == null) then null else ($cs | add // 0) end )
         }))
     }'
 
@@ -175,9 +265,10 @@ SIDECHAINS_JQ='
   | [ $u.label, ( ( $t | capture("output_file: (?<p>[^\\s]+)") | .p ) // "" ) ]
   | @tsv'
 
-# Like SIDECHAINS_JQ, but the third column is the `subagent_type` — the per-cub
-# key the snapshot groups by (AC 13), where the human report only needed a
-# label. A call that named no subagent_type ran under the harness's default
+# Like SIDECHAINS_JQ, but keyed by the `subagent_type` — the per-cub key the
+# snapshot groups by (AC 13), where the human report only needed a label — and
+# carrying the tool_use id, which finds the durable side-chain copy when the
+# output_file is gone (`sidechain_file`). Columns: subagent_type, id, path. A call that named no subagent_type ran under the harness's default
 # agent: reported as its own `default` cub, never folded into a role it did not
 # actually run under.
 SIDECHAINS3_JQ='
@@ -194,7 +285,9 @@ SIDECHAINS3_JQ='
   | $uses[]
   | . as $u
   | ( [ $res[] | select(.id == $u.id) | .txt ][0] // "" ) as $t
-  | [ $u.stype, ( ( $t | capture("output_file: (?<p>[^\\s]+)") | .p ) // "" ) ]
+  # The id sits before the path: an empty last field is safe for `read`, but
+  # an empty middle one would collapse (tab is whitespace to IFS).
+  | [ $u.stype, $u.id, ( ( $t | capture("output_file: (?<p>[^\\s]+)") | .p ) // "" ) ]
   | @tsv'
 
 claude_report() {
@@ -203,7 +296,7 @@ claude_report() {
   echo "Transcript: $TRANSCRIPT"
   echo
   local MAIN
-  MAIN=$(jq -s "$AGG" "$TRANSCRIPT")
+  MAIN=$(jq -s --argjson prices "$PRICES_JSON" "$AGG" "$TRANSCRIPT")
   echo "Main thread"
   printf '  turns: %s   wall: %s -> %s (%ss)\n' \
     "$(g "$MAIN" .turns)" "$(g "$MAIN" .first)" "$(g "$MAIN" .last)" \
@@ -225,7 +318,7 @@ claude_report() {
     [[ -z "$label$of" ]] && continue
     n=$((n+1)); label=${label:0:46}
     local A=""
-    if [[ -n "$of" && -f "$of" ]]; then A=$(jq -s "$AGG" "$of" 2>/dev/null) || A=""; fi
+    if [[ -n "$of" && -f "$of" ]]; then A=$(jq -s --argjson prices "$PRICES_JSON" "$AGG" "$of" 2>/dev/null) || A=""; fi
     if [[ -n "$A" ]]; then
       local t i o cr cc w
       t=$(g "$A" .turns); i=$(g "$A" .input); o=$(g "$A" .output); cr=$(g "$A" .cr); cc=$(g "$A" .cc)
@@ -250,14 +343,14 @@ claude_report() {
 # A transcript's totals INCLUDING its side-chain sub-agents: "in out cr cc n".
 claude_totals() {
   local path="$1" MAIN ROWS
-  MAIN=$(jq -s "$AGG" "$path")
+  MAIN=$(jq -s --argjson prices "$PRICES_JSON" "$AGG" "$path")
   ROWS=$(jq -s -r "$SIDECHAINS_JQ" "$path")
   local GI=0 GO=0 GCR=0 GCC=0 n=0 A
   while IFS=$'\t' read -r label of; do
     [[ -z "$label$of" ]] && continue
     n=$((n + 1))
     A=""
-    if [[ -n "$of" && -f "$of" ]]; then A=$(jq -s "$AGG" "$of" 2>/dev/null) || A=""; fi
+    if [[ -n "$of" && -f "$of" ]]; then A=$(jq -s --argjson prices "$PRICES_JSON" "$AGG" "$of" 2>/dev/null) || A=""; fi
     if [[ -n "$A" ]]; then
       GI=$((GI + $(g "$A" .input))); GO=$((GO + $(g "$A" .output)))
       GCR=$((GCR + $(g "$A" .cr)));  GCC=$((GCC + $(g "$A" .cc)))
@@ -454,87 +547,332 @@ snapshot_opencode() {
         models: $models, agents: $agents, as_of: $t[8] }'
 }
 
-# Claude Code: cost and the sub-agent-inclusive total come from the last
-# `cost-state` record (`totalCostUSD`, `modelUsage`); tokens come from
-# `message.usage` (deduped by `message.id`, same rule as `claude_totals`) on the
-# main transcript plus each readable side-chain. `cost_usd` is null when no
-# `cost-state` has been written yet — the freshness of that record is why a
-# checkpoint belongs at a turn boundary.
+# A sub-agent's side-chain file. The tool_result's `output_file` is a /tmp
+# symlink that does not outlive a reboot; Claude Code also keeps the file
+# durably next to the transcript, as `<session>/subagents/agent-<id>.jsonl`
+# with a `.meta.json` naming the Agent call's `toolUseId`. That copy is the
+# fallback, and the only source for a foreground call, which names no
+# output_file at all (WD-0049). Prints nothing when neither is readable.
+# The main transcript's task notifications, one TSV row each: agent id,
+# tool_use id, time, <subagent_tokens>. Read only from the harness's own
+# `queue-operation` enqueue records — a notification quoted in a tool_result
+# or a prompt (a grep of a transcript, a brief) is text, not an event, and
+# matching it once took another agent's figure (WD-0049).
+NOTES_JQ='
+  select(.type == "queue-operation" and .operation == "enqueue" and ((.content // null) | type) == "string")
+  | (.timestamp // "") as $t
+  | .content | split("<task-notification>")[1:][]
+  | [ ((capture("<task-id>(?<a>[A-Za-z0-9]+)</task-id>")? // {}).a // ""),
+      ((capture("<tool-use-id>(?<u>[A-Za-z0-9_-]+)</tool-use-id>")? // {}).u // ""),
+      $t,
+      ((capture("<subagent_tokens>(?<n>[0-9]+)</subagent_tokens>")? // {}).n // "") ]
+  | select(.[0] != "") | @tsv'
+
+# tool_use id → agent id, from each call's own tool_result (`agentId: <id>`),
+# then from its notification. Never from any line that merely mentions the id:
+# the call's own prompt can quote another agent's id (WD-0049).
+AIDMAP_JQ='
+  select(.type == "user") | .message.content? // empty | .[]?
+  | select(.type? == "tool_result")
+  | .tool_use_id as $u
+  | (if (.content | type) == "string" then .content else ([ .content[]? | (.text? // "") ] | join("\n")) end)
+  | ((capture("agentId: (?<a>[A-Za-z0-9]+)")? // {}).a // "") as $a
+  | select($a != "") | [ $u, $a ] | @tsv'
+
+# A side-chain's records, with its messages' output repaired. Claude Code logs
+# a sub-agent message's `usage` when the response starts, so `output_tokens` is
+# a placeholder (~8) never updated — 60 of 75 side-chain messages in one real
+# session; the main transcript does not have this. The one real figure left is
+# each task notification's `<subagent_tokens>`: the context of the call that
+# ended that run plus its output. Each notification repairs the last message
+# written before it (a resumed agent notifies again, for a later message), as
+# a later copy of the record (AGG keeps the last copy per message id). Only an
+# increase below the 128K output ceiling is taken. Fails when the file does
+# not parse. Uses NOTES (from NOTES_JQ) of the transcript being snapshotted.
+sidechain_stream() { # $1 side-chain file
+  local lines aid notes
+  lines=$(jq -c . "$1" 2>/dev/null) || return 1
+  printf '%s\n' "$lines"
+  aid=$(basename -- "$1"); aid=${aid#agent-}; aid=${aid%.jsonl}; aid=${aid%.output}
+  [[ "$aid" =~ ^[A-Za-z0-9]+$ ]] || return 0
+  notes=$(printf '%s\n' "$NOTES" | awk -F'\t' -v a="$aid" '$1 == a && $4 != "" { printf "%s{\"t\":\"%s\",\"n\":%s}", (n++ ? "," : "["), $3, $4 } END { if (n) print "]" }')
+  [[ -n "$notes" ]] || return 0
+  printf '%s\n' "$lines" | jq -s -c --argjson notes "$notes" '
+    [ .[] | select(.message.usage and (.message.id // "") != "") ] as $m
+    | [ $notes[] as $x
+        | ( [ $m[] | select($x.t == "" or ((.timestamp // "") <= $x.t)) ] | last ) as $r
+        | select($r != null)
+        | ($r.message.usage) as $u
+        | ( $x.n - (($u.input_tokens // 0) + ($u.cache_creation_input_tokens // 0) + ($u.cache_read_input_tokens // 0)) ) as $o
+        | select($o > ($u.output_tokens // 0) and $o < 128000)
+        | ($r | .message.usage.output_tokens = $o) ]
+    | group_by(.message.id) | map(max_by(.message.usage.output_tokens))[]' 2>/dev/null
+  return 0
+}
+
+sidechain_file() { # $1 transcript, $2 tool_use id, $3 output_file (may be empty)
+  local dir m
+  if [[ -n "$3" && -f "$3" ]]; then printf '%s' "$3"; return; fi
+  [[ "$2" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+  dir="${1%.jsonl}/subagents"
+  m=$(grep -lF "\"toolUseId\":\"$2\"" "$dir"/*.meta.json 2>/dev/null | head -1)
+  if [[ -n "$m" && -f "${m%.meta.json}.jsonl" ]]; then printf '%s' "${m%.meta.json}.jsonl"; return 0; fi
+  # Older Claude Code wrote no `toolUseId` in the meta; the transcript still
+  # names the agent: `agentId: <id>` in this call's tool_result, or `<task-id>`
+  # in the notification that carries this call's `<tool-use-id>` (AIDMAP and
+  # NOTES, read from those records only).
+  # The output_file's own name is the agent id too, even once it is gone.
+  m=""
+  [[ -z "$3" ]] || { m=$(basename -- "$3"); m=${m%.output}; }
+  [[ "$m" =~ ^[A-Za-z0-9]+$ ]] || m=$(printf '%s\n' "$AIDMAP" | awk -F'\t' -v u="$2" '$1 == u { print $2; exit }')
+  [[ "$m" =~ ^[A-Za-z0-9]+$ ]] || m=$(printf '%s\n' "$NOTES" | awk -F'\t' -v u="$2" '$2 == u { print $1; exit }')
+  [[ "$m" =~ ^[A-Za-z0-9]+$ ]] || return 0
+  if [[ -f "$dir/agent-$m.jsonl" ]]; then printf '%s' "$dir/agent-$m.jsonl"; return 0; fi
+  # A resumed session keeps writing the transcript it continued, but its
+  # agents land under the new session's own directory, a sibling in the same
+  # project — so look there too, by the (unique) agent id.
+  m=$(ls -1 "$(dirname -- "$1")"/*/subagents/"agent-$m.jsonl" 2>/dev/null | head -1)
+  if [[ -n "$m" && -f "$m" ]]; then printf '%s' "$m"; fi
+}
+
+# Claude Code: the cost is the last `cost-state` record (`totalCostUSD`,
+# `modelUsage`, sub-agents included) as-is ONLY while it is up to date — no
+# assistant message with usage after it in the transcript
+# (`cost_basis: "cost-state"`). Claude Code writes that record on session
+# lifecycle events (idle, /clear, exit, reload), not per turn, so a live
+# session's is usually stale or absent; taking it anyway froze the checkpoint
+# at an old total (WD-0049). Otherwise (`cost_basis: "estimated"`, plus
+# `stale: true` when a cost-state existed) the cost is that stale total (0
+# without one) plus the tail written after it, priced per message with
+# scripts/model-prices.json. The estimate is null — never a guess — when a
+# model has no price or a side-chain is unreadable, and the reason goes to
+# stderr. Tokens (main transcript plus every readable side-chain) come from
+# `message.usage`, deduped by `message.id` like `claude_totals`.
 snapshot_claude() {
-  local path="$1" in out cr cc n cost mu tsv bymodel models mainjson agents as_of
-  read -r in out cr cc n <<< "$(claude_totals "$path")"
+  local path="$1" cost mu tsv rows bymodel models mainjson agents as_of
+  local basis stale order cs_line msg_line missing="" absent="" read_ids="" absent_ids="" missing_main="" stream ph id f stype all part
 
-  cost=$(jq -c 'select(.type=="cost-state") | .totalCostUSD' "$path" 2>/dev/null | tail -1)
+  # Which cost-state is the reading: the HIGHEST, not the last. A run's cost
+  # never falls within its transcript — a resumed session restores the total
+  # — yet two kinds of record do fall: one of exactly 0, seen written by a
+  # process 25 s old after $5 of spend, and an older figure (211 after 342)
+  # written by a second process on the same session (remote control). Either,
+  # taken as the reading, would fake a reset or drop real spend (WD-0049).
+  # One record per line, so the line order is the write order; `cost-state`
+  # carries no timestamp, so its position is the only clock it has.
+  order=$(jq -r 'if .type == "cost-state" and (.totalCostUSD // 0) > 0 then "c\t\(.totalCostUSD)"
+                 elif .type == "assistant" and (.message.usage != null) then "a"
+                 else "-" end' "$path" 2>/dev/null)
+  # And its FIRST occurrence: Claude Code rewrites the same total after newer
+  # messages it does not include yet (seen: 70.07 written again after a $3.06
+  # turn, the next record 73.13). Taking the later copy as the position called
+  # the run up to date and dropped that turn (WD-0049).
+  read -r cs_line cost <<< "$(printf '%s\n' "$order" | awk -F'\t' '$1 == "c" && ($2 + 0) > max { max = $2 + 0; ln = NR; v = $2 } END { if (ln) print ln, v }')"
   [[ -n "$cost" ]] || cost=null
-  mu=$(jq -c 'select(.type=="cost-state") | .modelUsage' "$path" 2>/dev/null | tail -1)
+  mu='{}'
+  [[ -z "$cs_line" ]] || mu=$(sed -n "${cs_line}p" "$path" | jq -c '.modelUsage // {}' 2>/dev/null)
   [[ -n "$mu" ]] || mu='{}'
+  msg_line=$(printf '%s\n' "$order" | grep -n '^a$' | tail -1 | cut -d: -f1)
+  stale=false
+  if [[ -n "$cs_line" && "$cost" != "null" && ( -z "$msg_line" || "$cs_line" -gt "$msg_line" ) ]]; then
+    basis="cost-state"
+  else
+    basis="estimated"
+    [[ -n "$cs_line" ]] && stale=true
+  fi
 
+  # An unreadable or unparsable transcript yields no snapshot (`unavailable`),
+  # never zeros — jq still prints the AGG of nothing when it cannot open a file.
+  mainjson=$(jq -s --argjson prices "$PRICES_JSON" "$AGG" "$path" 2>/dev/null) || return 1
+  [[ -n "$mainjson" ]] || return 1
+
+  # The tail: what ran after the last cost-state, the only part an estimate has
+  # to price. Everything before it is already in `totalCostUSD` — including
+  # the calls Claude Code makes outside the transcript (compaction, titles),
+  # which an estimate from tokens cannot see (in a real session they were ~15%
+  # of the spend). The main transcript's tail is cut by position; a side-chain
+  # lives in its own file, so its tail is cut by time — after the newest
+  # timestamp written before the cost-state. With no cost-state, everything is
+  # tail. Known limit: a background agent still writing between that timestamp
+  # and the cost-state is priced again in the tail (a small overshoot), and
+  # one still running after an up-to-date cost-state lands in the next
+  # checkpoint instead of this one — the story total is unaffected.
+  local cs_time="" maintail
+  if [[ -n "$cs_line" ]]; then
+    cs_time=$(head -n $((cs_line - 1)) "$path" | jq -r '.timestamp // empty' 2>/dev/null | tail -1)
+    maintail=$(tail -n +$((cs_line + 1)) "$path" | jq -s --argjson prices "$PRICES_JSON" "$AGG" 2>/dev/null | jq -c '.byModel' 2>/dev/null)
+  else
+    maintail=$(printf '%s' "$mainjson" | jq -c '.byModel')
+  fi
+  # A tail that could not be read is unknown, not empty: it nulls the estimate.
+  [[ -n "$maintail" ]] || { maintail='[]'; missing_main=1; }
+
+  # One row per Agent call: subagent_type, the AGG byModel of its whole
+  # side-chain, and of its tail — both null when it cannot be read.
   tsv=$(jq -s -r "$SIDECHAINS3_JQ" "$path")
+  NOTES=$(jq -r "$NOTES_JQ" "$path" 2>/dev/null)
+  AIDMAP=$(jq -r "$AIDMAP_JQ" "$path" 2>/dev/null)
+  rows=$(
+    while IFS=$'\t' read -r stype id f; do
+      [[ -z "$stype" ]] && continue
+      f=$(sidechain_file "$path" "$id" "$f")
+      if [[ -n "$f" ]]; then
+        # Each stage is checked by its output, not a pipeline's exit code: the
+        # last jq of a pipeline exits 0 on empty input, so a side-chain with a
+        # truncated line (an agent caught mid-write) used to yield an empty
+        # field — invalid JSON downstream, and a fabricated $0 (WD-0049).
+        all=""; part=""; ph=0
+        if stream=$(sidechain_stream "$f"); then
+          all=$(printf '%s\n' "$stream" | jq -s --argjson prices "$PRICES_JSON" "$AGG" 2>/dev/null | jq -c '.byModel' 2>/dev/null)
+          part=$(printf '%s\n' "$stream" | jq -c --arg t "$cs_time" 'select($t == "" or ((.timestamp // "") > $t))' 2>/dev/null \
+                | jq -s --argjson prices "$PRICES_JSON" "$AGG" 2>/dev/null | jq -c '.byModel' 2>/dev/null)
+          # Messages still carrying the placeholder output after the repair:
+          # this cub's output — and so its cost — is a lower bound.
+          ph=$(printf '%s\n' "$stream" | jq -s '[ .[] | select(.message.usage and (.message.id // "") != "") ]
+                | group_by(.message.id) | map(.[-1].message.usage.output_tokens // 0) | map(select(. <= 10)) | length' 2>/dev/null)
+          [[ "$ph" =~ ^[0-9]+$ ]] || ph=0
+        fi
+        if [[ -z "$all" ]]; then part=""; fi
+        printf '%s\t%s\t%s\t%s\t%s\n' "$stype" "${all:-null}" "${part:-null}" "$id" "$([[ "$ph" -gt 0 ]] && echo 1 || echo 0)"
+      else
+        # No side-chain to read at all (none named, none kept): its spend is
+        # unknown — `none`, which nulls the estimate but still records.
+        printf '%s\t%s\t%s\t%s\t%s\n' "$stype" "none" "none" "$id" 0
+      fi
+    done <<< "$tsv"
+  )
+  # `missing`: a side-chain that exists but cannot be parsed (an agent caught
+  # mid-write). `absent`: one there is nothing to read for.
+  missing=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && ($2 == "null" || $3 == "null") { print $1 }' | sort -u | paste -sd, -)
+  absent=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $2 == "none" { print $1 }' | sort -u | paste -sd, -)
+  # The Agent calls (tool_use ids) whose side-chain was read, and those with
+  # nothing to read — so the ledger can tell a call it saw before going dark
+  # from one it never could see.
+  read_ids=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $2 != "none" && $2 != "null" { print $4 }' | paste -sd, -)
+  absent_ids=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $2 == "none" { print $4 }' | paste -sd, -)
 
+  # Per model: the tokens of the whole run, and the estimated cost of the tail.
   bymodel=$(
     {
-      jq -s "$AGG" "$path"
-      local f
-      while IFS=$'\t' read -r _ f; do
-        [[ -z "$f" ]] && continue
-        if [[ -f "$f" ]]; then jq -s "$AGG" "$f" 2>/dev/null || echo null; else echo null; fi
-      done <<< "$tsv"
+      printf '{"part":"all","bm":%s}\n' "$(printf '%s' "$mainjson" | jq -c '.byModel')"
+      printf '{"part":"tail","bm":%s}\n' "$maintail"
+      printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $2 != "null" && $2 != "none" { print "{\"part\":\"all\",\"bm\":" $2 "}" }'
+      printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $3 != "null" && $3 != "none" { print "{\"part\":\"tail\",\"bm\":" $3 "}" }'
     } | jq -s '
-        [ .[] | select(. != null) | .byModel[] ] as $m
-        | ( $m | group_by(.model) | map({ key: .[0].model,
+        def sumnull: if any(.[]; . == null) then null else (add // 0) end;
+        [ .[] | select(.part == "all")  | .bm[] ] as $all
+        | [ .[] | select(.part == "tail") | .bm[] | select((.input + .output + .cr + .cc) > 0) ] as $tail
+        | ( $all | group_by(.model) | map({ key: .[0].model,
               value: { tokens: { input: (map(.input)|add // 0), output: (map(.output)|add // 0),
                 reasoning: 0, cache_read: (map(.cr)|add // 0), cache_write: (map(.cc)|add // 0) } } })
-          | from_entries )'
+          | from_entries ) as $tok
+        | ( $tail | group_by(.model) | map({ key: .[0].model, value: (map(.cost) | sumnull) }) | from_entries ) as $tc
+        | reduce (($tok + $tc) | keys[]) as $k ({};
+            .[$k] = { tokens: ($tok[$k].tokens // {input:0,output:0,reasoning:0,cache_read:0,cache_write:0}),
+                      tail: (if $tc | has($k) then $tc[$k] else 0 end) } )'
   )
   [[ -n "$bymodel" ]] || bymodel='{}'
 
-  models=$(jq -n --argjson mu "$mu" --argjson bm "$bymodel" '
-    ( $bm | with_entries(.value.cost_usd = ($mu[.key].costUSD // null)) )
+  # A model's cost: exact from an up-to-date cost-state; otherwise the stale
+  # cost-state's figure (0 without one) plus the tail's estimate. A model seen
+  # only in cost-state (a call outside the transcript) keeps that figure.
+  models=$(jq -n --argjson mu "$mu" --argjson bm "$bymodel" --arg basis "$basis" '
+    ( $bm | with_entries(.key as $k | .value = { tokens: .value.tokens,
+          cost_usd: (if $basis == "cost-state" then ($mu[$k].costUSD // null)
+                     elif .value.tail == null then null
+                     else (($mu[$k].costUSD // 0) + .value.tail) end) }) )
     | reduce (($mu // {}) | keys[]) as $k (.;
         if has($k) then . else .[$k] = { cost_usd: ($mu[$k].costUSD // null),
           tokens: {input:0,output:0,reasoning:0,cache_read:0,cache_write:0} } end)')
 
-  mainjson=$(jq -s "$AGG" "$path")
+  # A side-chain (or the tail) that cannot be read makes the snapshot
+  # incomplete: its tokens would be missing, the ledger would read the drop as
+  # a reset and count the whole run again. So no snapshot at all — the
+  # checkpoint is not recorded, loudly. It is transient for an agent caught
+  # mid-write; the durable `subagents/` copy keeps it rare otherwise (WD-0049).
+  if [[ -n "$missing" || -n "$missing_main" ]]; then
+    [[ -z "$missing" ]] || printf 'usage: side-chain of %s unreadable — checkpoint NOT recorded\n' "$missing" >&2
+    [[ -z "$missing_main" ]] || printf 'usage: transcript tail unreadable — checkpoint NOT recorded\n' >&2
+    return 2
+  fi
+
+  [[ -z "$absent" ]] || printf 'usage: no side-chain found for %s — its spend is unknown\n' "$absent" >&2
+  # An up-to-date cost-state is checked against the main thread only; a
+  # background sub-agent still writing after it is spend the figure lacks.
+  # The cost stays exact for what it covers, but the checkpoint is marked
+  # `pending_sidechain` — never verified, and reconciled later (WD-0049).
+  local pending=false
+  if [[ "$basis" == "cost-state" ]] && printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $3 != "null" && $3 != "none" { print $3 }' \
+       | jq -s -e '[ .[][] | (.input + .output + .cr + .cc) ] | add // 0 | . > 0' >/dev/null 2>&1; then
+    pending=true
+  fi
+  local cs_base="$cost"
+  if [[ "$basis" == "estimated" ]]; then
+    cost=$(jq -n --argjson bm "$bymodel" --argjson base "$cost" \
+      '[ $bm[] | .tail ] | if any(.[]; . == null) then null else (($base // 0) + (add // 0)) end')
+    [[ -z "$absent" ]] || cost=null
+    local unpriced
+    unpriced=$(jq -rn --argjson bm "$bymodel" '[ $bm | to_entries[] | select(.value.tail == null) | .key ] | join(", ")')
+    [[ -z "$unpriced" ]] || printf 'usage: no price for %s in model-prices.json — cost left unknown\n' "$unpriced" >&2
+  fi
 
   # One cub per subagent_type (a repeated type accumulates), plus the
-  # orchestrator. Claude Code writes no per-agent price, so an agent cub's cost
-  # is null — only the run total is priced.
+  # orchestrator. Each cub is priced from its own tokens with the table — there
+  # is no per-agent figure in cost-state — and an unreadable side-chain leaves
+  # its cub's cost and tokens unknown rather than zero.
   agents=$(
     {
       printf '%s\t%s\n' "orchestrator" "$(printf '%s' "$mainjson" | jq -c '.byModel')"
-      while IFS=$'\t' read -r stype f; do
-        [[ -z "$stype" ]] && continue
-        if [[ -n "$f" && -f "$f" ]]; then
-          printf '%s\t%s\n' "$stype" "$(jq -s "$AGG" "$f" 2>/dev/null | jq -c '.byModel')"
-        else
-          printf '%s\t%s\n' "$stype" "[]"
-        fi
-      done <<< "$tsv"
+      printf '%s\n' "$rows"
     } | jq -R -s '
         [ split("\n")[] | select(length>0) | split("\t") ]
         | reduce .[] as $r ({};
-            ($r[1] | fromjson) as $bm
+            ($r[1] | if . == "none" then null else fromjson end) as $raw
+            | ($raw // []) as $bm
             | ($bm | { input: (map(.input)|add // 0), output: (map(.output)|add // 0),
                   cache_read: (map(.cr)|add // 0), cache_write: (map(.cc)|add // 0) }) as $tk
-            | (if has($r[0]) then .[$r[0]] else
-                 .[$r[0]] = { cost_usd: null, tokens: {input:0,output:0,reasoning:0,cache_read:0,cache_write:0}, models: [] } end)
+            | ( if $raw == null then null
+                else ($bm | map(.cost) | if any(.[]; . == null) then null else (add // 0) end) end ) as $bc
+            # A repeated type keeps the accumulator as it is (`.`) and adds to
+            # its own entry below. Returning `.[$r[0]]` here replaced the whole
+            # map with that one entry — `orchestrator` vanished and the
+            # checkpoint then failed in ledger_record (WD-0049).
+            | (if has($r[0]) then . else
+                 .[$r[0]] = { cost_usd: 0, tokens: {input:0,output:0,reasoning:0,cache_read:0,cache_write:0}, models: [], output_partial: false } end)
+            | .[$r[0]].output_partial = (.[$r[0]].output_partial or (($r[4] // "0") == "1"))
+            | .[$r[0]].cost_usd = ( if .[$r[0]].cost_usd == null or $bc == null then null else .[$r[0]].cost_usd + $bc end )
             | .[$r[0]].tokens.input += $tk.input
             | .[$r[0]].tokens.output += $tk.output
             | .[$r[0]].tokens.cache_read += $tk.cache_read
             | .[$r[0]].tokens.cache_write += $tk.cache_write
-            | .[$r[0]].models += ($bm | map(.model)) )'
+            | .[$r[0]].models = ((.[$r[0]].models + ($bm | map(.model))) | unique) )'
   )
   [[ -n "$agents" ]] || agents='{}'
 
   as_of=$(printf '%s' "$mainjson" | jq -r '.last // ""')
   [[ "$as_of" != "null" ]] || as_of=""
 
+  # The tokens are the main transcript plus every readable side-chain — the
+  # same set the estimate prices.
   jq -n --arg src "$path" --argjson cost "$cost" --argjson models "$models" \
-    --argjson agents "$agents" --argjson inp "$in" --argjson outp "$out" \
-    --argjson cr "$cr" --argjson cc "$cc" --arg asof "$as_of" '
-    { source: $src, harness: "claude", cost_usd: $cost,
-      tokens: { input: $inp, output: $outp, reasoning: 0, cache_read: $cr, cache_write: $cc },
-      models: $models, agents: $agents, as_of: $asof }'
+    --argjson agents "$agents" --arg asof "$as_of" --arg basis "$basis" --argjson stale "$stale" \
+    --argjson csbase "$cs_base" --arg readids "$read_ids" --arg absentids "$absent_ids" --argjson pending "$pending" '
+    { source: $src, harness: "claude", cost_usd: $cost, cost_basis: $basis }
+    + (if $pending then { pending_sidechain: true } else {} end)
+    # The Agent calls whose side-chain was read / had nothing to read: a call
+    # read before and absent now means missing tokens, which ledger_record
+    # must not take for a reset.
+    # An estimated total that includes a sub-agent with placeholder output is a
+    # lower bound; an exact cost-state total is not affected.
+    + (if $basis == "estimated" and any($agents[]; .output_partial == true) then { output_partial: true } else {} end)
+    + (if $readids == "" then {} else { sidechains_read: ($readids | split(",")) } end)
+    + (if $absentids == "" then {} else { sidechains_absent: ($absentids | split(",")) } end)
+    # The stale cost-state the estimate was built on: an exact reading the
+    # ledger compares to detect a reset (a fallen counter) under an estimate.
+    + (if $stale then { stale: true, cost_state_usd: $csbase } else {} end)
+    + { tokens: ( [ $models[].tokens ] | { input: (map(.input)|add // 0), output: (map(.output)|add // 0),
+                    reasoning: 0, cache_read: (map(.cache_read)|add // 0), cache_write: (map(.cache_write)|add // 0) } ),
+        models: $models, agents: $agents, as_of: $asof }'
 }
 
 # ---------------------------------------------------------------------------
@@ -548,15 +886,17 @@ snapshot_claude() {
 # of the deltas — computed from the ledger, never from a source that may be
 # gone. The previous checkpoint IS the "before", so nothing has to be
 # remembered between reads, and pairing is by `source`, not by run.
-USAGE_DIR=".workflow-dev/context/.usage"
+USAGE_DIR="$PROJECT_BASE/.workflow-dev/context/.usage"
 
 # A story id names a file under `.usage/`, so it must not carry a path
 # separator or be `.`/`..` — otherwise `--snapshot`/`--story` could read or write
 # outside the store. The workflow only ever passes `WD-NNNN`, but the script is
 # a CLI and must not trust its argument.
 valid_story_id() {
+  # A leading dot is refused too: `.index.json` (the dashboard API, below)
+  # shares the directory and must never be read or written as a story.
   case "$1" in
-    ""|.|..|*/*) return 1 ;;
+    ""|.*|*/*) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -588,6 +928,21 @@ ledger_record() {
     existing='{"story":"'"$story"'","checkpoints":[]}'
   fi
 
+  # A sub-agent whose side-chain was read at an earlier checkpoint of this
+  # source and has nothing to read now (its /tmp output_file gone, no durable
+  # copy) would make the tokens fall — read as a reset, counting the whole run
+  # again. Refuse that checkpoint, loudly, instead (WD-0049).
+  local lost
+  lost=$(jq -rn --argjson doc "$existing" --argjson e "$snap" '
+    ( [ ($doc.checkpoints // [])[] | select(.source == $e.source) ] | last ) as $p
+    | if $p == null then "" else
+        [ ($e.sidechains_absent // [])[] as $id
+          | select(($p.sidechains_read // []) | index($id)) | $id ] | join(",") end' 2>/dev/null)
+  if [[ -n "$lost" ]]; then
+    printf 'usage: side-chain of Agent call %s was read before and is gone now — checkpoint NOT recorded\n' "$lost" >&2
+    return 1
+  fi
+
   local entry mark
   mark=$(printf '%s' "$snap" | jq -r '[.cost_usd, .tokens.input, .tokens.output, .tokens.reasoning, .tokens.cache_read, .tokens.cache_write] | @csv' | shasum | cut -c1-12)
   entry=$(printf '%s' "$snap" | jq -c --arg stage "$stage" --arg mark "$mark" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -600,7 +955,12 @@ ledger_record() {
     | ( cps | map(select(.source == $e.source)) | last ) as $prev
     # The last checkpoint of this source that CARRIED a price (any segment) —
     # used only to detect a falling price.
-    | ( $same | map(select(.cost_usd != null)) | last ) as $lastp
+    # Only an EXACT reading can reveal a falling price: the cost itself, or —
+    # for an estimate built on a stale cost-state — that cost-state. A whole-
+    # run estimate has none. An estimate in between must neither fake a fall
+    # (it can overshoot) nor hide one (WD-0049).
+    | def exact: if (.cost_basis // "") == "estimated" then (.cost_state_usd // null) else .cost_usd end;
+      ( $same | map(select(exact != null)) | last ) as $lastp
     # A duplicate is an UNCHANGED state since the immediately previous
     # checkpoint of this source — NOT a match anywhere in history: a reset can
     # land on a byte-identical tuple of an older checkpoint, and matching it
@@ -618,8 +978,11 @@ ledger_record() {
               $e.tokens.reasoning   < $prev.tokens.reasoning or
               $e.tokens.cache_read  < $prev.tokens.cache_read or
               $e.tokens.cache_write < $prev.tokens.cache_write ) ) as $treset
-        # A price that fell below the last priced reading is a reset too (AC 8).
-        | ( $e.cost_usd != null and $lastp != null and $e.cost_usd < $lastp.cost_usd ) as $costfall
+        # A price that fell below the last exact reading is a reset too (AC 8)
+        # — compared exact to exact (see `exact` above). An estimate that
+        # overshoots a later exact figure is a correction, not a new run; a
+        # reset there would count the whole run twice (WD-0049).
+        | ( ($e | exact) as $x | $x != null and $lastp != null and $x < ($lastp | exact) ) as $costfall
         | ( $treset or $costfall ) as $reset
         | ( if $reset then (($prev.segment // 0) + 1)
             elif $prev == null then 1
@@ -660,12 +1023,21 @@ ledger_record() {
                                    reasoning: ($cur.tokens.reasoning - $ot.tokens.reasoning),
                                    cache_read: ($cur.tokens.cache_read - $ot.tokens.cache_read),
                                    cache_write: ($cur.tokens.cache_write - $ot.tokens.cache_write) } end ),
-                  models: ($cur.models // []) } ) ) as $ad
+                  models: ($cur.models // []) }
+              + (if $cur.output_partial == true then { output_partial: true } else {} end) ) ) as $ad
         | ( $e + { segment: $segment, delta: $delta, token_delta: $td, agent_deltas: $ad } ) as $new
         | { action: "appended",
             doc: ($doc + { story: $story, checkpoints: (cps + [$new]) }),
             entry: $new }
       end')
+  # A failed computation must be loud: with no check, an error here (a jq
+  # failure on an unexpected snapshot shape) wrote nothing, printed a corrupt
+  # summary line, and still exited 0 — the checkpoint vanished silently
+  # (WD-0049).
+  if [[ $? -ne 0 ]] || ! printf '%s' "$result" | jq -e '.action' >/dev/null 2>&1; then
+    printf 'usage: could not compute the checkpoint for %s — checkpoint NOT recorded\n' "$story" >&2
+    return 1
+  fi
 
   local action doc
   action=$(printf '%s' "$result" | jq -r '.action')
@@ -680,17 +1052,161 @@ ledger_record() {
     chmod 600 "$file" 2>/dev/null
   fi
 
-  local tramo total nst unpriced
+  local tramo total nst unpriced estimated basis
   tramo=$(printf '%s' "$result" | jq -r '.entry.delta // "?"')
+  basis=$(printf '%s' "$result" | jq -r '.entry.cost_basis // ""')
+  estimated=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select(.cost_basis == "estimated")] | length')
   total=$(printf '%s' "$doc" | jq -r '[.checkpoints[].delta | select(type=="number")] | add // 0')
   nst=$(( $(printf '%s' "$doc" | jq -r '.checkpoints | length') ))
   unpriced=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select(.cost_usd == null)] | length')
 
   local atom accum
-  atom=$([[ "$tramo" == "?" ]] && printf 'unknown' || printf '$%s' "$tramo")
+  atom=$([[ "$tramo" == "?" ]] && printf 'unknown' || awk -v t="$tramo" 'BEGIN{printf "$%.4f", t}')
+  [[ "$tramo" == "?" || "$basis" != "estimated" ]] || atom="≈$atom (estimated)"
+  [[ "$(printf '%s' "$result" | jq -r '.entry.output_partial // false')" != "true" ]] || atom="$atom, a lower bound"
   accum=$(awk -v t="$total" 'BEGIN{printf "$%.4f", t}')
-  printf 'usage %s · stage %s · this step %s · story total %s over %s checkpoint(s), %s without price\n' \
-    "$story" "$stage" "$atom" "$accum" "$nst" "$unpriced" >&2
+  printf 'usage %s · stage %s · this step %s · story total %s over %s checkpoint(s), %s without price, %s estimated\n' \
+    "$story" "$stage" "$atom" "$accum" "$nst" "$unpriced" "$estimated" >&2
+}
+
+# Reconcile (WD-0049): a checkpoint taken mid-session is often an estimate,
+# and the exact figure only lands later, when Claude Code writes its next
+# cost-state (idle, /clear, exit) — after the story's last checkpoint for that
+# session, which then never sees it. For each Claude source of the story whose
+# latest checkpoint is not exact and whose transcript still exists, take a
+# snapshot now; if that one is exact, APPEND it as a `reconcile` checkpoint.
+# The ledger stays append-only: the correction is that entry's delta (negative
+# when the estimate was high), never an edit. An estimate again is skipped —
+# it adds a line, not accuracy. Skips the source just recorded ($2).
+#
+# Only when the session did NO new work after that checkpoint — same last
+# message, same input and cache tokens (output may still rise: a late task
+# notification repairs a sub-agent's output). Otherwise the exact figure also
+# holds whatever the session did next, perhaps for another story, and moving
+# it here would count it twice (WD-0049). Then the estimate simply stays.
+reconcile_story() { # $1 story, $2 source to skip (may be empty)
+  local file="$USAGE_DIR/$1.json" src last snap err
+  valid_story_id "$1" && [[ -f "$file" ]] || return 0
+  while IFS= read -r src; do
+    [[ -n "$src" && "$src" != "$2" && -f "$src" ]] || continue
+    snap=$(snapshot_claude "$src" 2>/dev/null) || continue
+    [[ "$(printf '%s' "$snap" | jq -r 'if .pending_sidechain then "" else (.cost_basis // "") end')" == "cost-state" ]] || continue
+    last=$(jq -c --arg s "$src" '[ (.checkpoints // [])[] | select(.source == $s) ] | last' "$file" 2>/dev/null)
+    # The main thread is what moves on to other work; a sub-agent this story
+    # launched may still have been writing, and its spend is this story's.
+    jq -en --argjson p "$last" --argjson n "$snap" '
+      ($p.agents.orchestrator.tokens // $p.tokens) as $a | ($n.agents.orchestrator.tokens // $n.tokens) as $b
+      | $p.as_of == $n.as_of
+        and $a.input == $b.input and $a.cache_read == $b.cache_read and $a.cache_write == $b.cache_write' >/dev/null 2>&1 || continue
+    if ! err=$(ledger_record "$1" reconcile "$snap" 2>&1); then
+      printf 'usage: %s — reconcile of %s skipped: %s\n' "$1" "$(basename -- "$src")" "${err#usage: }" >&2
+    else
+      printf '%s\n' "$err" >&2
+    fi
+  done < <(jq -r '(.checkpoints // []) | group_by(.source) | map(last) | .[]
+                  | select(.harness == "claude" and ((.cost_basis // "") != "cost-state" or .pending_sidechain == true)) | .source' "$file" 2>/dev/null)
+  return 0
+}
+
+# The dashboard API (WD-0049): `.usage/.index.json`, rebuilt from every story
+# ledger after each write. One small JSON file a status line can read on every
+# refresh — no jq, no script, no plugin path needed. Its shape is a contract,
+# documented in references/usage-api.md; change it only with a new `schema`.
+write_index() { # $1 = space-separated story ids touched by this run (announced)
+  [[ -d "$USAGE_DIR" ]] || return 0
+  local touched="${1:-}"
+  local f id tmp docs=""
+  # Keyed by FILE NAME, the same id `--story` reads; a ledger that does not
+  # parse is skipped (ledger_record leaves a corrupt one for the human), so
+  # one bad file never freezes every other story's entry.
+  for f in "$USAGE_DIR"/*.json; do
+    [[ -f "$f" ]] || continue
+    id=$(basename -- "$f" .json)
+    valid_story_id "$id" || continue
+    docs+=$(jq -c --arg id "$id" 'select((.checkpoints | type) == "array") | { id: $id, checkpoints }' "$f" 2>/dev/null)$'\n'
+  done
+  # No readable previous index (first run after an upgrade, or a damaged one):
+  # this write is the baseline, and nothing is announced — otherwise every
+  # story that is already exact would be announced at once, mid-way through
+  # some other story's work.
+  local before=""
+  [[ -f "$USAGE_DIR/.index.json" ]] && before=$(jq -c '[ (.stories // {}) | to_entries[] | select(.value.verified == true) | .key ]' "$USAGE_DIR/.index.json" 2>/dev/null)
+  tmp=$(mktemp "$USAGE_DIR/.index.XXXXXX") || return 1
+  if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      def r4: . * 10000 | round / 10000;
+      # One reading the harness itself priced, whole: a Claude Code
+      # cost-state with no sub-agent still writing after it, or an OpenCode
+      # row; and no model with tokens left without a price (SQL SUM skips a
+      # NULL child, so an OpenCode total can be partial).
+      def exactck: .cost_usd != null
+        and ((.harness == "claude" and .cost_basis == "cost-state" and (.pending_sidechain // false) == false)
+             or .harness == "opencode")
+        and ([ (.models // {})[] | select((((.tokens // {}) | [.[]?] | add) // 0) > 0 and .cost_usd == null) ] | length) == 0;
+      . as $docs
+      # A session recorded under two stories: the split between them is not
+      # what the harness measured, so neither story can be verified.
+      | ( [ $docs[] | .id as $id | (.checkpoints | map(.source) | unique)[] | { s: ., id: $id } ]
+          | group_by(.s) | map(select((map(.id) | unique | length) > 1) | .[0].s) ) as $shared
+      | ( $docs | map(
+            .checkpoints as $c
+            | ( $c | group_by(.source) | map(last) ) as $latest
+            # A reconcile is bookkeeping, not work: it never makes a story the
+            # "last" one, nor its stage the last stage.
+            | ( [ $c[] | select(.stage != "reconcile") ] | last // ($c | last) ) as $w
+            | { key: .id, value: {
+                total_usd: ([ $c[].delta | select(type == "number") ] | add // 0 | r4),
+                estimated: any($latest[]; .cost_basis == "estimated"),
+                # verified: the total holds only figures the harness recorded, so
+                # its error against what the harness accounts is 0. Every
+                # session latest reading exact, and the last priced reading of
+                # EVERY segment exact too (an estimate in an earlier segment is
+                # still in the sum), and no session shared with another story.
+                verified_reason: (
+                  ( [ $c | group_by(.source)[] | group_by(.segment // 1)[]
+                      | [ .[] | select(.cost_usd != null) ] | last ] ) as $segs
+                  | if ($c | length) == 0 then "no-checkpoints"
+                    elif any($latest[]; .cost_usd == null) or any($segs[]; . == null) then "unpriced"
+                    elif any($latest[]; exactck | not) then "estimated"
+                    elif any($segs[]; exactck | not) then "earlier-estimate"
+                    elif any($c[]; .source as $s | $shared | index($s)) then "shared-session"
+                    else null end ),
+                lower_bound: any($latest[]; .cost_basis == "estimated" or .cost_usd == null or .output_partial == true),
+                checkpoints_exact: true,
+                checkpoints: ($c | length),
+                unpriced_checkpoints: ([ $c[] | select(.cost_usd == null) ] | length),
+                sessions: ($c | map(.source) | unique | length),
+                last_stage: $w.stage,
+                last_recorded_at: $w.recorded_at,
+                tokens: { input: ([ $c[].token_delta.input // 0 ] | add // 0),
+                          output: ([ $c[].token_delta.output // 0 ] | add // 0),
+                          reasoning: ([ $c[].token_delta.reasoning // 0 ] | add // 0),
+                          cache_read: ([ $c[].token_delta.cache_read // 0 ] | add // 0),
+                          cache_write: ([ $c[].token_delta.cache_write // 0 ] | add // 0) },
+                by_agent: ( [ $c[].agent_deltas // {} | to_entries[] ] | group_by(.key)
+                  | map({ key: .[0].key, value: {
+                      cost_usd: ([ .[].value.cost_usd | select(. != null) ] | if length == 0 then null else (add | r4) end),
+                      lower_bound: any(.[]; .value.output_partial == true) } })
+                  | from_entries ) } } )
+          | from_entries
+          | with_entries(.value |= (del(.checkpoints_exact) | .verified = (.verified_reason == null)))
+          ) as $stories
+      | { schema: "workflow-dev.usage/1", updated_at: $at,
+          last_story: ( [ $stories | to_entries[] | select(.value.last_recorded_at != null) ]
+                        | max_by(.value.last_recorded_at) | .key? // null ),
+          stories: $stories }' > "$tmp" 2>/dev/null && mv "$tmp" "$USAGE_DIR/.index.json"; then
+    chmod 600 "$USAGE_DIR/.index.json" 2>/dev/null
+    # Say it once, when a story THIS RUN touched becomes verified.
+    [[ -n "$before" && -n "$touched" ]] || return 0
+    jq -r --argjson before "$before" --arg touched " $touched " '
+      .stories | to_entries[] | .key as $k
+      | select(.value.verified == true and ($before | index($k) | not) and ($touched | contains(" " + $k + " ")))
+      | "usage \(.key) · spend verified ✓ $\(.value.total_usd) — every session matches the exact figure the harness recorded"' \
+      "$USAGE_DIR/.index.json" >&2 2>/dev/null
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null
+  printf 'usage: could not rebuild %s/.index.json\n' "$USAGE_DIR" >&2
+  return 1
 }
 
 # Totalise a story from the ledger ONLY — never touching the source, so a
@@ -716,10 +1232,23 @@ ledger_report() {
   echo "Story usage: $story"
   printf '  ledger: %s\n' "$file"
 
-  jq -r '
+  # verified needs every ledger (a session shared with another story), so it
+  # is read from the index, rebuilt here — one rule, never two that disagree.
+  local vinfo
+  write_index "" >/dev/null 2>&1
+  vinfo=$(jq -c --arg s "$story" '.stories[$s] // {} | { verified: (.verified // false), reason: (.verified_reason // "unknown") }' "$USAGE_DIR/.index.json" 2>/dev/null)
+  [[ -n "$vinfo" ]] || vinfo='{"verified":false,"reason":"unknown"}'
+
+  jq -r --argjson v "$vinfo" '
     (.checkpoints // []) as $c
     | ( [ $c[].delta | select(type=="number") ] | add // 0 ) as $total
-    | "  total: $\($total * 10000 | round / 10000)   checkpoints: \($c | length)   runs without price: \([ $c[] | select(.cost_usd == null) ] | length)",
+    | "  total: $\($total * 10000 | round / 10000)   checkpoints: \($c | length)   runs without price: \([ $c[] | select(.cost_usd == null) ] | length)   estimated: \([ $c[] | select(.cost_basis == "estimated") ] | length) (\([ $c[] | select(.stale == true) ] | length) after a stale cost-state, \([ $c[] | select(.output_partial == true) ] | length) lower bounds)",
+      ( if $v.verified then "  verified: yes ✓ — every session matches the exact figure the harness recorded"
+        else "  verified: no — " + ({ "unpriced": "a session or model has no price yet",
+              "estimated": "a session latest reading is an estimate; it settles once the session closes right after its last checkpoint",
+              "earlier-estimate": "an estimate from before a reset is still in the total",
+              "shared-session": "a session is shared with another story, so the split is not measured",
+              "no-checkpoints": "nothing recorded" }[$v.reason] // $v.reason) end ),
       ("  tokens: input \([ $c[].token_delta.input // 0 ] | add // 0)  output \([ $c[].token_delta.output // 0 ] | add // 0)  reasoning \([ $c[].token_delta.reasoning // 0 ] | add // 0)  cache_read \([ $c[].token_delta.cache_read // 0 ] | add // 0)  cache_write \([ $c[].token_delta.cache_write // 0 ] | add // 0)"),
       "  by harness:",
       ( [ $c[] | { h: .harness, d: (.delta // 0) } ] | group_by(.h)[] | "    \(.[0].h): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
@@ -728,12 +1257,15 @@ ledger_report() {
       "  by session:",
       ( [ $c[] | { src: .source, d: (.delta // 0) } ] | group_by(.src)[] | "    \(.[0].src): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
       "  by agent/role (observed — derived from what ran, never a fixed list):",
-      ( [ $c[].agent_deltas // {} | to_entries[] | { k: .key, d: .value.cost_usd, m: (.value.models // []) } ]
+      ( [ $c[].agent_deltas // {} | to_entries[] | { k: .key, d: .value.cost_usd, m: (.value.models // []), p: (.value.output_partial // false) } ]
         | group_by(.k)[]
         | ( [ .[].d | select(. != null) ] ) as $ds
-        | "    \(.[0].k): " + (if ($ds | length) == 0 then "unpriced" else "$\(($ds | add) * 10000 | round / 10000)" end) + "  models \([.[].m[]] | unique | join(", "))" ),
+        | "    \(.[0].k): " + (if ($ds | length) == 0 then "unpriced" else (if any(.[]; .p) then "≥" else "" end) + "$\(($ds | add) * 10000 | round / 10000)" end) + "  models \([.[].m[]] | unique | join(", "))" ),
+      ( if any($c[]; .output_partial == true) or any($c[].agent_deltas // {} | .[]; .output_partial == true)
+        then "  ≥ = lower bound: Claude Code logs a sub-agent message'"'"'s output before it is written; only the final one is recoverable"
+        else empty end ),
       "  last step:",
-      ( $c | last | "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) )
+      ( $c | last | "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" + (if .cost_basis == "estimated" then " (estimated)" else "" end) end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) )
   ' "$file"
 
   # The configured role→model binding is WD-0025's reader (extended into
@@ -803,6 +1335,7 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
   fi
   SNAP=""
   SNAP_TX=""
+  SNAP_ERR=0
   case "$(detect_harness_for_usage)" in
     opencode)
       if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
@@ -812,6 +1345,9 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
         else
           SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$PWD")
           [[ -n "$SNAP_SID" ]] || SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$(pwd -P)")
+          # Called from a subdirectory, the session's directory is the project
+          # root, not the cwd (WD-0049).
+          [[ -n "$SNAP_SID" ]] || SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$PROJECT_BASE")
         fi
         [[ -n "$SNAP_SID" ]] && SNAP=$(snapshot_opencode "$OPENCODE_DB_PATH" "$SNAP_SID")
       fi
@@ -823,15 +1359,47 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
         SNAP_R="$(resolve_claude)"
         [[ "$SNAP_R" == *$'\t'* ]] && SNAP_TX="${SNAP_R%%$'\t'*}"
       fi
-      [[ -n "$SNAP_TX" ]] && SNAP=$(snapshot_claude "$SNAP_TX")
+      # The path is the checkpoint's `source`, which pairs it with the previous
+      # one: make it absolute and physical, or the same transcript named from
+      # two directories would count as two runs (WD-0049).
+      if [[ -n "$SNAP_TX" ]]; then
+        # `CDPATH=`: with CDPATH set, `cd` echoes the directory and the path
+        # would carry it.
+        SNAP_TX="$(CDPATH= cd -- "$(dirname -- "$SNAP_TX")" >/dev/null && pwd -P)/$(basename -- "$SNAP_TX")"
+        SNAP=$(snapshot_claude "$SNAP_TX") || SNAP_ERR=$?
+      fi
       ;;
   esac
+  # 2 = the run resolved but is incomplete right now (an unreadable
+  # side-chain): said on stderr already, and not the same as no source at all.
+  if [[ "$SNAP_ERR" -eq 2 ]]; then
+    echo '{"status":"not-recorded"}'
+    exit 1
+  fi
   if [[ -z "$SNAP" ]]; then
     echo '{"status":"unavailable"}'
     exit 0
   fi
-  ledger_record "$SNAPSHOT_STORY" "${SNAPSHOT_STAGE:-manual}" "$SNAP"
-  printf '%s\n' "$SNAP" | jq '{ source, harness, cost_usd, tokens, models, as_of }'
+  # A checkpoint that was not recorded exits non-zero (after still printing
+  # the snapshot), so a caller can tell; the skills treat this as best-effort.
+  SNAP_RC=0
+  ledger_record "$SNAPSHOT_STORY" "${SNAPSHOT_STAGE:-manual}" "$SNAP" || SNAP_RC=1
+  # Best-effort: settle the story's other sessions, then refresh the API.
+  # Neither changes this checkpoint's exit code.
+  reconcile_story "$SNAPSHOT_STORY" "$SNAP_TX"
+  write_index "$SNAPSHOT_STORY" || true
+  printf '%s\n' "$SNAP" | jq '{ source, harness, cost_usd } + (if .cost_basis then { cost_basis } else {} end)
+    + (if .stale then { stale } else {} end) + { tokens, models, as_of }'
+  exit "$SNAP_RC"
+fi
+
+# `--reconcile` settles a story's estimated sessions against the exact figure
+# their transcripts hold now (see reconcile_story), then refreshes the API.
+if [[ -n "$RECONCILE_STORY" ]]; then
+  if ! have_jq; then echo "session-usage.sh --reconcile needs jq." >&2; exit 1; fi
+  if ! valid_story_id "$RECONCILE_STORY"; then echo "usage: invalid story id" >&2; exit 1; fi
+  reconcile_story "$RECONCILE_STORY" ""
+  write_index "$RECONCILE_STORY" || true
   exit 0
 fi
 

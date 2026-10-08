@@ -171,7 +171,7 @@ This has actually happened, wrong, in a real session: the confirmation shown to 
 
 Then record the save checkpoint (WD-0037):
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage save`,
-and show the line it prints (this step's spend and the story's running total).
+and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
 `save` is the safety net — it runs on compaction and on session close — so this
 is the checkpoint that most often survives a session that is later deleted.
 `PLUGIN_ROOT` resolves exactly as `save-mark-saved.sh` above does.

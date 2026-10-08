@@ -198,7 +198,7 @@ After successful validation:
 - Mark task group as "Done" in Plan Progress table (this one update happens here, directly — it's the literal record of what this skill just did)
 - Record this task group's cost checkpoint (WD-0037): run
   `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage implement`
-  and show the line it prints (this step's spend and the story's running total).
+  and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
   It appends to the story's durable ledger; best-effort, `unavailable` rather
   than a zero when no source resolves. `PLUGIN_ROOT` resolves as `validate`'s
   Step 4 notes.
