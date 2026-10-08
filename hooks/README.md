@@ -69,4 +69,12 @@ the Free Software Foundation, either version 3 of the License, or
   `pre-compact-check.sh --arm` is wired to the subscribed compaction events, and
   those register but have never been observed firing on 2.0.19. Wired, not
   proven.
+- **Autonomous mode needs no change to these hooks, and none is made** (WD-0039).
+  An autonomous run keeps the commit/PR hooks quiet through the markers the
+  skills already write — `validate`'s diff marker and `summarize-changes`'
+  reviewed-message marker — not through any signal the hooks parse. The
+  AI/agent attribution block (in `pre-commit-message-check.sh` and
+  `opencode/plugin.ts`'s `execute.before`) has no marker and no bypass, so it
+  blocks in autonomous mode exactly as it does in a human-piloted one. See
+  `../references/autonomous-mode.md`.
 - Tool-name mapping across harnesses: `../references/harness-tools.md`.

@@ -165,11 +165,33 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
    Step 6 does (`${CLAUDE_PLUGIN_ROOT}` on Claude Code; the `cd -P` fallback on
    OpenCode).
 
+8. **Resolve the run mode** (WD-0039). Skip this step when the story's
+   Decisions already carries an `Autonomous mode: on|off` row, or when the human
+   already said how to run ("ve autónomo" / "run this autonomously", or
+   "paso a paso" / "step by step") — record that as the row and move on.
+   Otherwise ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
+   - **Question:** how should this story run?
+   - **Options:** `HITL — confirm each step (Recommended)` (the default; write
+     no row) / `Autonomous — run end-to-end, report at the end` (write
+     `| [date] | Autonomous mode: on | Human |` to Decisions, per
+     `references/autonomous-mode.md`).
+
+   Never infer autonomous mode from silence: no answer means HITL. Ask once per
+   story; later skills read the row and do not re-ask.
+
 ### Phase 7: Ask the human
 
 1. Collect every ⬜ across both files.
 2. Turn them into specific questions grounded in what's actually missing — not a generic checklist.
 3. Present them and update the context files with the answers.
+
+In autonomous mode (`Autonomous mode: on` in the story's Decisions — set when
+the human starts the run with "ve autónomo" / "run this autonomously"), skip the
+ask: resolve each ⬜ by the infer + record + report rule in
+`references/autonomous-mode.md` (at the plugin root), write the inferred answers
+into the context files, and carry every ⬜ into the end-of-run report. Never
+invent an acceptance criterion to close a ⬜ — if one is genuinely ambiguous,
+record it as deferred and let the report surface it.
 
 ## After init
 

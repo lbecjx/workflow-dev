@@ -98,7 +98,8 @@ Two scopes, not one — which applies depends on why this is running:
 >   applies to a reduced run too — never silently skip it.
 > - **Adversarial depth (Part 11):** real logic in the diff → suggest no-repro or
 >   complete **with a one-line reason** and **ask the human to choose**; don't run
->   a depth silently. SKIP only when there's genuinely no logic. (Unattended →
+>   a depth silently. SKIP only when there's genuinely no logic. (Unattended, or
+>   autonomous mode — `references/autonomous-mode.md` at the plugin root — →
 >   §11.0's depth defaults, not a silent pick.) → `references/rules.md` §11.0
 
 **Decide the gate's depth first — the set, not just the adversarial depth.**
@@ -180,7 +181,8 @@ complete**:
   pure-frontend auth component — or a new invariant → suggest **complete**;
   otherwise → suggest **no-repro**), state the one-line reason, and **ask which
   to run**. The choice is the human's, not a notification. Unattended/CI with
-  no answer → **no-repro**, except the batched/story-end pass, which uses §11.0's
+  no answer — or autonomous mode (`references/autonomous-mode.md` at the plugin
+  root) — → **no-repro**, except the batched/story-end pass, which uses §11.0's
   recommended depth; never silently escalate to complete on your own.
 - **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
 
@@ -377,7 +379,9 @@ a QA finding is a new, separate signal for the human).
      run — that was decided at plan time.
    - **"no", or no row (older story)** → skip manual QA; no notice needed.
    - **Unattended/non-interactive** → same as "no": skip silently (the plan
-     default for manual QA is "skip").
+     default for manual QA is "skip"). Autonomous mode
+     (`references/autonomous-mode.md` at the plugin root) counts as unattended
+     here.
 
 2. Then offer the next step via the ask-question tool (OpenCode `question` /
    Claude Code `AskUserQuestion`):
@@ -401,7 +405,10 @@ a QA finding is a new, separate signal for the human).
    dead-ending.
 
 3. **Unattended:** skip the question and do not run `summarize-changes` on your
-   own — leave the summary for a human-triggered step.
+   own — leave the summary for a human-triggered step. Autonomous mode is the
+   exception: `implement` already runs `summarize-changes` per task group (its
+   own Step 5), so the summary is not left dangling, and the end-of-run report
+   is `implement`'s job — not this skill's.
 
 ## Principles
 

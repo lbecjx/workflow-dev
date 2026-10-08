@@ -21,9 +21,22 @@ When neither harness offers a usable position, `save` says so rather than report
 
 ## What this is not
 
-- Not a spec framework — it doesn't produce design documents.
-- Not a planner — it doesn't propose roadmaps or phases on its own.
-- Not autonomous — it never writes a large change without checking in first.
+- **Not a spec or design tool** — it never *writes* specs or design documents; it *consumes* them (Jira stories, Confluence TDDs and ADRs, a local Markdown file) and turns them into working context.
+- **Not a roadmap planner** — it doesn't propose epics, milestones, or phases on its own. The `/workflow-dev:plan` skill does one narrow thing: it splits *one story's* acceptance criteria into ordered task groups, only when you ask, and only after you approve.
+- **Not autonomous** — you pilot, the agent executes. It works one task at a time and checks in before moving on, so it never lands a large change without you in the loop. (An opt-in [autonomous mode](#autonomous-mode-opt-in) exists for a single story; the default never changes.)
+
+## Autonomous mode (opt-in)
+
+The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously", and it records `Autonomous mode: on` in the story's Decisions and runs `init → plan → implement → validate → summarize` without pausing between tasks.
+
+Autonomous mode removes the per-step confirmations, not the guardrails:
+
+- **Decisions are inferred, recorded, and reported.** Each decision point the human would normally answer is resolved with an explicit rule, written to the story's Decisions table, and surfaced in an end-of-run report. Nothing is silently skipped.
+- **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never bypasses the AI/agent attribution block — the one rule with no bypass, autonomous or not.
+- **The quality gate is load-bearing.** A blocking finding stops the run; it is never downgraded to a warning so the run can continue.
+- **It drafts, it never opens the PR.** The commit message and PR text are drafted and marked reviewed, then handed to you in the report. `git commit` and `gh pr create` remain your call.
+
+At the end it reports what it did, every decision it made for you (with the inferred reason), what it deferred, and the story's cost from the durable ledger. Full rules in [`references/autonomous-mode.md`](./references/autonomous-mode.md).
 
 ## Skills
 

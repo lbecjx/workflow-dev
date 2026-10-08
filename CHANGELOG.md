@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.0
+
+- Add an opt-in autonomous mode for running one story end-to-end without
+  per-step approval: decisions are inferred, recorded, and reported, and the run
+  ends with a report of what it did and what it cost. The hard boundary still
+  holds.
+- The commit/PR hooks are unchanged for the mode: the validate and
+  reviewed-message markers keep them quiet, and the AI/agent attribution block
+  still blocks on both harnesses.
+
 ## 1.31.3
 
 - The README points to `local-backlog` for anyone working locally without a

@@ -116,6 +116,12 @@ Scan everything discussed since the "Last updated" timestamp and classify each i
 
 ### Step 4: Present the save summary
 
+In autonomous mode (`Autonomous mode: on` in the story's Decisions —
+`references/autonomous-mode.md` at the plugin root), do not block on the "Save
+all of this?" confirmation: apply the changes, and carry what was saved into the
+end-of-run report. The human still gets the record — just after the fact, in the
+report, not as a per-save interrupt.
+
 Show the human what's about to be saved, grouped by destination file:
 
 ```

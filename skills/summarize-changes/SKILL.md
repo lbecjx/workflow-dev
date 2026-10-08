@@ -51,6 +51,15 @@ unreviewed.
 
 ### Step 1: Determine what's needed
 
+Autonomous mode (`Autonomous mode: on` in the story's Decisions —
+`references/autonomous-mode.md` at the plugin root) changes nothing about what
+this skill does: it still drafts, still runs the independent Part 12 review
+(Step 3), and still marks the text reviewed (Step 4) — the review and the
+attribution denial have no bypass in autonomous mode. The only difference is who
+receives the hand-back: an autonomous run's caller (`implement`) folds the
+reviewed text into the end-of-run report instead of presenting it to a human
+per task group.
+
 - **Commit message** — when this is invoked because a commit is about to
   happen
 - **PR title + PR description** — when this is invoked for PR creation or
