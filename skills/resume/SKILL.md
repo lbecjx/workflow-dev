@@ -94,6 +94,7 @@ Context loaded — [STORY-ID]: [short title]
 
 Status:  [progress %] — [current AC or next step]
 Branch:  [branch name] [up to date | X commits behind base]
+Mode:    [Autonomous — Decisions has "Autonomous mode: on" | Human-in-the-loop]
 Last saved: [timestamp]
 
 Pending:
@@ -105,6 +106,13 @@ Continue?
 Call out uncommitted changes or a behind-base branch if either applies, and the
 OpenCode plugin check from Step 4 if it printed anything — above "Pending", so
 it is read before the work resumes as if the plugin were running.
+
+The **Mode** line reads the story's Decisions for an `Autonomous mode: on` row
+(`references/autonomous-mode.md` at the plugin root). The row persists across
+sessions, so a resumed story keeps running autonomously; say so on the Mode
+line and tell the human they can switch back to human-in-the-loop by removing
+the row or writing `Autonomous mode: off`. No row means human-in-the-loop —
+print that value, don't omit the line.
 
 ### Step 6: Ready to work
 
@@ -119,7 +127,7 @@ From here, the human directs; the agent executes with full context.
 
 - Doesn't check external sources — Jira, Confluence, GitHub PRs. That's `/workflow-dev:refresh`.
 - Doesn't propose changes to the context files, only loads them.
-- Doesn't start working autonomously — it waits for direction.
+- Doesn't start working on its own — it waits for direction, even when the story is in autonomous mode (the mode only changes how `implement` runs once the human directs it).
 
 ## When to suggest `/workflow-dev:refresh` instead
 

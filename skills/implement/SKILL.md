@@ -201,6 +201,12 @@ After successful validation:
   than a zero when no source resolves. `PLUGIN_ROOT` resolves as `validate`'s
   Step 4 notes.
 - Suggest running `/workflow-dev:save` to persist estimated progress, discoveries, and anything else from this task group into the story's Working Memory section — don't duplicate that logic here inline; `save` already owns reviewing the conversation and classifying what goes where
+  - **In autonomous mode, run `/workflow-dev:save` after every task group**
+    instead of suggesting it (`references/autonomous-mode.md`). Nothing else
+    persists the run's progress, decisions, and discoveries while nobody is
+    watching, so a crash or compaction mid-run must not lose them. `save` already
+    applies without asking in that mode (its Step 4); list what each save wrote
+    in the end-of-run report.
 
 ## Principles
 
