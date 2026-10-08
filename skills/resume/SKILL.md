@@ -15,6 +15,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Resume
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What this does
 
 Loads the persistent context into the agent's working memory at the start of a session. The agent reads both context files, understands where work left off, and is immediately ready to continue — no re-asking, no re-exploring.
@@ -42,13 +44,13 @@ Claude Code's `AskUserQuestion`, or whatever the environment calls it
 (`references/harness-tools.md` at the plugin root — not this skill's own
 `references/`):
 - **Label:** the story ID (e.g. `PROJ-12710`). The most recently updated one gets a "(Recommended)" suffix.
-- **Description:** the story title (its H1 header) plus its progress percentage.
+- **Description:** the story title (its H1 header) plus its progress percentage, in one line of about 60 characters. Shorten a longer title and keep the percentage (`references/user-language.md`).
 - No preview needed.
 
 ```
 Question: "Which story do you want to resume?"
 Options:
-- label: "PROJ-12710 (Recommended)", description: "Extend GET /invoices with cursor pagination and OpenAPI docs — 100%"
+- label: "PROJ-12710 (Recommended)", description: "Extend GET /invoices with cursor pagination… — 100%"
 - label: "PROJ-12845", description: "Add retry logic to webhooks — 35%"
 ```
 

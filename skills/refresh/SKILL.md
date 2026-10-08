@@ -15,6 +15,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Refresh
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What this does
 
 Checks every source that originally fed the persistent context for drift, compares it against what's recorded in both files (REPO.md and [STORY-ID].md), and proposes an update plan showing what changed and what needs reconciling.

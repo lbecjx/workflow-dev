@@ -24,6 +24,8 @@ Read `references/roles.md` first. It is the sole definition of a role: its name,
 class, hint, and the agent `description`/`body` written below. Renaming or
 adding a role happens there, never here.
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What it writes
 
 | Harness | File | Frontmatter |

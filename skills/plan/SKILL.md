@@ -19,6 +19,8 @@ Decomposes the current story's acceptance criteria into ordered task groups with
 
 **Before executing, read all files in `references/` for execution principles and validation awareness.**
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## When to use
 
 - After `/workflow-dev:init` when the story is understood but work hasn't started
@@ -118,16 +120,14 @@ the whole story:
 
 ```
 Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
-  question: "Before starting: the full validation (multiple sub-agents, plus
-    Adversarial Correctness) will run at some point. Should it run once at the
-    end of the story, or after every task group?"
+  question: "The full quality check uses several sub-agents. Run it once at
+    the end of the story, or after every task group?"
   header: "Validation mode"
   options:
     - label: "Once, at the end (recommended)"
-      description: "Pay that cost once, not per task group."
+      description: "Run the full check once and pay its cost once."
     - label: "After every task group"
-      description: "Pay that same cost repeatedly — catches issues sooner,
-        costs more overall."
+      description: "Run the full check each time. Finds issues sooner."
 ```
 
 > `(recommended)` marks the plugin's **default suggestion** — it is **not** the
@@ -170,15 +170,14 @@ once more for the whole story:
 
 ```
 Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
-  question: "Should /workflow-dev:validate run a manual QA pass (a real
-    browser / device against the running app) before commit for this story?"
+  question: "When the quality check passes, also test this story in the
+    running app, in a real browser or device?"
   header: "Manual QA"
   options:
     - label: "Yes — run it"
-      description: "On validate's PASS path, exercise the app in a real
-        browser/emulator and check each Acceptance Criterion. Costs tokens."
+      description: "Check each criterion in the running app. Costs more."
     - label: "No — skip for this story"
-      description: "Validate stays pure static analysis; no browser/device pass."
+      description: "Check the code only. No browser or device."
 ```
 
 This is a plain **Yes/No** — it does not carry its own timing. When QA runs,

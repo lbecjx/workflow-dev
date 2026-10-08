@@ -24,6 +24,8 @@ unreviewed.
 
 **Read `../validate/references/rules.md` Part 12 before executing.**
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## When to use
 
 - After `/workflow-dev:validate` passes on a task group's changes and a

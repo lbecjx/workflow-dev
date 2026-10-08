@@ -15,6 +15,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Usage
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What this does
 
 Prints the active story's cost report, summed from its **durable ledger**

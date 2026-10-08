@@ -28,6 +28,8 @@ it directly.
 before executing** — together they define how a detected platform maps to the
 tools actually available.
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## When to use
 
 - On `/workflow-dev:validate`'s PASS path, when the story's stored manual-QA

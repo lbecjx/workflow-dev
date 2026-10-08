@@ -36,8 +36,9 @@ Decisions table:
   autonomously" / "go, and don't ask me each step". The agent records the row
   and proceeds; the human does not edit the file by hand.
 - **Asked at init** when the human has not said how to run: `init` Phase 6
-  step 8 asks through the ask-question tool (HITL vs. autonomous). The
-  recommended and default answer is HITL; no answer never means autonomous.
+  step 8 asks through the ask-question tool (step by step vs. autonomous). The
+  recommended and default answer is step by step; no answer never means
+  autonomous.
 - **Cleared** by removing the row (or writing `Autonomous mode: off`), at which
   point the run returns to human-in-the-loop behavior. Opt-in means the row is
   absent by default — its absence is the normal, human-piloted path.

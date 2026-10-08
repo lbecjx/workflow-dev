@@ -19,6 +19,8 @@ Runs a structured quality gate over the current uncommitted changes, using paral
 
 **Read `references/rules.md` for the full set of validation dimensions before executing.**
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## When to use
 
 - Before committing (the user says "validate," "are we ready?")
@@ -391,10 +393,10 @@ a QA finding is a new, separate signal for the human).
      question: "Validation passed. Draft the commit message / PR now?"
      header: "Next step"
      options:
-       - label: "Yes — summarize changes"
-         description: "Run /workflow-dev:summarize-changes for the commit/PR text."
+       - label: "Yes — draft them"
+         description: "I draft the commit message and the PR text."
        - label: "Not yet"
-         description: "Stop here; I'll ask when I'm ready."
+         description: "I stop here. Tell me when you are ready."
    ```
    On "Yes" → run `/workflow-dev:summarize-changes`. On "Not yet" → stop.
 
