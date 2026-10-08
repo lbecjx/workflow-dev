@@ -27,7 +27,7 @@ When neither harness offers a usable position, `save` says so rather than report
 
 ## Autonomous mode (opt-in)
 
-The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously", and it records `Autonomous mode: on` in the story's Decisions and runs `init → plan → implement → validate → summarize` without pausing between tasks.
+The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously" — or pick it when `init` asks how the story should run — and it records `Autonomous mode: on` in the story's Decisions (the row lives in the story file, so it survives new sessions and `resume` shows it) and runs `init → plan → implement → validate → summarize` without pausing between tasks.
 
 Autonomous mode removes the per-step confirmations, not the guardrails:
 

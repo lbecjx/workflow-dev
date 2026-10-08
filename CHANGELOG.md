@@ -14,6 +14,11 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.1
+
+- `resume` shows a Mode line, so a story left in autonomous mode is not resumed
+  unannounced; the README notes that `init` asks for the mode.
+
 ## 1.32.0
 
 - Add an opt-in autonomous mode for running one story end-to-end without
