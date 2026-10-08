@@ -40,6 +40,8 @@ Decomposes the current story's acceptance criteria into ordered task groups with
 2. Read `.workflow-dev/context/REPO.md` — understand conventions, prohibitions, infra
 3. Read `references/execution-principles.md` — internalize how tasks will be executed
 4. Read `references/validation-awareness.md` — understand what the quality gate checks
+5. Read `../implement/references/coding-standards.md` and `../implement/references/decision-points.md` — the rules every task group is implemented under, and where implementation must stop for a decision
+6. Read the stack file `implement` would load for this project (`../implement/SKILL.md` Step 1, item 5 — e.g. `../implement/references/stacks/react-typescript.md`); none matches → skip it
 
 ### Step 2: Explore code
 
@@ -75,6 +77,10 @@ never a command or a path for it to read on its own (the same rule as
 
 - the story file and REPO.md (Step 1);
 - `references/execution-principles.md` and `references/validation-awareness.md`;
+- `../implement/references/coding-standards.md`, `../implement/references/decision-points.md`,
+  and the stack file from Step 1, when one applies — so each task group is
+  planned under the rules it will be implemented under, and a group that will
+  hit a decision point is classed `judgment`;
 - the relevant source files Step 2 identified, or the parts of them that matter;
 - the task this step defines: ordered task groups in Step 4's format, each with
   its execution class, and a line on anything the brief left unsettled.
