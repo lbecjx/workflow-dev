@@ -87,6 +87,13 @@ approve (or adjust) the plan *before* being asked to choose a validation mode;
 mixing them lets a mode be picked for a plan that isn't approved yet, and it
 reads as one long form instead of a decision.
 
+In autonomous mode (`Autonomous mode: on` in the story's Decisions —
+`references/autonomous-mode.md` at the plugin root), skip this ask: write the
+plan to the story file, record `Plan approved (autonomous)` in the Decisions
+table, and carry on. The plan is still written and still followed — only the
+approval pause is removed, and the plan itself stays in the end-of-run report
+for the human to review after the fact.
+
 ### Step 5: Choose validation mode and manual QA (once per story, never re-asked)
 
 > **Gates for this step** — the two one-time questions below, asked here and
@@ -97,6 +104,13 @@ reads as one long form instead of a decision.
 > - **Manual QA:** "yes" or "no" for this story? → record it; `validate`
 >   reads it, never re-asks.
 > Unattended → both default silently (once at the end / no).
+
+Autonomous mode (`Autonomous mode: on` in the story's Decisions —
+`references/autonomous-mode.md` at the plugin root) counts as unattended for
+both one-time questions below: skip the ask, take the defaults, and record them.
+The two questions are still asked (and still recorded as decided by the Human)
+in a human-piloted run; autonomous mode only removes the per-step ask, never the
+recorded decision.
 
 Once the plan is approved — before writing anything, and before
 `/workflow-dev:implement` runs any task group — ask this exactly once for

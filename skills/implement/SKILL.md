@@ -37,6 +37,8 @@ Executes the next task group from the story's plan section: loads every executio
 
 ### Step 1: Load context
 
+0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root). Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path.
+
 1. Read `.workflow-dev/context/[STORY-ID].md` — find the Plan section, identify next task group (first with status "Not Started" or "In Progress")
 2. Read `.workflow-dev/context/REPO.md` — project conventions, prohibitions, good practices
 3. Read `references/coding-standards.md` — universal engineering rules
@@ -59,6 +61,10 @@ Validates: AC #X
 
 Ask: "Starting with Task Group N?"
 
+In autonomous mode, skip this ask — continue with the next task group. Record
+that the task group was started (a normal progress-table update, no separate
+decision to log).
+
 ### Step 3: Execute tasks — one at a time
 
 For each task:
@@ -66,7 +72,11 @@ For each task:
 1. **Read** the relevant source files
 2. **Implement** the change following coding-standards.md
 3. **Explain** what changed, where, and why (2-3 sentences)
-4. **Wait** for human confirmation before next task
+4. **Wait** for human confirmation before next task — *except in autonomous
+   mode*, where you do not wait: continue to the next task and note each
+   completion in the story's context (Files Touched, as usual). The per-task
+   pause is the one confirmation autonomous mode removes; it is replaced by the
+   end-of-run report, not by nothing.
 
 Show progress after each task:
 ```
@@ -79,6 +89,16 @@ Task Group N: <Title>
 ### Step 4: Decision points
 
 During implementation, STOP and ask the human when any condition from `references/decision-points.md` is met. Never proceed silently past a decision point.
+
+In autonomous mode, a decision point is not a stop — it is resolved by the
+infer + record + report rule in `references/autonomous-mode.md`: infer the
+answer the human would give, write the decision and its inferred reason to the
+story's Decisions table, and carry it into the end-of-run report. Never skip the
+record step — a decision taken for the human with no written trace is the one
+failure this mode must not have. The hard boundary in `autonomous-mode.md`
+(never push a protected branch, never merge, never skip the adversarial pass,
+never invent ACs, never bypass the attribution block) still applies to every
+inference, with no fallback.
 
 ### Step 5: Task group complete → validate (per the story's validation mode)
 
@@ -105,6 +125,11 @@ During implementation, STOP and ask the human when any condition from `reference
 >   merge.
 
 When all tasks in the group are done:
+
+**In autonomous mode the quality gate is load-bearing** (see
+`references/autonomous-mode.md`): a FAIL here does not let the run continue to a
+commit/PR. Fix and re-validate; if the finding cannot be fixed, stop and report
+it — never downgrade a blocking finding to a warning so the run can keep going.
 
 1. Show completion summary.
 
@@ -148,7 +173,10 @@ When all tasks in the group are done:
 4. Once this task group is validated, deferred, or overridden (not
    FAILed) → run `/workflow-dev:summarize-changes` for the commit
    message, then suggest it to the human. Update plan progress in
-   story.md.
+   story.md. In autonomous mode, do not suggest — `summarize-changes`
+   marks the text reviewed, and the run continues to the next task group
+   (or, after the last one, to the end-of-run report); the human sees the
+   drafted text in that report, not per task group.
 
    This isn't handled inline here on purpose: drafting-and-reviewing the
    commit message is a distinct action from validating the diff, and
@@ -178,6 +206,6 @@ After successful validation:
 
 All principles from `references/coding-standards.md` and `references/decision-points.md` apply. The three non-negotiable ones:
 
-1. **Human-in-the-loop** — explain and wait after every task. No silent batching.
+1. **Human-in-the-loop** — explain and wait after every task. No silent batching. The one exception is autonomous mode (`Autonomous mode: on` in the story's Decisions — `references/autonomous-mode.md`), which replaces the per-task wait with infer + record + report; it does not make a human-piloted run silent.
 2. **Validate before commit — or defer it deliberately, per the story's chosen mode.** Every task group's changes get checked, one way or another: either `/workflow-dev:validate` runs right after it (marked "validated"), or it's marked "deferred" and folded into the one batched pass at story end (Step 5) — never silently skipped with no marker at all.
 3. **Zero-inference** — read code or ask. Never assume.

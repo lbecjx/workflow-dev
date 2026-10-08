@@ -18,9 +18,9 @@ This is a human-piloted, agent-executed workflow:
 - The **context lives on disk** — it survives compaction and new sessions.
 
 It is explicitly *not*:
-- A spec framework — it doesn't produce design documents.
-- A planner — it doesn't propose roadmaps or phases.
-- Autonomous — it doesn't write 500 lines without checking in.
+- A spec or design tool — it consumes specs and design documents (Jira, Confluence TDD/ADR, a local Markdown file) but never writes them.
+- A roadmap planner — it doesn't propose epics, milestones, or phases on its own; `plan` only splits one story's acceptance criteria into ordered task groups, on request and with approval.
+- Autonomous — the human pilots; it works one task at a time and checks in before moving on, never landing a large change without a human in the loop. (An opt-in autonomous mode exists for a single story — see `references/autonomous-mode.md` at the plugin root; the default never changes.)
 
 ## Two-file architecture
 
