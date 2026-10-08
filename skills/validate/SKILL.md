@@ -4,7 +4,7 @@ description: Runs a multi-dimensional quality gate on uncommitted changes before
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -93,7 +93,7 @@ Two scopes, not one — which applies depends on why this is running:
 > - **Gate depth:** decide the *set* first (below) and state it in the report —
 >   a no-logic diff runs the reduced set, not the full one.
 > - **Brief = content, not a command:** give each dimension the changed files'
->   contents and the diff **inline**; never a `git diff`/`read` for it to run —
+>   contents and the diff **inline**; never a `git diff` or a file read for it to run —
 >   a command is paid once per dimension (~10× the cache reads).
 > - **Cost is recorded — no run closes without it:** note the session total
 >   **before** spawning anything, and state the run's cost after (Step 4). This
@@ -122,7 +122,7 @@ list, and it is the **default**, not an opt-in:
 **Give each dimension the content, not the whole rulebook — and not a command.**
 The brief carries, **inline**: the changed files' contents and the diff, the
 relevant section(s) of `references/rules.md`, and the story's ACs. Paste the diff
-in — never hand the sub-agent a `git diff …` (or a file path to `read`) and let
+in — never hand the sub-agent a `git diff …` (or a file path to read) and let
 it fetch them: a command is paid **once per dimension**, which is exactly the
 ~10× cache-read amplification seen when four dimensions each re-fetched the same
 diff. Never hand it "read `rules.md`" wholesale either — a dimension scoped to
@@ -257,10 +257,10 @@ When Adversarial Correctness isn't SKIP, its row also states the depth it ran at
 and the one-line reason, and reflects that the no-repro/complete choice was surfaced —
 the same decision Step 3's gate required, not a silent pick.
 
-`PLUGIN_ROOT` (used below) is `${CLAUDE_PLUGIN_ROOT}` on Claude Code. OpenCode
-doesn't set that variable, so resolve it from where this skill lives —
-`cd -P "<this skill's directory>/../.." && pwd -P` gives the plugin root either
-way (the `-P` resolves OpenCode's skill symlink; a logical `..` would not).
+`PLUGIN_ROOT` (used below) is `${CLAUDE_PLUGIN_ROOT}` when set. A skill's shell
+calls don't get that variable, so resolve it from where this skill lives —
+`cd -P "<this skill's directory>/../.." && pwd -P` (the `-P` resolves a
+symlinked checkout; a logical `..` would stop at the link).
 
 **Record the run's cost — every run, full or reduced.** After the report, run
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot <STORY-ID> --stage validate`
@@ -282,7 +282,7 @@ actually landed under the default agent), and the reminder that a role's model
 is changed with `/workflow-dev:setup-models`. The binding is read by
 `model-tiering-check.sh --role-models` (WD-0025's reader); this skill only
 renders it. The total is summed from the ledger, so it stays correct across
-sessions and harnesses.
+sessions.
 
 ### Step 5: Verdict
 
@@ -386,11 +386,10 @@ a QA finding is a new, separate signal for the human).
      (`references/autonomous-mode.md` at the plugin root) counts as unattended
      here.
 
-2. Then offer the next step via the ask-question tool (OpenCode `question` /
-   Claude Code `AskUserQuestion`):
+2. Then offer the next step via the ask-question tool:
 
    ```
-   Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
+   Ask the human (ask-question tool):
      question: "Validation passed. Draft the commit message / PR now?"
      header: "Next step"
      options:

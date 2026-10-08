@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -31,9 +31,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 mk_hook() { jq -n --arg cmd "$1" --arg out "${2:-}" --argjson ec "${3:-0}" '{tool_input:{command:$cmd},tool_response:{stdout:$out,exit_code:$ec}}'; }
-mk_msg()  { jq -n --arg cmd "$1" --arg out "${2:-}" '{tool_input:{command:$cmd},tool_output:$out}'; }
 hook()    { printf '%s' "$1" | bash "$SCRIPT"; }
-plain()   { bash "$SCRIPT" --message "$1"; }
 
 STUBDIR="$TMP/stub"
 mkdir -p "$STUBDIR"
@@ -46,7 +44,7 @@ chmod +x "$STUBDIR/gh"
 CREATE_OUT="Creating pull request for feature into main...
 https://github.com/lbecjx/workflow-dev/pull/44"
 
-# --- 1: a real create → the URL, in both modes ------------------------------
+# --- 1: a real create → the URL ---------------------------------------------
 CREATE_HOOK="$(mk_hook 'gh pr create --title x --body y' "$CREATE_OUT")"
 H="$(hook "$CREATE_HOOK")"
 case "$H" in
@@ -56,13 +54,6 @@ esac
 case "$H" in
   *'"hookEventName":"PostToolUse"'*) ok "real create → hook mode is a PostToolUse envelope" ;;
   *) no "real create → hook mode is a PostToolUse envelope (got: $H)" ;;
-esac
-
-CREATE_MSG="$(mk_msg 'gh pr create --title x --body y' "$CREATE_OUT")"
-P="$(plain "$CREATE_MSG")"
-case "$P" in
-  *"https://github.com/lbecjx/workflow-dev/pull/44"*) ok "real create → --message carries the URL" ;;
-  *) no "real create → --message carries the URL (got: $P)" ;;
 esac
 
 # --- 2: a real edit with the URL already in stdout --------------------------
@@ -92,10 +83,6 @@ H=$(PATH="$NO_GH_PATH" hook "$EDIT_NO_URL")
 MENTION="$(mk_hook 'echo "will run gh pr create later"' 'will run gh pr create later')"
 H="$(hook "$MENTION")"
 [[ -z "$H" ]] && ok "mention-only command → quiet" || no "mention-only command → quiet (got: $H)"
-
-MENTION_MSG="$(mk_msg 'echo "will run gh pr create later"' 'will run gh pr create later')"
-P="$(plain "$MENTION_MSG")"
-[[ -z "$P" ]] && ok "mention-only command → --message quiet" || no "mention-only command → --message quiet (got: $P)"
 
 # --- 6: a plain git commit (not a PR verb) stays quiet -----------------------
 COMMIT="$(mk_hook 'git commit -m "x"' '[main abc1234] x')"

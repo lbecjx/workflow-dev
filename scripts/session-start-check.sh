@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,36 +18,9 @@
 # no-opped on every real session since it was written; manual tests missed
 # this because they fed the script the wrong field name themselves.
 #
-# Two modes, one text:
-#   session-start-check.sh
-#       Claude Code `SessionStart` — emits the JSON envelope below.
-#   session-start-check.sh --message [payload]
-#       Prints the same reminder as plain text and nothing otherwise. This is
-#       what OpenCode's plugin calls: that harness has no SessionStart event
-#       (measured 2026-09-29 — `ctx.event.subscribe("session.created")`
-#       registers but never fires), so the plugin drives this script from its
-#       own per-model-call hook, and takes the payload as an argument because
-#       there is no pipe to feed it through. The text stays here, in one copy,
-#       so the two harnesses cannot drift apart.
-#
-# Note for that OpenCode caller: the `source == "startup"` gate below is this
-# script's, not the harness's — the caller must pass `{"source":"startup"}`.
-# OpenCode has no equivalent of Claude Code's resume/clear/compact/fork, so
-# whoever calls this owns the "only once per session" half.
-
 set -u
 
-MODE="hook"
-PAYLOAD_ARG=""
-case "${1:-}" in
-  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
-esac
-
-if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
-  INPUT="$PAYLOAD_ARG"
-else
-  INPUT=$(cat)
-fi
+INPUT=$(cat)
 
 REASON=$(printf '%s' "$INPUT" | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 [[ "$REASON" == "startup" ]] || exit 0
@@ -115,17 +88,11 @@ is_in_progress() {
   ' "$1" | grep -q "^yes$"
 }
 
-# $1 = the reminder text. One copy, two envelopes: `--message` prints it plain
-# for OpenCode's plugin, everything else wraps it in the JSON Claude Code's
-# SessionStart reads. Never build the text twice — a second copy is the bug
-# this split exists to prevent. The text may span lines (the candidate table
-# below does); JSON cannot carry a raw newline, so hook mode escapes each one to
-# `\n`. Callers keep `"` and `\` out of the text, so nothing else needs escaping.
+# $1 = the reminder text, wrapped in the JSON Claude Code's SessionStart reads.
+# The text may span lines (the candidate table below does); JSON cannot carry a
+# raw newline, so each one is escaped to `\n`. Callers keep `"` and `\` out of
+# the text, so nothing else needs escaping.
 suggest() {
-  if [[ "$MODE" == "message" ]]; then
-    printf '%s' "$1"
-    exit 0
-  fi
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' \
     "$(printf '%s' "$1" | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')"
 }

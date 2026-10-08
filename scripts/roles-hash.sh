@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,8 +24,8 @@
 
 set -u
 
-# Resolve through symlinks: on OpenCode the plugin is reached via a symlinked
-# skills directory, so a logical path would compute the wrong location.
+# Resolve through symlinks: a plugin reached through a symlinked checkout would
+# otherwise compute the registry's location from the link, not the target.
 HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
 ROLES="$HERE/../skills/setup-models/references/roles.md"
 

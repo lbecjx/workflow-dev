@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -11,12 +11,9 @@
 # marker file, so this builds a throwaway repo and points TMPDIR at a throwaway
 # directory — the live /tmp marker store is never read or written.
 #
-# What it pins, beyond the text duality:
-#   - the *deferred* marker still gets its own `allow` answer in hook mode, and
-#     deliberately prints nothing in --message mode (see the script's comment:
-#     `allow` surfaces no prompt on Claude Code either, so a notice here would
-#     be a reminder the other harness never showed);
-#   - a matching marker of either kind means silence, so the reminder cannot
+# What it pins:
+#   - the *deferred* marker gets its own `allow` answer, never an ask;
+#   - a matching marker of either kind means no ask, so the reminder cannot
 #     become a tax paid on every commit after validate passed once.
 #
 #   bash scripts/pre-commit-validate-check.test.sh
@@ -57,8 +54,12 @@ mkdir -p "$PROJ/.workflow-dev/context"
 
 mk() { printf '{"tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)"; }
 hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$SCRIPT" ); }
-plain() { ( cd "$PROJ" && bash "$SCRIPT" --message "$1" ); }
 envelope_reason() { printf '%s' "$1" | sed -E 's/.*"permissionDecisionReason":"(.*)"\}\}$/\1/'; }
+# The reminder text when the hook asks — empty for silence or an `allow`.
+plain() {
+  local out; out="$(hook "$1")"
+  case "$out" in *'"permissionDecision":"ask"'*) envelope_reason "$out" ;; esac
+}
 
 # Same formula the script uses to key its marker, restated here on purpose: the
 # test's job is to place a marker where the script looks for one.
@@ -74,37 +75,31 @@ current_hash() {
        done | shasum | cut -d' ' -f1 )
 }
 
-# --- 1: not a commit → silence in both modes --------------------------------
-[[ -z "$(hook "$(mk 'ls -la')")" ]] && ok "non-commit command → hook mode silent" || no "non-commit command → hook mode silent"
-[[ -z "$(plain "$(mk 'ls -la')")" ]] && ok "non-commit command → --message silent" || no "non-commit command → --message silent"
+# --- 1: not a commit → silence ---------------------------------------------
+[[ -z "$(hook "$(mk 'ls -la')")" ]] && ok "non-commit command → silent" || no "non-commit command → silent"
 
-# --- 2: a commit with no marker → ask (hook) / the same text (--message) ----
+# --- 2: a commit with no marker → ask --------------------------------------
 mkdir -p "$MARKER_DIR"; rm -f "$MARKER"
 COMMIT="$(mk 'git commit -m "feat: x"')"
 JSON_OUT="$(hook "$COMMIT")"
-PLAIN_OUT="$(plain "$COMMIT")"
-[[ -n "$PLAIN_OUT" ]] && ok "--message prints the reminder" || no "--message prints the reminder (got nothing)"
-[[ "$(envelope_reason "$JSON_OUT")" == "$PLAIN_OUT" ]] \
-  && ok "both modes carry the same text (one copy, no drift)" \
-  || no "both modes carry the same text (json: $(envelope_reason "$JSON_OUT") | msg: $PLAIN_OUT)"
+[[ -n "$(envelope_reason "$JSON_OUT")" ]] && ok "the ask carries the reminder" || no "the ask carries the reminder (got: $JSON_OUT)"
 case "$JSON_OUT" in
-  *'"permissionDecision":"ask"'*) ok "hook mode still asks (never denies)" ;;
-  *) no "hook mode still asks (got: $JSON_OUT)" ;;
+  *'"permissionDecision":"ask"'*) ok "a commit with no marker asks (never denies)" ;;
+  *) no "a commit with no marker asks (got: $JSON_OUT)" ;;
 esac
 
-# --- 3: a matching 'deferred' marker → allow, and silence in --message ------
+# --- 3: a matching 'deferred' marker → allow --------------------------------
 printf '{"diffHash":"%s","status":"deferred","at":"2026-09-29T00:00:00Z"}' "$(current_hash)" > "$MARKER"
 JSON_OUT="$(hook "$COMMIT")"
 case "$JSON_OUT" in
   *'"permissionDecision":"allow"'*) ok "deferred marker → hook mode allows" ;;
   *) no "deferred marker → hook mode allows (got: $JSON_OUT)" ;;
 esac
-[[ -z "$(plain "$COMMIT")" ]] && ok "deferred marker → --message silent (allow shows no prompt anywhere)" || no "deferred marker → --message silent (got: $(plain "$COMMIT"))"
+[[ -z "$(plain "$COMMIT")" ]] && ok "deferred marker → no ask" || no "deferred marker → no ask (got: $(plain "$COMMIT"))"
 
-# --- 4: a matching 'validated' marker → silence in both modes ---------------
+# --- 4: a matching 'validated' marker → silence -----------------------------
 printf '{"diffHash":"%s","status":"validated","at":"2026-09-29T00:00:00Z"}' "$(current_hash)" > "$MARKER"
-[[ -z "$(hook "$COMMIT")" ]] && ok "validated marker → hook mode silent" || no "validated marker → hook mode silent"
-[[ -z "$(plain "$COMMIT")" ]] && ok "validated marker → --message silent" || no "validated marker → --message silent"
+[[ -z "$(hook "$COMMIT")" ]] && ok "validated marker → silent" || no "validated marker → silent"
 
 # --- 5: a marker from an older diff is not a match --------------------------
 printf '{"diffHash":"deadbeef","status":"validated","at":"2026-09-29T00:00:00Z"}' > "$MARKER"
@@ -113,8 +108,7 @@ printf '{"diffHash":"deadbeef","status":"validated","at":"2026-09-29T00:00:00Z"}
 # --- 6: no .workflow-dev/context → this project doesn't use the workflow -----
 rm -rf "$PROJ/.workflow-dev"
 rm -f "$MARKER"
-[[ -z "$(plain "$COMMIT")" ]] && ok "no context dir → --message silent" || no "no context dir → --message silent"
-[[ -z "$(hook "$COMMIT")" ]] && ok "no context dir → hook mode silent" || no "no context dir → hook mode silent"
+[[ -z "$(hook "$COMMIT")" ]] && ok "no context dir → silent" || no "no context dir → silent"
 
 # --- 7: which commands count as a commit ------------------------------------
 # With no marker, a command the matcher calls a commit gets the reminder and
@@ -155,7 +149,7 @@ mkdir -p "$NOJQ"
 for t in bash cat grep sed awk head cut sort tr git shasum dirname uname find; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
-nojq_fires() { [[ -n "$( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --message "$(mk "$1")" )" ]]; }
+nojq_fires() { [[ "$( cd "$PROJ" && mk "$1" | PATH="$NOJQ" bash "$SCRIPT" )" == *'"permissionDecision":"ask"'* ]]; }
 if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
   echo "  skip  could not hide jq from the fallback checks"
 else
@@ -239,7 +233,7 @@ chmod +x "$RACE_BIN/shasum"
          SHASUM_REPO_HASH="$REPO_HASH" \
          SHASUM_REAL="$REAL_SHASUM" \
          PATH="$RACE_BIN:$PATH" \
-         bash "$SCRIPT" --message "$COMMIT" ) > "$TMP/race-out" 2>&1
+         bash "$SCRIPT" <<< "$COMMIT" ) > "$TMP/race-out" 2>&1
 # The shim must actually have fired, or this passes for the wrong reason.
 [[ "$(cat "$TMP/race-count" 2>/dev/null)" == "2" && -f "$RACE_TMP/workflow-dev-validate/$REPO_HASH.json" ]] \
   && ok "the race shim planted a marker during the hash pass" \

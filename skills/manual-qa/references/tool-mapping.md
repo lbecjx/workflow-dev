@@ -2,8 +2,8 @@
 
 `SKILL.md` is written against a **capability contract**, not any single tool.
 This file maps that contract to the concrete browser/device tooling an agent
-might have, per platform and per agent, so the skill stays portable across
-Claude Code and OpenCode.
+might have, per platform, so the skill stays portable across whatever browser
+or device tooling a session has connected.
 
 ## The capability contract
 
@@ -24,7 +24,7 @@ capability, never by a hardcoded tool name.
 
 | Tool | How it's reached | Ops it provides |
 |---|---|---|
-| **Playwright MCP** | MCP server (`@playwright/mcp`); OpenCode namespace `playwright.*`, Claude Code `mcp__playwright__*` | `browser_navigate`, `browser_snapshot` (accessibility tree), `browser_click`, `browser_type`/`browser_fill_form`, `browser_console_messages`, `browser_network_requests`, `browser_take_screenshot` |
+| **Playwright MCP** | MCP server (`@playwright/mcp`); tools named `mcp__playwright__*` | `browser_navigate`, `browser_snapshot` (accessibility tree), `browser_click`, `browser_type`/`browser_fill_form`, `browser_console_messages`, `browser_network_requests`, `browser_take_screenshot` |
 | **playwright-cli** | `@playwright/cli` on `PATH` (shell) | `playwright-cli open/goto`, `--raw snapshot`, `click`, `type`, `screenshot` — token-efficient, headless |
 | **Claude-in-Chrome** | Claude Code's Chrome extension (`mcp__claude-in-chrome__*`) | drives the user's real Chrome with its logins |
 
@@ -54,9 +54,8 @@ Android runs on any host OS (macOS/Linux/Windows) — no macOS constraint.
 
 ## Detecting capability at runtime
 
-- **MCP tools** appear in the agent's tool catalog — OpenCode groups them under
-  a Code Mode namespace (`playwright.*`, `maestro.*`); Claude Code exposes
-  `mcp__<server>__<tool>`. A server that is *configured but not connected* is
+- **MCP tools** appear in the agent's tool catalog as `mcp__<server>__<tool>`,
+  where `<server>` is whatever name the session configured. A server that is *configured but not connected* is
   **not** a capability — treat it as unavailable.
 - **CLIs**: check availability before relying on one (`which playwright-cli`,
   `which adb`, `which maestro`).
@@ -65,10 +64,10 @@ Android runs on any host OS (macOS/Linux/Windows) — no macOS constraint.
 
 ## Naming differences (why the skill must stay capability-based)
 
-The same capability has a different tool name per agent — e.g. Playwright MCP's
-navigate is `playwright.browser_navigate` in OpenCode and
-`mcp__playwright__browser_navigate` in Claude Code. Hardcoding either breaks the
-other. Name the **operation**, then use whichever tool the catalog actually
+The same capability can carry a different tool name per session — e.g.
+Playwright MCP's navigate is `mcp__playwright__browser_navigate` only when the
+server was configured as `playwright`; under another server name the prefix
+changes. Hardcoding one name breaks the others. Name the **operation**, then use whichever tool the catalog actually
 offers.
 
 This file covers browser and device tooling. The same rule for the non-browser

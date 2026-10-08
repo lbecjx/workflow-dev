@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -41,67 +41,22 @@
 # "can't discover it, skip, don't fail": a check that can't run confidently
 # shouldn't produce a false sense of either safety or danger.
 #
-# Four modes, one owner of both the text and the verdict:
-#   pre-commit-message-check.sh
-#       Claude Code `PreToolUse` (matcher: Bash) — emits the JSON envelope.
-#   pre-commit-message-check.sh --status [payload]
-#       Prints one word and exits 0: `ok` (nothing to raise), `block` (the
-#       attribution rule — the one hard denial) or `notify` (the Part 12
-#       review). OpenCode's plugin reads this to know *whether* to raise
-#       something, and how hard.
-#   pre-commit-message-check.sh --message [payload]
-#       Prints the reason as plain text for whichever of those two fired, and
-#       nothing when the answer is `ok`.
-#   pre-commit-message-check.sh --verdict [payload]
-#       Prints the verdict and the reason from **one** run: the verdict word on
-#       the first line, and, when there is one, the reason on the rest. OpenCode's
-#       plugin reads this so it never runs the script twice and pairs a verdict
-#       from one run with a reason computed at another moment (WD-0020).
-# The verdict and the wording are both decided here, never re-derived by the
-# caller — a second "should this fire?" test in the plugin would be free to
-# disagree with the one Claude Code gets.
-
-MODE="hook"
-PAYLOAD_ARG=""
-case "${1:-}" in
-  --status)  MODE="status";  PAYLOAD_ARG="${2:-}" ;;
-  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
-  --verdict) MODE="verdict"; PAYLOAD_ARG="${2:-}" ;;
-esac
-
-# The one place a decision becomes an envelope. `verdict` is the one-word form
-# (`ok` / `block` / `notify`), `reason` the text; `--verdict` is the only mode
-# that prints both, which is what lets OpenCode's plugin decide and explain from
-# a single run instead of two runs that could disagree (WD-0020).
+# The verdict (`ok` / `block` / `notify`) and the wording are both decided here,
+# in one place: `ok` is silent, `block` (the attribution rule) denies, `notify`
+# (the Part 12 review) asks.
 emit() {
   local verdict="$1" reason="$2" decision
-  case "$MODE" in
-    status)  printf '%s' "$verdict" ;;
-    message) [[ -n "$reason" ]] && printf '%s' "$reason" ;;
-    verdict) printf '%s' "$verdict"; [[ -n "$reason" ]] && printf '\n%s' "$reason" ;;
-    *)
-      # Hook mode: `ok` is silent, the attribution rule denies, everything else
-      # asks — so "silence is not one of the three words" holds for the other
-      # modes without inventing output here.
-      [[ "$verdict" == "ok" ]] && exit 0
-      decision=ask
-      [[ "$verdict" == "block" ]] && decision=deny
-      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}' "$decision" "$reason"
-      ;;
-  esac
+  [[ "$verdict" == "ok" ]] && exit 0
+  decision=ask
+  [[ "$verdict" == "block" ]] && decision=deny
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}' "$decision" "$reason"
   exit 0
 }
 
-# Every early exit goes through this, so `--status` always answers a verdict
-# instead of exiting silently — silence is not one of the three words, and a
-# caller that had to read it as one would be guessing.
+# Every early exit goes through this — nothing to raise.
 quiet() { emit ok ""; }
 
-if [[ "$MODE" != "hook" && -n "$PAYLOAD_ARG" ]]; then
-  INPUT="$PAYLOAD_ARG"
-else
-  INPUT=$(cat)
-fi
+INPUT=$(cat)
 
 # command-match.sh owns both questions every commit hook asks: what the command
 # was (one JSON extractor, shared) and whether it is really a commit/PR (see its

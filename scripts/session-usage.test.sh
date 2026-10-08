@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,6 +33,12 @@ assert_contains() { # $1 expected substring, $2 haystack, $3 label
   case "$2" in
     *"$1"*) ok "$3" ;;
     *) no "$3 (missing: $1)" ;;
+  esac
+}
+assert_absent() { # $1 unexpected substring, $2 haystack, $3 label
+  case "$2" in
+    *"$1"*) no "$3 (unexpected: $1)" ;;
+    *) ok "$3" ;;
   esac
 }
 
@@ -104,32 +110,6 @@ rc=$?
 [[ $rc -eq 0 ]] && assert_contains "No usage source found" "$(cat "$TMP/err2")" "no source → exit 0 with message" \
               || no "no source → exit 0 with message"
 
-# --- 6b: OpenCode backend — parent + child session, cost/tokens/wall ---------
-mkdir -p "$TMP/proj"
-PROJDIR="$(cd "$TMP/proj" && pwd -P)"
-DBF="$TMP/fixture.db"
-sqlite3 "$DBF" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-CREATE TABLE session_message (session_id text, time_created integer);
-INSERT INTO session_v2 VALUES ('ses_parent',NULL,'$PROJDIR','Main run','build','{"id":"m1"}',1.5,100,10,5,1000,0,0,100);
-INSERT INTO session_v2 VALUES ('ses_child1','ses_parent','$PROJDIR','Sub A','general','{"id":"m1"}',0.5,50,5,2,500,0,0,999);
-INSERT INTO session_message VALUES ('ses_parent',0),('ses_parent',10000),('ses_child1',0),('ses_child1',30000);
-SQL
-OUT6=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBF" OPENCODE_SESSION_ID= bash "$SCRIPT" 2>/dev/null )
-assert_contains "Workflow usage (OpenCode)" "$OUT6" "OpenCode backend selected"
-assert_contains "Session: ses_parent" "$OUT6" "OpenCode resolves the top-level session, not a newer child"
-assert_contains "Sub A" "$OUT6" "child session listed as sub-agent"
-assert_contains "input: 150  output: 15  reasoning: 7  cache_read: 1500" "$OUT6" "OpenCode grand total sums parent + child"
-assert_contains "cost: \$2.0000" "$OUT6" "OpenCode grand total includes cost"
-
-# --- 6c: --sessions sums an explicit set (per-story attribution) -----------
-OUT7=$( cd "$TMP/proj" && OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_child1 2>/dev/null )
-assert_contains "2.0000" "$OUT7" "--sessions sums the explicit session list"
-assert_contains "ses_bogus" "$( cd "$TMP/proj" && OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_bogus 2>/dev/null )" "--sessions reports unknown ids"
-
 # --- 6d: --transcripts sums an explicit set (Claude per-story attribution) --
 printf '{"type":"assistant","message":{"id":"a1","usage":{"input_tokens":10,"output_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}\n' > "$TMP/tx1.jsonl"
 printf '{"type":"assistant","message":{"id":"a2","usage":{"input_tokens":20,"output_tokens":2,"cache_read_input_tokens":200,"cache_creation_input_tokens":0}}}\n' > "$TMP/tx2.jsonl"
@@ -157,14 +137,6 @@ OUTE=$( cd "$PROJP" && HOME="$FAKEHOME" bash "$SCRIPT" --transcripts "$TMP/tx1.j
 TOTE=$(printf '%s' "$OUTE" | grep TOTAL)
 assert_contains "300" "$TOTE" "--transcripts wins over a resolvable transcript (cache_read)"
 assert_contains "30" "$TOTE" "--transcripts wins over a resolvable transcript (input)"
-# The other two explicit selectors take the same precedence (the --session
-# branch is reached for the first time here; before the reorder it was dead
-# whenever a transcript resolved).
-OUTS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --sessions ses_parent,ses_child1 )
-assert_contains "explicit sessions" "$OUTS" "--sessions wins over a resolvable transcript"
-OUTSS=$( cd "$PROJP" && HOME="$FAKEHOME" OPENCODE_DB="$DBF" bash "$SCRIPT" --session ses_parent )
-assert_contains "Session: ses_parent" "$OUTSS" "--session wins over a resolvable transcript"
-
 # --- 6f: a stale tracked .compaction-state path must not shadow this run -----
 # The WD-0035 defect: resolve_claude preferred a tracked transcriptPath even
 # when it belonged to a finished run, so the report showed a fixed total while
@@ -179,7 +151,7 @@ touch -t 202001010000 "$TRACKED_OLD"
 NEW_RUN="$FAKEHT/.claude/projects/$SLUGT/new.jsonl"
 printf '{"type":"assistant","message":{"id":"new","model":"m","usage":{"input_tokens":222,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$NEW_RUN"
 printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_OLD" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
-OUT_T=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+OUT_T=$( cd "$PROJT" && HOME="$FAKEHT" bash "$SCRIPT" 2>/dev/null )
 assert_contains "input: 222" "$OUT_T" "stale tracked transcriptPath does not shadow the current run"
 
 # --- 6f2: freshness is not identity — a fresh path a just-ended run left -----
@@ -190,7 +162,7 @@ printf '{"type":"assistant","message":{"id":"ended","model":"m","usage":{"input_
 printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_ENDED" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
 # The current run's transcript is written after it, so it is the newer file.
 printf '{"type":"assistant","message":{"id":"new","model":"m","usage":{"input_tokens":222,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$NEW_RUN"
-OUT_T2=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+OUT_T2=$( cd "$PROJT" && HOME="$FAKEHT" bash "$SCRIPT" 2>/dev/null )
 assert_contains "input: 222" "$OUT_T2" "a fresh-but-ended tracked path does not win over the newer transcript"
 
 # --- 6g: with no fresh project transcript, a fresh tracked path is the pin ---
@@ -199,7 +171,7 @@ mkdir -p "$TMP/elsewhere"
 TRACKED_FRESH="$TMP/elsewhere/pinned.jsonl"
 printf '{"type":"assistant","message":{"id":"pin","model":"m","usage":{"input_tokens":333,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$TRACKED_FRESH"
 printf '{"transcriptPath":"%s","length":0}\n' "$TRACKED_FRESH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
-OUT_P=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+OUT_P=$( cd "$PROJT" && HOME="$FAKEHT" bash "$SCRIPT" 2>/dev/null )
 assert_contains "input: 333" "$OUT_P" "a fresh tracked transcriptPath is used when the project has none"
 
 # --- 6h: a stale tracked path with nothing fresh is refused, not reported ----
@@ -209,7 +181,7 @@ STALE_R="$FAKEHR/old.jsonl"
 printf '{"type":"assistant","message":{"id":"old","model":"m","usage":{"input_tokens":444,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$STALE_R"
 touch -t 202001010000 "$STALE_R"
 printf '{"transcriptPath":"%s","length":0}\n' "$STALE_R" > "$PROJR/.workflow-dev/context/.compaction-state/WD-T.json"
-OUT_R=$( cd "$PROJR" && HOME="$FAKEHR" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>&1 )
+OUT_R=$( cd "$PROJR" && HOME="$FAKEHR" bash "$SCRIPT" 2>&1 )
 assert_contains "No usage source found" "$OUT_R" "a stale tracked path with no fresh transcript is refused"
 case "$OUT_R" in
   *"input: 444"*) no "stale tracked totals are not reported as this run" ;;
@@ -220,63 +192,14 @@ esac
 CUR_PATH="$TMP/elsewhere/current.jsonl"
 printf '{"type":"assistant","message":{"id":"cur","model":"m","usage":{"input_tokens":555,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$CUR_PATH"
 printf '{"current":"claude","claudePath":"%s","claudeLength":0}\n' "$CUR_PATH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
-OUT_CP=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+OUT_CP=$( cd "$PROJT" && HOME="$FAKEHT" bash "$SCRIPT" 2>/dev/null )
 assert_contains "input: 555" "$OUT_CP" "the current state shape (claudePath) is honored"
-# An empty `claudePath` (the OpenCode-shaped state) must not hide the legacy key.
+# An empty `claudePath` (as an older two-source state wrote it) must not hide the legacy key.
 printf '{"current":"claude","claudePath":"","transcriptPath":"%s","claudeLength":0}\n' "$CUR_PATH" > "$PROJT/.workflow-dev/context/.compaction-state/WD-T.json"
-OUT_CE=$( cd "$PROJT" && HOME="$FAKEHT" OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" 2>/dev/null )
+OUT_CE=$( cd "$PROJT" && HOME="$FAKEHT" bash "$SCRIPT" 2>/dev/null )
 assert_contains "input: 555" "$OUT_CE" "an empty claudePath falls back to transcriptPath"
 
-# --- 6j: OpenCode default tracks OPENCODE_SESSION_ID, not the newest ---------
-DBT="$TMP/current.db"
-sqlite3 "$DBT" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-CREATE TABLE session_message (session_id text, time_created integer);
-INSERT INTO session_v2 VALUES ('ses_current',NULL,'$PROJDIR','Current run','build','{"id":"m1"}',0.1,11,1,0,0,0,100,100);
-INSERT INTO session_v2 VALUES ('ses_newer',NULL,'$PROJDIR','Other run','build','{"id":"m1"}',9.9,999,0,0,0,0,5000,5000);
-INSERT INTO session_v2 VALUES ('ses_child','ses_current','$PROJDIR','Sub','general','{"id":"m1"}',0,0,0,0,0,0,0,0);
-INSERT INTO session_v2 VALUES ('ses_grand','ses_child','$PROJDIR','Sub-sub','general','{"id":"m1"}',0,0,0,0,0,0,0,0);
-SQL
-OUT_I=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_current bash "$SCRIPT" 2>/dev/null )
-assert_contains "Session: ses_current" "$OUT_I" "OpenCode default uses OPENCODE_SESSION_ID"
-case "$OUT_I" in
-  *"Session: ses_newer"*) no "OPENCODE_SESSION_ID beats the newest top-level session" ;;
-  *) ok "OPENCODE_SESSION_ID beats the newest top-level session" ;;
-esac
-OUT_J=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_child bash "$SCRIPT" 2>/dev/null )
-assert_contains "Session: ses_current" "$OUT_J" "a sub-agent's child OPENCODE_SESSION_ID resolves to its parent run"
-OUT_L=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_grand bash "$SCRIPT" 2>/dev/null )
-assert_contains "Session: ses_current" "$OUT_L" "a nested sub-agent id walks up to the run"
-# ...and so does a top-level one belonging to another directory.
-mkdir -p "$TMP/otherdir"
-OTHER_DIR="$( cd "$TMP/otherdir" && pwd -P )"
-sqlite3 "$DBT" "INSERT INTO session_v2 VALUES ('ses_foreign',NULL,'$OTHER_DIR','Foreign','build','{\"id\":\"m1\"}',0,0,0,0,0,0,9000,9000);"
-OUT_K=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_DB="$DBT" OPENCODE_SESSION_ID=ses_foreign bash "$SCRIPT" 2>/dev/null )
-assert_contains "Session: ses_newer" "$OUT_K" "an OPENCODE_SESSION_ID from another directory is refused"
-
-# --- 6k: snapshot — the common normalized object, both harnesses -----------
-# OpenCode: cost/tokens come from the WHOLE recursive session tree, so a
-# grandchild (a sub-sub-agent) is counted once and only once. The old report
-# summed direct children only, which is exactly the undercount this replaces.
-TGDB="$TMP/snapshot.db"
-sqlite3 "$TGDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_p',NULL,'$PROJDIR','Run','build','{"id":"m1"}',1.0,10,5,1,100,2,0,100);
-INSERT INTO session_v2 VALUES ('ses_c','ses_p','$PROJDIR','Sub','wd-judge','{"id":"m2"}',0.5,4,2,0,50,0,0,200);
-INSERT INTO session_v2 VALUES ('ses_g','ses_c','$PROJDIR','Sub-sub','general','{"id":"m3"}',0.25,2,1,0,25,0,0,300);
-SQL
-SNAP_OC=$( cd "$TMP/proj" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$TGDB" OPENCODE_SESSION_ID=ses_p bash "$SCRIPT" --snapshot WD-T --stage test 2>/dev/null )
-assert_contains '"harness": "opencode"' "$SNAP_OC" "snapshot dispatches to the OpenCode adapter"
-assert_contains '"cost_usd": 1.75' "$SNAP_OC" "OpenCode snapshot sums the whole tree (grandchild included)"
-assert_contains '"input": 16' "$SNAP_OC" "OpenCode snapshot tokens include the grandchild"
-assert_contains '"output": 8' "$SNAP_OC" "OpenCode snapshot output sums parent + child + grandchild"
-
+# --- 6k: snapshot — the common normalized object ----------------------------
 # Claude Code: cost and the sub-agent-inclusive total come from the last
 # `cost-state`; tokens come from message.usage plus each readable side-chain.
 SNAP_MAIN="$TMP/snapshot-main.jsonl"
@@ -290,7 +213,7 @@ cat > "$SNAP_MAIN" <<JSONL
 {"type":"cost-state","totalCostUSD":74.027,"modelUsage":{"claude-haiku-4-5":{"costUSD":0.1166},"claude-sonnet-5-5":{"costUSD":71.265},"claude-opus-5-5":{"costUSD":2.645}}}
 JSONL
 mkdir -p "$TMP/snapdir"
-SNAP_CL=$( cd "$TMP/snapdir" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-T --stage test "$SNAP_MAIN" 2>/dev/null )
+SNAP_CL=$( cd "$TMP/snapdir" && env CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-T --stage test "$SNAP_MAIN" 2>/dev/null )
 assert_contains '"harness": "claude"' "$SNAP_CL" "snapshot dispatches to the Claude adapter"
 assert_contains '"cost_usd": 74.027' "$SNAP_CL" "Claude snapshot cost is the last cost-state's totalCostUSD (sub-agents included)"
 assert_contains '"input": 117' "$SNAP_CL" "Claude snapshot tokens include the readable side-chain"
@@ -300,66 +223,56 @@ assert_contains '"claude-opus-5-5"' "$SNAP_CL" "Claude snapshot models carry a m
 # fabricated zero.
 SNAP_NC="$TMP/snapshot-nocost.jsonl"
 printf '{"type":"assistant","message":{"id":"x1","model":"m","usage":{"input_tokens":9,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' > "$SNAP_NC"
-SNAP_NULL=$( cd "$TMP/snapdir" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-T --stage test "$SNAP_NC" 2>/dev/null )
+SNAP_NULL=$( cd "$TMP/snapdir" && env CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-T --stage test "$SNAP_NC" 2>/dev/null )
 assert_contains '"cost_usd": null' "$SNAP_NULL" "no cost-state → cost_usd null, never 0"
 assert_contains '"input": 9' "$SNAP_NULL" "tokens are still reported when cost is unknown"
 
-# No harness signal and no source → an honest `unavailable`, never a total.
-SNAP_NA=$( cd "$TMP/empty" && HOME="$TMP/nohome" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT OPENCODE_DB="$TMP/none.db" bash "$SCRIPT" --snapshot WD-T --stage test 2>/dev/null )
-assert_contains '"status":"unavailable"' "$SNAP_NA" "no source and no harness → unavailable"
+# No source → an honest `unavailable`, never a total.
+SNAP_NA=$( cd "$TMP/empty" && HOME="$TMP/nohome" env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT bash "$SCRIPT" --snapshot WD-T --stage test 2>/dev/null )
+assert_contains '"status":"unavailable"' "$SNAP_NA" "no source → unavailable"
 
-# --- 6l: ledger — delta, idempotency, reset, cross-harness, durability ------
+# --- 6l: ledger — delta, idempotency, reset, durability ---------------------
+# The ledger logic does not care where a reading came from; it is driven here
+# by a transcript rewritten between checkpoints (same path = same `source`).
 LEDGER_PROJ="$TMP/ledgerproj"
 mkdir -p "$LEDGER_PROJ/.workflow-dev/context"
-LEDGER_DB="$TMP/ledger.db"
-sqlite3 "$LEDGER_DB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_lp',NULL,'$LEDGER_PROJ','Run','build','{"id":"m1"}',1.0,10,5,1,100,2,0,100);
-SQL
-snap_oc() { # $1 story, $2 stage
-  ( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$LEDGER_DB" \
-      OPENCODE_SESSION_ID=ses_lp bash "$SCRIPT" --snapshot "$1" --stage "$2" >/dev/null 2>&1 )
+# tx FILE COST INPUT OUTPUT — one priced (or, with COST "-", unpriced) reading.
+# Model "m" has no price-table entry, so an unpriced reading stays null.
+tx() {
+  printf '{"type":"assistant","message":{"id":"r","model":"m","usage":{"input_tokens":%s,"output_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$3" "$4" > "$1"
+  [[ "$2" == "-" ]] || printf '{"type":"cost-state","totalCostUSD":%s,"modelUsage":{"m":{"costUSD":%s}}}\n' "$2" "$2" >> "$1"
 }
 snap_cl() { # $1 story, $2 stage, $3 transcript
-  ( cd "$LEDGER_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID \
+  ( cd "$LEDGER_PROJ" && env -u CLAUDE_CODE_SESSION_ID \
       CLAUDECODE=1 bash "$SCRIPT" --snapshot "$1" --stage "$2" "$3" >/dev/null 2>&1 )
 }
 LEDGER_FILE="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-L1.json"
+LEDGER_TX="$TMP/ledger-a.jsonl"
+LEDGER_SRC="$(cd "$TMP" && pwd -P)/ledger-a.jsonl"
 
-snap_oc WD-L1 plan                       # abs 1.0  → delta 1.0, tokens in 10
-sqlite3 "$LEDGER_DB" "UPDATE session_v2 SET cost=1.5, tokens_input=16 WHERE id='ses_lp';"
-snap_oc WD-L1 validate                   # abs 1.5  → delta 0.5, token delta 6
-snap_oc WD-L1 validate                   # same state → idempotent, no new line
+tx "$LEDGER_TX" 1.0 10 5;  snap_cl WD-L1 plan "$LEDGER_TX"       # abs 1.0  → delta 1.0, tokens in 10
+tx "$LEDGER_TX" 1.5 16 5;  snap_cl WD-L1 validate "$LEDGER_TX"   # abs 1.5  → delta 0.5, token delta 6
+snap_cl WD-L1 validate "$LEDGER_TX"                              # same state → idempotent, no new line
 [[ "$(jq -r '.checkpoints | length' "$LEDGER_FILE")" == "2" ]] \
   && ok "same source|stage|state is idempotent (no duplicate checkpoint)" \
   || no "same source|stage|state is idempotent"
+tx "$LEDGER_TX" 0.25 2 5;  snap_cl WD-L1 save "$LEDGER_TX"       # abs fell → new segment, delta 0.25, token delta 2
 
-sqlite3 "$LEDGER_DB" "UPDATE session_v2 SET cost=0.25, tokens_input=2 WHERE id='ses_lp';"
-snap_oc WD-L1 save                       # abs fell → new segment, delta 0.25, token delta 2
-
-# Cross-harness: a Claude checkpoint for the SAME story, a different `source`.
-LEDGER_TX="$TMP/ledger-claude.jsonl"
-printf '%s\n' \
-  '{"type":"assistant","message":{"id":"c1","model":"m","usage":{"input_tokens":5,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' \
-  '{"type":"cost-state","totalCostUSD":3.0,"modelUsage":{"m":{"costUSD":3.0}}}' > "$LEDGER_TX"
-snap_cl WD-L1 plan "$LEDGER_TX"
+# A second session for the SAME story: a different `source`.
+LEDGER_TX2="$TMP/ledger-b.jsonl"
+tx "$LEDGER_TX2" 3.0 5 1; snap_cl WD-L1 plan "$LEDGER_TX2"
 
 LED_TOT=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-L1 )
-assert_contains '$4.75' "$LED_TOT" "story total sums deltas across both harnesses"
-assert_contains 'opencode: $1.75' "$LED_TOT" "per-harness split: OpenCode deltas"
-assert_contains 'claude: $3' "$LED_TOT" "per-harness split: Claude delta"
-# Tokens are summed as DELTAS too (10 + 6 + 2 from OpenCode, +5 from Claude),
-# never as the sum of each checkpoint's absolute cumulative count.
+assert_contains '$4.75' "$LED_TOT" "story total sums deltas across sessions"
+assert_absent 'legacy OpenCode' "$LED_TOT" "no legacy line when the ledger holds no OpenCode checkpoint"
+# Tokens are summed as DELTAS too (10 + 6 + 2 from one session, +5 from the
+# other), never as the sum of each checkpoint's absolute cumulative count.
 assert_contains 'input 23' "$LED_TOT" "story token total sums deltas, not absolutes"
-[[ "$(jq -r '[.checkpoints[] | select(.source=="ses_lp")] | last | .segment' "$LEDGER_FILE")" == "2" ]] \
+[[ "$(jq -r --arg s "$LEDGER_SRC" '[.checkpoints[] | select(.source==$s)] | last | .segment' "$LEDGER_FILE")" == "2" ]] \
   && ok "a falling absolute starts a new segment" || no "a falling absolute starts a new segment"
 
 # AC 17: delete every source — the ledger still answers with the recorded total.
-rm -f "$LEDGER_TX"
-sqlite3 "$LEDGER_DB" "DELETE FROM session_v2;"
+rm -f "$LEDGER_TX" "$LEDGER_TX2"
 LED_AFTER=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-L1 )
 assert_contains '$4.75' "$LED_AFTER" "the total survives deletion of every source (AC 17)"
 
@@ -367,59 +280,76 @@ assert_contains '$4.75' "$LED_AFTER" "the total survives deletion of every sourc
 LED_NONE=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-NOPE )
 assert_contains 'unavailable' "$LED_NONE" "no ledger and no source → unavailable (AC 18)"
 
+# --- 6l2: a ledger recorded before OpenCode support was removed (WD-0026) ---
+# Its OpenCode checkpoints (`harness: "opencode"`, a `ses_…` source) still count
+# in the total, are named on a line of their own, and — being exact rows of the
+# store they came from — keep a story verified across the upgrade.
+LEGACY_FILE="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-LEG.json"
+cat > "$LEGACY_FILE" <<'JSON'
+{"story":"WD-LEG","checkpoints":[
+ {"at":"2026-10-01T00:00:00Z","stage":"init","source":"ses_old","harness":"opencode","segment":1,"cost_usd":1.0,"delta":1.0,"abs":{"cost_usd":1.0,"tokens":{"input":10,"output":5,"reasoning":0,"cache_read":0,"cache_write":0}},"token_delta":{"input":10,"output":5,"reasoning":0,"cache_read":0,"cache_write":0},"models":{"m1":{"cost_usd":1.0,"tokens":{"input":10,"output":5,"reasoning":0,"cache_read":0,"cache_write":0}}}},
+ {"at":"2026-10-01T01:00:00Z","stage":"plan","source":"ses_old","harness":"opencode","segment":1,"cost_usd":1.75,"delta":0.75,"abs":{"cost_usd":1.75,"tokens":{"input":16,"output":8,"reasoning":0,"cache_read":0,"cache_write":0}},"token_delta":{"input":6,"output":3,"reasoning":0,"cache_read":0,"cache_write":0},"models":{"m1":{"cost_usd":1.75,"tokens":{"input":16,"output":8,"reasoning":0,"cache_read":0,"cache_write":0}}}}
+]}
+JSON
+LEG_TX="$TMP/legacy-claude.jsonl"
+tx "$LEG_TX" 3.0 5 1; snap_cl WD-LEG implement "$LEG_TX"
+LEG=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-LEG )
+assert_contains 'total: $4.75' "$LEG" "legacy OpenCode deltas still count in the story total"
+assert_contains 'legacy OpenCode (recorded before OpenCode support was removed): $1.75' "$LEG" "legacy OpenCode deltas are named on their own line"
+assert_contains 'input 21' "$LEG" "legacy OpenCode token deltas still count"
+LEG_ONLY="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-LEGV.json"
+jq '.story = "WD-LEGV" | .checkpoints[].source = "ses_other"' "$LEGACY_FILE" > "$LEG_ONLY"
+( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-LEGV >/dev/null )
+[[ "$(jq -r '.stories["WD-LEGV"].verified' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json")" == "true" ]] \
+  && ok "a story made only of legacy OpenCode checkpoints stays verified" \
+  || no "a story made only of legacy OpenCode checkpoints stays verified (got: $(jq -c '.stories["WD-LEGV"]' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json"))"
+
 # --- 6m: --story renders the per-role breakdown and the configured binding --
 # Cubes come from what actually ran (never a fixed list); the binding line
 # comes from model-tiering-check.sh --role-models; and a generic sub-agent is
 # surfaced as a config-vs-observed discrepancy, not hidden.
 REPORT_HOME="$TMP/report-home"
-mkdir -p "$REPORT_HOME/.config/opencode/agents"
+mkdir -p "$REPORT_HOME/.claude/agents"
 REPORT_HASH="$(bash "$HERE/roles-hash.sh")"
-printf -- '---\ndescription: d\nmode: subagent\nmodel: ghost/cheap\n---\nb\n<!-- workflow-dev:roles-hash %s -->\n' \
-  "$REPORT_HASH" > "$REPORT_HOME/.config/opencode/agents/wd-judge.md"
-REPORT_DB="$TMP/report.db"
-sqlite3 "$REPORT_DB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_rp',NULL,'$LEDGER_PROJ','Run','build','{"id":"m1"}',1.0,10,5,1,100,2,0,100);
-INSERT INTO session_v2 VALUES ('ses_rc','ses_rp','$LEDGER_PROJ','Sub','general','{"id":"m2"}',0.5,4,2,0,50,0,0,200);
-SQL
-( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" OPENCODE_TERMINAL=1 OPENCODE_DB="$REPORT_DB" \
-    OPENCODE_SESSION_ID=ses_rp bash "$SCRIPT" --snapshot WD-R --stage plan >/dev/null 2>&1 )
-REP=$( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" OPENCODE_TERMINAL=1 bash "$SCRIPT" --story WD-R )
+printf -- '---\nname: wd-judge\ndescription: d\nmodel: ghost-cheap\n---\nb\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$REPORT_HASH" > "$REPORT_HOME/.claude/agents/wd-judge.md"
+REPORT_SIDE="$TMP/report-side.output"
+printf '%s\n' '{"type":"assistant","message":{"id":"rs1","model":"m2","usage":{"input_tokens":4,"output_tokens":2,"cache_read_input_tokens":50,"cache_creation_input_tokens":0}}}' > "$REPORT_SIDE"
+REPORT_TX="$TMP/report-main.jsonl"
+cat > "$REPORT_TX" <<JSONL
+{"type":"assistant","message":{"id":"rm1","model":"m1","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":2}}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_r","name":"Agent","input":{"description":"Sub","subagent_type":"general-purpose"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_r","content":[{"type":"text","text":"output_file: $REPORT_SIDE"}]}]}}
+{"type":"cost-state","totalCostUSD":1.5,"modelUsage":{"m1":{"costUSD":1.0},"m2":{"costUSD":0.5}}}
+JSONL
+( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 \
+    bash "$SCRIPT" --snapshot WD-R --stage plan "$REPORT_TX" >/dev/null 2>&1 )
+REP=$( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" CLAUDECODE=1 bash "$SCRIPT" --story WD-R )
 assert_contains 'orchestrator' "$REP" "--story breaks spend down by the orchestrator cub"
-assert_contains 'general' "$REP" "--story breaks spend down by an observed agent cub"
+assert_contains 'general-purpose' "$REP" "--story breaks spend down by an observed agent cub"
 assert_contains 'wd-judge' "$REP" "--story prints the configured binding for a defined role"
-assert_contains 'ghost/cheap' "$REP" "--story shows the bound model"
+assert_contains 'ghost-cheap' "$REP" "--story shows the bound model"
 assert_contains 'not a configured role' "$REP" "--story flags a config-vs-observed discrepancy"
 assert_contains 'setup-models' "$REP" "--story reminds how to change a role's model"
 
 # --- 6n: robustness — unpriced source, corrupt ledger, bad story id, resume --
-# An OpenCode session with no price (cost NULL) reports cost_usd null, never a
-# fabricated 0 (AC 6).
-NULLDB="$TMP/nullcost.db"
-sqlite3 "$NULLDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_n',NULL,'$LEDGER_PROJ','R','build','{"id":"m"}',NULL,5,1,0,0,0,0,1);
-SQL
-NULLOUT=$( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$NULLDB" OPENCODE_SESSION_ID=ses_n bash "$SCRIPT" --snapshot WD-NULL --stage test 2>/dev/null )
-assert_contains '"cost_usd": null' "$NULLOUT" "an unpriced OpenCode session reports cost_usd null, never 0"
+# A source with no price reports cost_usd null, never a fabricated 0 (AC 6).
+NULL_TX="$TMP/nullcost.jsonl"
+tx "$NULL_TX" - 5 1
+NULLOUT=$( cd "$LEDGER_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-NULL --stage test "$NULL_TX" 2>/dev/null )
+assert_contains '"cost_usd": null' "$NULLOUT" "an unpriced source reports cost_usd null, never 0"
 
 # A corrupt ledger is refused, never silently overwritten — overwriting would
 # destroy recorded spend and report the reduced total as authoritative.
 CORRUPT="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-CORRUPT.json"
 printf 'NOT JSON {{{\n' > "$CORRUPT"
-CORR_ERR=$( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$NULLDB" OPENCODE_SESSION_ID=ses_n bash "$SCRIPT" --snapshot WD-CORRUPT --stage test 2>&1 >/dev/null )
+CORR_ERR=$( cd "$LEDGER_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-CORRUPT --stage test "$NULL_TX" 2>&1 >/dev/null )
 assert_contains 'refusing to overwrite' "$CORR_ERR" "a corrupt ledger is refused, not overwritten"
 assert_contains 'NOT JSON' "$(cat "$CORRUPT")" "the corrupt ledger file is left untouched"
 
 # A story id is a bare name: a path separator (or `.`/`..`) is refused, so
 # --snapshot/--story cannot read or write outside .usage/.
-BAD_ERR=$( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$NULLDB" OPENCODE_SESSION_ID=ses_n bash "$SCRIPT" --snapshot '../escape' --stage test 2>&1 >/dev/null )
+BAD_ERR=$( cd "$LEDGER_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot '../escape' --stage test "$NULL_TX" 2>&1 >/dev/null )
 assert_contains 'invalid story id' "$BAD_ERR" "a story id with a path separator is refused"
 [[ ! -e "$LEDGER_PROJ/.workflow-dev/escape.json" && ! -e "$LEDGER_PROJ/.workflow-dev/context/escape.json" ]] \
   && ok "no file is written outside .usage/ for a bad story id" \
@@ -429,118 +359,50 @@ assert_contains 'invalid story id' "$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --sto
 # priced → unpriced → priced must NOT double-count: the priced baseline is the
 # last checkpoint that carried a price, so the resume is a delta, not a reset.
 RESUME_TX="$TMP/resume.jsonl"
-printf '%s\n' '{"type":"assistant","message":{"id":"a","model":"m","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' '{"type":"cost-state","totalCostUSD":5.0,"modelUsage":{"m":{"costUSD":5.0}}}' > "$RESUME_TX"
-snap_cl WD-RESUME a "$RESUME_TX"
-printf '%s\n' '{"type":"assistant","message":{"id":"b","model":"m","usage":{"input_tokens":2,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' > "$RESUME_TX"
-snap_cl WD-RESUME b "$RESUME_TX"
-printf '%s\n' '{"type":"assistant","message":{"id":"c","model":"m","usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' '{"type":"cost-state","totalCostUSD":7.0,"modelUsage":{"m":{"costUSD":7.0}}}' > "$RESUME_TX"
-snap_cl WD-RESUME c "$RESUME_TX"
+tx "$RESUME_TX" 5.0 1 1; snap_cl WD-RESUME a "$RESUME_TX"
+tx "$RESUME_TX" - 2 1;   snap_cl WD-RESUME b "$RESUME_TX"
+tx "$RESUME_TX" 7.0 3 1; snap_cl WD-RESUME c "$RESUME_TX"
 assert_contains 'total: $7' "$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-RESUME )" \
   "priced→unpriced→priced totals the real spend, not a double count"
 
 # A reset while the source is UNPRICED must still restart the token baseline
 # (a falling token counter is itself a reset) — never a negative delta.
-URDB="$TMP/unpriced-reset.db"
-sqlite3 "$URDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_u',NULL,'$LEDGER_PROJ','R','build','{"id":"m"}',1.0,100,10,1,1000,2,0,1);
-SQL
-snap_ur() { ( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$URDB" \
-    OPENCODE_SESSION_ID=ses_u bash "$SCRIPT" --snapshot "$1" --stage "$2" >/dev/null 2>&1 ); }
-snap_ur WD-UR a
-sqlite3 "$URDB" "UPDATE session_v2 SET cost=NULL, tokens_input=50, tokens_output=5 WHERE id='ses_u';"
-snap_ur WD-UR b
+UR_TX="$TMP/unpriced-reset.jsonl"
+tx "$UR_TX" 1.0 100 10; snap_cl WD-UR a "$UR_TX"
+tx "$UR_TX" - 50 5;     snap_cl WD-UR b "$UR_TX"
 assert_contains 'input 150' "$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-UR )" \
   "an unpriced reset restarts the token baseline (no negative delta)"
 
 # A reset while UNPRICED, then a resume at a HIGHER price: the resumed cost is
 # the new segment's first reading (delta = abs), never a delta across the reset
 # (which would undercount), and the tokens are deltas throughout.
-UR2DB="$TMP/unpriced-reset2.db"
-sqlite3 "$UR2DB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_u2',NULL,'$LEDGER_PROJ','R','build','{"id":"m"}',1.0,100,10,1,1000,2,0,1);
-SQL
-snap_u2() { ( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$UR2DB" \
-    OPENCODE_SESSION_ID=ses_u2 bash "$SCRIPT" --snapshot "$1" --stage "$2" >/dev/null 2>&1 ); }
-snap_u2 WD-UR2 a
-sqlite3 "$UR2DB" "UPDATE session_v2 SET cost=NULL, tokens_input=50, tokens_output=5 WHERE id='ses_u2';"
-snap_u2 WD-UR2 b
-sqlite3 "$UR2DB" "UPDATE session_v2 SET cost=2.0, tokens_input=70, tokens_output=7 WHERE id='ses_u2';"
-snap_u2 WD-UR2 c
+UR2_TX="$TMP/unpriced-reset2.jsonl"
+tx "$UR2_TX" 1.0 100 10; snap_cl WD-UR2 a "$UR2_TX"
+tx "$UR2_TX" - 50 5;     snap_cl WD-UR2 b "$UR2_TX"
+tx "$UR2_TX" 2.0 70 7;   snap_cl WD-UR2 c "$UR2_TX"
 UR2=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-UR2 )
 assert_contains 'total: $3' "$UR2" "a resume after an unpriced reset starts a new segment (no undercount)"
 assert_contains 'input 170' "$UR2" "tokens across an unpriced reset and resume stay deltas"
 
 # A cost that falls while tokens RISE is a cost reset (AC 8) but NOT a token
 # reset — the token total must not inflate to the whole absolute.
-CFDB="$TMP/costfall.db"
-sqlite3 "$CFDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_cf',NULL,'$LEDGER_PROJ','R','build','{"id":"m"}',5.0,100,10,1,1000,2,0,1);
-SQL
-snap_cf() { ( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$CFDB" \
-    OPENCODE_SESSION_ID=ses_cf bash "$SCRIPT" --snapshot "$1" --stage "$2" >/dev/null 2>&1 ); }
-snap_cf WD-CF a
-sqlite3 "$CFDB" "UPDATE session_v2 SET cost=NULL, tokens_input=150, tokens_output=15 WHERE id='ses_cf';"
-snap_cf WD-CF b
-sqlite3 "$CFDB" "UPDATE session_v2 SET cost=3.0, tokens_input=200, tokens_output=20 WHERE id='ses_cf';"
-snap_cf WD-CF c
+CF_TX="$TMP/costfall.jsonl"
+tx "$CF_TX" 5.0 100 10; snap_cl WD-CF a "$CF_TX"
+tx "$CF_TX" - 150 15;   snap_cl WD-CF b "$CF_TX"
+tx "$CF_TX" 3.0 200 20; snap_cl WD-CF c "$CF_TX"
 CF=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-CF )
 assert_contains 'total: $8' "$CF" "a falling cost with rising tokens is a cost reset (AC 8)"
 assert_contains 'input 200' "$CF" "a cost-only reset does not inflate the token total"
 
 # A reset that lands on a byte-identical tuple of an OLDER checkpoint must be
 # recorded as a new segment, not swallowed as a duplicate of that older one.
-RTDB="$TMP/reset-dup.db"
-sqlite3 "$RTDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_rt',NULL,'$LEDGER_PROJ','R','build','{"id":"m"}',5.0,100,10,1,1000,2,0,1);
-SQL
-snap_rt() { ( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$RTDB" \
-    OPENCODE_SESSION_ID=ses_rt bash "$SCRIPT" --snapshot "$1" --stage "$2" >/dev/null 2>&1 ); }
-snap_rt WD-RT dev
-sqlite3 "$RTDB" "UPDATE session_v2 SET cost=7.0, tokens_input=200 WHERE id='ses_rt';"
-snap_rt WD-RT dev
-sqlite3 "$RTDB" "UPDATE session_v2 SET cost=5.0, tokens_input=100 WHERE id='ses_rt';"
-snap_rt WD-RT dev
+RT_TX="$TMP/reset-dup.jsonl"
+tx "$RT_TX" 5.0 100 10; snap_cl WD-RT dev "$RT_TX"
+tx "$RT_TX" 7.0 200 10; snap_cl WD-RT dev "$RT_TX"
+tx "$RT_TX" 5.0 100 10; snap_cl WD-RT dev "$RT_TX"
 RT=$( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-RT )
 assert_contains 'total: $12' "$RT" "a reset to an older identical tuple is recorded, not deduped"
 assert_contains 'checkpoints: 3' "$RT" "the reset adds a checkpoint rather than being swallowed"
-
-# A corrupt parent cycle must terminate (bounded recursion), not hang — the
-# walk-up CTE in opencode_default_session is reached whenever the id is set.
-CYCDB="$TMP/cycle.db"
-sqlite3 "$CYCDB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_a','ses_c','$LEDGER_PROJ','A','build','{"id":"m"}',1.0,1,1,0,0,0,0,1);
-INSERT INTO session_v2 VALUES ('ses_c','ses_a','$LEDGER_PROJ','C','build','{"id":"m"}',0,1,1,0,0,0,0,1);
-SQL
-( cd "$LEDGER_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$CYCDB" \
-    OPENCODE_SESSION_ID=ses_a bash "$SCRIPT" --snapshot WD-CYC --stage t >/dev/null 2>&1 ) & CYCPID=$!
-sleep 3
-if kill -0 "$CYCPID" 2>/dev/null; then
-  kill "$CYCPID" 2>/dev/null
-  no "a parent cycle terminates instead of hanging"
-else
-  wait "$CYCPID" 2>/dev/null
-  ok "a parent cycle terminates instead of hanging"
-fi
 
 # --- 6l: a repeated subagent_type, and a checkpoint that fails loudly (WD-0049)
 # Two Agent calls of the same subagent_type used to clobber the `agents`
@@ -556,7 +418,7 @@ cat > "$REP_TX" <<'JSONL'
 {"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"id":"m3","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t2","name":"Agent","input":{"subagent_type":"wd-operator","prompt":"x"}}]}}
 JSONL
 snap_rep() { # $1 story, $2.. extra args; prints stderr, returns the exit code
-  ( cd "$REP_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+  ( cd "$REP_PROJ" && env -u CLAUDE_CODE_SESSION_ID \
       CLAUDECODE=1 bash "$SCRIPT" --snapshot "$1" --stage init "${@:2}" 2>&1 >/dev/null )
 }
 snap_rep FX "$REP_TX" >/dev/null
@@ -606,7 +468,7 @@ exec "$(command -v jq)" "\$@"
 SH
 chmod +x "$TMP/jqshim/jq"
 BEFORE=$(cat "$REP_FILE")
-FAIL_ERR=$( cd "$REP_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+FAIL_ERR=$( cd "$REP_PROJ" && env -u CLAUDE_CODE_SESSION_ID \
     PATH="$TMP/jqshim:$PATH" CLAUDECODE=1 bash "$SCRIPT" --snapshot FX --stage plan "$REP_TX" 2>&1 >/dev/null )
 FAIL_RC=$?
 assert_contains 'checkpoint NOT recorded' "$FAIL_ERR" "a failed checkpoint computation says so on stderr"
@@ -628,10 +490,10 @@ touch -t 202001010000 "$FAKEHS/.claude/projects/$SLUGS/sid-mine.jsonl"
 tx_line other 666 > "$FAKEHS/.claude/projects/$SLUGS/sid-other.jsonl"
 snap_sid() { # $1 CLAUDE_CODE_SESSION_ID value ("" = unset), $2 cwd; prints the snapshot
   if [[ -n "$1" ]]; then
-    ( cd "$2" && HOME="$FAKEHS" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID \
+    ( cd "$2" && HOME="$FAKEHS" env \
         CLAUDECODE=1 CLAUDE_CODE_SESSION_ID="$1" bash "$SCRIPT" --snapshot WD-SID --stage t 2>/dev/null )
   else
-    ( cd "$2" && HOME="$FAKEHS" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+    ( cd "$2" && HOME="$FAKEHS" env -u CLAUDE_CODE_SESSION_ID \
         CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SID --stage t 2>/dev/null )
   fi
 }
@@ -651,7 +513,7 @@ git -C "$GREPO" init -q
 SLUGG="$( cd "$GREPO" && pwd -P | sed 's#/#-#g' )"
 mkdir -p "$FAKEHG/.claude/projects/$SLUGG"
 tx_line root 888 > "$FAKEHG/.claude/projects/$SLUGG/root.jsonl"
-SUB_OUT=$( cd "$GREPO/.workflow-dev/context" && HOME="$FAKEHG" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+SUB_OUT=$( cd "$GREPO/.workflow-dev/context" && HOME="$FAKEHG" env -u CLAUDE_CODE_SESSION_ID \
     CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SUB --stage plan 2>/dev/null )
 assert_contains '"input": 888' "$SUB_OUT" "a snapshot from a repo subdirectory resolves the project's transcript"
 [[ -f "$GREPO/.workflow-dev/context/.usage/WD-SUB.json" ]] \
@@ -668,7 +530,7 @@ assert_contains 'checkpoints: 1' "$( cd "$GREPO/.workflow-dev/context" && bash "
 EST_PROJ="$TMP/estproj"
 mkdir -p "$EST_PROJ"
 snap_est() { # $1 story, $2 transcript; prints stdout+stderr
-  ( cd "$EST_PROJ" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+  ( cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID \
       CLAUDECODE=1 bash "$SCRIPT" --snapshot "$1" --stage test --transcript "$2" 2>&1 )
 }
 # usage line: $1 id, $2 model, $3 input, $4 output, $5 cache_read, $6 cache_create (all 1h), $7 speed
@@ -790,7 +652,7 @@ mkdir -p "$GR2/.workflow-dev/context"
 git -C "$GR2" init -q
 use_line r1 claude-opus-5-5 250000 0 0 0 > "$GR2/main.jsonl"
 for d in "$GR2" "$GR2/.workflow-dev/context"; do
-  ( cd "$d" && env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+  ( cd "$d" && env -u CLAUDE_CODE_SESSION_ID \
       CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SRC --stage "s$RANDOM" --transcript "$( [[ "$d" == "$GR2" ]] && echo main.jsonl || echo ../../main.jsonl )" >/dev/null 2>&1 )
 done
 assert_contains 'total: $1 ' "$( cd "$GR2" && bash "$SCRIPT" --story WD-SRC )" "a transcript named by two relative paths is one source"
@@ -805,7 +667,7 @@ mkdir -p "$FAKEH3/.claude/projects/$SL_ROOT" "$FAKEH3/.claude/projects/$SL_PKG"
 tx_line pkg 321 > "$FAKEH3/.claude/projects/$SL_PKG/a.jsonl"
 touch -t "$(date -v-2M +%Y%m%d%H%M 2>/dev/null || date -d '-2 min' +%Y%m%d%H%M)" "$FAKEH3/.claude/projects/$SL_PKG/a.jsonl"
 tx_line root 654 > "$FAKEH3/.claude/projects/$SL_ROOT/b.jsonl"
-SUBL=$( cd "$GR3/pkg" && HOME="$FAKEH3" env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+SUBL=$( cd "$GR3/pkg" && HOME="$FAKEH3" env -u CLAUDE_CODE_SESSION_ID \
     CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-SUBL --stage t 2>/dev/null )
 assert_contains '"input": 321' "$SUBL" "a session launched in a subdirectory resolves its own transcript first"
 
@@ -827,7 +689,7 @@ GR4="$TMP/gitrepo4"
 mkdir -p "$GR4/a/b"
 git -C "$GR4" init -q
 use_line p1 claude-opus-5-5 250000 0 0 0 > "$GR4/main.jsonl"
-( cd "$GR4/a" && CDPATH="$GR4:." env -u OPENCODE -u OPENCODE_TERMINAL -u OPENCODE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+( cd "$GR4/a" && CDPATH="$GR4:." env -u CLAUDE_CODE_SESSION_ID \
     CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-CDP --stage t --transcript b/../../main.jsonl >/dev/null 2>&1 )
 [[ "$(jq -r '.checkpoints[0].source' "$GR4/.workflow-dev/context/.usage/WD-CDP.json" 2>/dev/null)" == "$( cd "$GR4" && pwd -P )/main.jsonl" ]] \
   && ok "CDPATH does not leak into the source path" \
@@ -1084,21 +946,6 @@ case "$VQ_OUT" in *"spend verified"*) no "a missing previous index announces not
 jq '.stories["WD-VF"].verified = false' "$IDX" > "$IDX.t" && mv "$IDX.t" "$IDX"   # pretend WD-VF was not verified before
 VQ2=$(snap_est WD-VQ "$VQ")
 case "$VQ2" in *"WD-VF"*) no "a story this run did not touch is never announced" ;; *) ok "a story this run did not touch is never announced" ;; esac
-
-# (C1) OpenCode: a child session with no price makes the total partial.
-VODB="$TMP/verified-oc.db"
-sqlite3 "$VODB" <<SQL
-CREATE TABLE session_v2 (id text primary key, parent_id text, directory text, title text,
-  agent text, model text, cost real, tokens_input integer, tokens_output integer,
-  tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer,
-  time_created integer, time_updated integer);
-INSERT INTO session_v2 VALUES ('ses_vp',NULL,'$EST_PROJ','R','build','{"id":"m1"}',1.5,10,5,0,0,0,0,1);
-INSERT INTO session_v2 VALUES ('ses_vc','ses_vp','$EST_PROJ','C','general','{"id":"m2"}',NULL,5000,500,0,0,0,0,1);
-SQL
-( cd "$EST_PROJ" && HOME="$TMP/nohome" OPENCODE_TERMINAL=1 OPENCODE_DB="$VODB" OPENCODE_SESSION_ID=ses_vp \
-    bash "$SCRIPT" --snapshot WD-VOC --stage init >/dev/null 2>&1 )
-[[ "$(jq -r '.stories["WD-VOC"].verified' "$IDX")" == "false" ]] \
-  && ok "an OpenCode total with an unpriced child is not verified" || no "an OpenCode total with an unpriced child is not verified"
 
 # The table reproduces real Claude Code charges: modelUsage from a real
 # cost-state (WD-0043's session; Claude Code writes 1-hour cache entries).

@@ -4,7 +4,7 @@ description: Bootstraps the persistent context files for a story — creates/upd
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -103,8 +103,7 @@ no skill, and answers `not-ours`, making this step a silent no-op. Then:
 
 - `ok` → continue silently.
 - `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline
-  (Claude Code `/workflow-dev:setup-models`, OpenCode
-  `workflow-dev-setup-models`) — main agent, interactive, never a sub-agent —
+  (`/workflow-dev:setup-models`) — main agent, interactive, never a sub-agent —
   then continue where you left off.
 - `opted-out` → skip silently (a default model was chosen for this repo or this story).
 - `no-harness` / `no-registry` → say that tiering couldn't be set up and that
@@ -165,15 +164,13 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
    (`.workflow-dev/context/.usage/[STORY-ID].json`), so the cost outlives the
    session that produced it. Best-effort: an unresolvable source is reported
    `unavailable`, never a zero. Resolve `PLUGIN_ROOT` as `references/workflow.md`
-   Step 6 does (`${CLAUDE_PLUGIN_ROOT}` on Claude Code; the `cd -P` fallback on
-   OpenCode).
+   Step 6 does (`${CLAUDE_PLUGIN_ROOT}` when set, else the `cd -P` fallback).
 
 8. **Resolve the run mode** (WD-0039). Skip this step when the story's
    Decisions already carries an `Autonomous mode: on|off` row, or when the human
    already said how to run ("ve autónomo" / "run this autonomously", or
    "paso a paso" / "step by step") — record that as the row and move on.
-   Otherwise ask the human (OpenCode `question`, Claude Code `AskUserQuestion`),
-   worded per `references/user-language.md`:
+   Otherwise ask the human with the ask-question tool, worded per `references/user-language.md`:
    - **Question:** how do you want to run this story?
    - **Option 1:** `Step by step (Recommended)` — "I ask you before each step."
    - **Option 2:** `Autonomous` — "I run the whole story and report at the end."

@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -13,11 +13,10 @@
 # correctness stakes (get the position wrong and a future read silently skips
 # content nobody saved), so it lives in a script, not prose.
 #
-# Source-aware (WD-0007 AC 13): the state keeps a position **per source** —
-# Claude Code's `claudePath`/`claudeLength`, OpenCode's `opencodeSession`/
-# `opencodeSeq` — and marks which is `current`. This save advances only the
-# current source and preserves the other, so a story that moved Claude→OpenCode
-# (or into a new session) resumes correctly and switching back is cheap.
+# The position is a line count into the Claude Code transcript the hooks
+# recorded (`claudePath`/`claudeLength`, the shape both compaction hooks write
+# too). Keys an earlier version wrote for a second source are dropped on the
+# next write.
 #
 # Usage: save-mark-saved.sh <STORY-ID>
 
@@ -60,37 +59,25 @@ if [[ ! -f "$PENDING_FILE" ]]; then
   exit 0
 fi
 
-# Preserve the other source's position, and read the old shape if that's what
-# the existing state is.
-CUR=""; CPATH=""; CLEN=0; OSID=""; OSEQ=0
+# Keep the transcript path, reading the old shape if that's what the existing
+# state is.
+CPATH=""
 if [[ -f "$STATE_FILE" ]]; then
   SJ=$(cat "$STATE_FILE")
-  CUR=$(json_get_string "$SJ" current)
   CPATH=$(json_get_string "$SJ" claudePath); [[ -n "$CPATH" ]] || CPATH=$(json_get_string "$SJ" transcriptPath)
-  CLEN=$(json_get_number "$SJ" claudeLength); [[ -n "$CLEN" ]] || CLEN=$(json_get_number "$SJ" length); [[ -n "$CLEN" ]] || CLEN=0
-  OSID=$(json_get_string "$SJ" opencodeSession)
-  OSEQ=$(json_get_number "$SJ" opencodeSeq); [[ -n "$OSEQ" ]] || OSEQ=0
 fi
 
-PJ=$(cat "$PENDING_FILE")
-H=$(json_get_string "$PJ" harness)
-
-if [[ "$H" == "opencode" ]]; then
-  OSID=$(json_get_string "$PJ" sessionId)
-  OSEQ=$(json_get_number "$PJ" seq)
-  CUR="opencode"
-  OUT="message seq $OSEQ"
-elif [[ "$H" == "claude" ]]; then
-  CLEN=$(json_get_number "$PJ" length)
-  CUR="claude"
-  OUT="line $CLEN"
-else
-  echo "Pending marker for $STORY_ID names no known source — nothing to do." >&2
+# The position save-read-unsaved.sh extracted. A pending marker with no
+# `length` was left by an older version for a source this plugin no longer
+# reads — there is no Claude Code position in it to advance to.
+CLEN=$(json_get_number "$(cat "$PENDING_FILE")" length)
+if [[ -z "$CLEN" ]]; then
+  echo "Pending marker for $STORY_ID carries no transcript position — nothing to mark." >&2
   exit 0
 fi
 
-printf '{"current":"%s","claudePath":"%s","claudeLength":%s,"opencodeSession":"%s","opencodeSeq":%s,"dateTime":"%s","pendingSave":false}' \
-  "$CUR" "$CPATH" "$CLEN" "$OSID" "$OSEQ" "$NOW_UTC" > "$STATE_FILE"
+printf '{"claudePath":"%s","claudeLength":%s,"dateTime":"%s","pendingSave":false}' \
+  "$CPATH" "$CLEN" "$NOW_UTC" > "$STATE_FILE"
 rm -f "$PENDING_FILE"
 
-echo "Marked $STORY_ID as saved through $OUT ($WHEN) — future reads will only include what comes after."
+echo "Marked $STORY_ID as saved through line $CLEN ($WHEN) — future reads will only include what comes after."

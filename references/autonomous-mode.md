@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -140,8 +140,8 @@ mechanism they already share with the skills, not through any new signal:
   deliberately deferred (`validate-mark-deferred.sh`).
 - `pre-commit-message-check.sh` stays silent when `summarize-changes` marked the
   exact message/PR text reviewed (`git-message-mark-reviewed.sh`).
-- The AI/agent attribution block (in `pre-commit-message-check.sh` and in
-  `opencode/plugin.ts`'s `execute.before`) has **no** marker and **no** bypass.
+- The AI/agent attribution block in `pre-commit-message-check.sh` has **no**
+  marker and **no** bypass.
 
 So the hooks require no functional change and no signal-parsing: an autonomous
 run writes the markers as part of its normal flow, and the hooks stay quiet for

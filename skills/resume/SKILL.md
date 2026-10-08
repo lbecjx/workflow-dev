@@ -4,7 +4,7 @@ description: Loads the persistent context at session start. Reads REPO.md and th
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -39,8 +39,7 @@ Look for `.workflow-dev/context/` in the current project and list its `.md` file
 
 ### Step 2: Ask which story to resume
 
-Use the ask-question tool to present the candidates — OpenCode's `question`,
-Claude Code's `AskUserQuestion`, or whatever the environment calls it
+Use the ask-question tool to present the candidates
 (`references/harness-tools.md` at the plugin root — not this skill's own
 `references/`):
 - **Label:** the story ID (e.g. `PROJ-12710`). The most recently updated one gets a "(Recommended)" suffix.
@@ -58,8 +57,7 @@ Options:
 
 ### Step 3: Read the context files
 
-**Always** use the file-reading tool explicitly on both files — OpenCode's `read`,
-Claude Code's `Read`, whatever the environment calls it — even if they seem to
+**Always** use the file-reading tool explicitly on both files — even if they seem to
 already be in context (e.g. via a system reminder or an earlier read). The reads need to be visible in the execution trace so the human can confirm the context was actually internalized.
 
 1. Read **REPO.md** — internalize repo knowledge: stack, conventions, prohibitions, good practices.
@@ -71,21 +69,6 @@ already be in context (e.g. via a system reminder or an earlier read). The reads
 1. `git status` — any uncommitted changes?
 2. `git log --oneline -5` — any commits landed since the last session?
 3. Is the branch behind its base? (`git rev-list --count HEAD..origin/[base]`)
-4. **On OpenCode only — is the plugin actually running?** OpenCode loads
-   `opencode/plugin.ts` from its background service, and a plugin that fails
-   to load there leaves only a warning in a log nobody reads. Ask the one
-   script that checks the evidence the running plugin leaves behind:
-
-   ```sh
-   PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
-   if [ "$("$PLUGIN_ROOT"/scripts/list-models.sh --print-harness)" = opencode ]; then
-     "$PLUGIN_ROOT"/scripts/opencode-live-check.sh --message
-   fi
-   ```
-
-   It prints nothing when the plugin is live, and nothing on Claude Code,
-   whose hooks run from Claude Code itself with nothing to check here. When
-   it does print, carry that text into Step 5 as it stands — it names the fix.
 
 ### Step 5: Present status
 
@@ -105,9 +88,7 @@ Pending:
 Continue?
 ```
 
-Call out uncommitted changes or a behind-base branch if either applies, and the
-OpenCode plugin check from Step 4 if it printed anything — above "Pending", so
-it is read before the work resumes as if the plugin were running.
+Call out uncommitted changes or a behind-base branch if either applies.
 
 The **Mode** line reads the story's Decisions for an `Autonomous mode: on` row
 (`references/autonomous-mode.md` at the plugin root). The row persists across
@@ -145,4 +126,4 @@ Suggest: "It's been [X days] since the last save. Want to run `/workflow-dev:ref
 - Fast — this is seconds, not minutes: read the files, run a quick git check, done.
 - Silent internalization — don't dump the whole context back at the human. They wrote it; just show status.
 - No re-asking — the context files already have the answer. Never ask "where were we?"
-- Reach for the ask-question tool (OpenCode `question`, Claude Code `AskUserQuestion`) only when there's an actual choice (multiple stories); skip it when there's just one.
+- Reach for the ask-question tool only when there's an actual choice (multiple stories); skip it when there's just one.

@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -60,9 +60,9 @@ skips its workflow-dev segment silently, never an error.
 | `schema` | Contract version. A reader must check it and skip on a value it does not know. A breaking change gets a new value; added fields do not. |
 | `updated_at` | When the index was rebuilt (UTC). |
 | `last_story` | The story with the most recent checkpoint — the one most likely in progress. `null` when there is none. |
-| `total_usd` | The story's cost across every session and harness, in USD, rounded to 4 decimals. The sum of the ledger's deltas. |
+| `total_usd` | The story's cost across every session, in USD, rounded to 4 decimals. The sum of the ledger's deltas. |
 | `estimated` | Some session's latest reading is an estimate, not Claude Code's exact figure. An estimate is settled later only if that session did no new work after the story's checkpoint; otherwise the exact figure would include work done for something else, and the estimate stays. |
-| `verified` | `true` when the total holds only figures the harness itself recorded, so its error against the harness's own accounting is 0. Show a check. Every one of these must hold: each session's latest reading is exact (a Claude Code cost-state with no sub-agent still writing after it, or an OpenCode row); the last priced reading of every earlier segment of a session is exact too; every model with tokens has a price; and no session is shared with another story, since the split between stories is not something the harness measured. It covers `total_usd`, not `by_agent`. `session-usage.sh` prints `usage <story> · spend verified ✓ $<total> …` once, when a checkpoint or `--reconcile` for that story makes it verified. A rebuild with no readable previous index is a silent baseline. |
+| `verified` | `true` when the total holds only figures the harness itself recorded, so its error against the harness's own accounting is 0. Show a check. Every one of these must hold: each session's latest reading is exact (a Claude Code cost-state with no sub-agent still writing after it, or a legacy OpenCode row — a checkpoint recorded before OpenCode support was removed, which was the exact figure of its store and still counts as exact, so a story verified before the upgrade stays verified); the last priced reading of every earlier segment of a session is exact too; every model with tokens has a price; and no session is shared with another story, since the split between stories is not something the harness measured. It covers `total_usd`, not `by_agent`. `session-usage.sh` prints `usage <story> · spend verified ✓ $<total> …` once, when a checkpoint or `--reconcile` for that story makes it verified. A rebuild with no readable previous index is a silent baseline. |
 | `verified_reason` | `null` when verified; otherwise why not: `estimated`, `unpriced`, `earlier-estimate`, `shared-session` or `no-checkpoints`. |
 | `lower_bound` | The real cost is at least `total_usd`: an estimate (they run low — calls Claude Code makes outside the transcript), a session with no price yet, or a sub-agent whose logged output is incomplete. Show it as `≥`. |
 | `checkpoints`, `unpriced_checkpoints`, `sessions` | Ledger counts. |

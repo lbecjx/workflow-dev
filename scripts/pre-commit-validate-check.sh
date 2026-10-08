@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,29 +16,10 @@
 # validating stays the human's call" (validate/SKILL.md: "Doesn't commit or
 # push... leaves the call to the human.") now means the human is actually
 # asked, not just theoretically free to have noticed an advisory string.
-#
-# Two modes, one text:
-#   pre-commit-validate-check.sh
-#       Claude Code `PreToolUse` (matcher: Bash) — emits the JSON envelope.
-#   pre-commit-validate-check.sh --message [payload]
-#       Prints the reminder as plain text and nothing otherwise, for OpenCode's
-#       plugin (payload as an argument — no pipe). Silence covers both "there is
-#       a matching marker" and the deferred case below, so the caller never has
-#       to interpret an empty answer as a verdict.
 
 set -u
 
-MODE="hook"
-PAYLOAD_ARG=""
-case "${1:-}" in
-  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
-esac
-
-if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
-  INPUT="$PAYLOAD_ARG"
-else
-  INPUT=$(cat)
-fi
+INPUT=$(cat)
 # command-match.sh owns both questions every commit hook asks: what the command
 # was (one JSON extractor, shared) and whether it is really a commit — a command
 # that only mentions `git commit` (a heredoc body, an `echo`, a `grep`) is data.
@@ -116,10 +97,6 @@ if [[ -z "$MARKER_TRUST_REASON" && -f "$MARKER_FILE" ]]; then
     STATUS=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$MARKER_FILE" | sed -E 's/.*: *"(.*)"/\1/')
     [[ -z "$STATUS" ]] && STATUS="validated"
     if [[ "$STATUS" == "deferred" ]]; then
-      # Nothing to say in --message mode: `allow` does not surface a prompt on
-      # Claude Code either, so mirroring it as an OpenCode notice would be a
-      # reminder the other harness never showed — noise, not parity.
-      [[ "$MODE" == "message" ]] && exit 0
       printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Validation deferred for this task group, as planned — will run once at story end."}}'
       exit 0
     fi
@@ -132,9 +109,5 @@ REMINDER="This project uses workflow-dev quality gates. No matching /workflow-de
 # marker read above was skipped, so there may well be a matching marker that was
 # ignored. `marker_trust_note` owns the wording and the JSON-safe quoting.
 REMINDER="$REMINDER$(marker_trust_note "$MARKER_TRUST_REASON")"
-if [[ "$MODE" == "message" ]]; then
-  printf '%s' "$REMINDER"
-else
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$REMINDER"
-fi
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$REMINDER"
 exit 0

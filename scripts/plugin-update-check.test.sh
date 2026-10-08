@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -91,9 +91,9 @@ mkdir -p "$STATE6"
 MANIFEST6="$TMP/manifest6.json"
 printf '{"version":"1.2.0"}' > "$MANIFEST6"
 ( cd "$HERE" && TMPDIR="$STATE6" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$MANIFEST6" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sF)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sF)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
 OUT=$( cd "$HERE" && TMPDIR="$STATE6" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file:///does/not/exist.json" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sG)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sG)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 case "$OUT" in
   *"1.2.0"*) ok "a fresh cache is used instead of re-fetching (broken URL, still correct)" ;;
   *) no "a fresh cache is used instead of re-fetching (got: $OUT)" ;;
@@ -103,7 +103,7 @@ esac
 STATE7="$TMP/st7"
 mkdir -p "$STATE7"
 OUT=$( cd "$HERE" && TMPDIR="$STATE7" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file:///does/not/exist.json" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message; echo "EXIT=$?"' _ "$(mk sH)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"; echo "EXIT=$?"' _ "$(mk sH)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 case "$OUT" in
   "EXIT=0") ok "no manifest reachable → silent, exit 0" ;;
   *) no "no manifest reachable → silent, exit 0 (got: $OUT)" ;;
@@ -115,7 +115,7 @@ mkdir -p "$STATE8"
 GARBAGE="$TMP/garbage.json"
 printf 'not json at all, just prose' > "$GARBAGE"
 OUT=$( cd "$HERE" && TMPDIR="$STATE8" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$GARBAGE" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message; echo "EXIT=$?"' _ "$(mk sI)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"; echo "EXIT=$?"' _ "$(mk sI)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 case "$OUT" in
   "EXIT=0") ok "a garbage manifest response → silent, exit 0" ;;
   *) no "a garbage manifest response → silent, exit 0 (got: $OUT)" ;;
@@ -161,13 +161,13 @@ cp "$SCRIPT" "$CACHE11/1.0.0/scripts/plugin-update-check.sh"
 : > "$CACHE11/1.24.0/.orphaned_at"
 MF11="$TMP/manifest11.json"
 printf '{"version":"1.0.0"}' > "$MF11"
-OUT=$( cd "$HERE" && TMPDIR="$TMP/st11" WD_PLUGIN_CACHE_ROOT="$CACHE11" WD_PLUGIN_MANIFEST_URL="file://$MF11"   bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sM)" "$CACHE11/1.0.0/scripts/plugin-update-check.sh" )
+OUT=$( cd "$HERE" && TMPDIR="$TMP/st11" WD_PLUGIN_CACHE_ROOT="$CACHE11" WD_PLUGIN_MANIFEST_URL="file://$MF11"   bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sM)" "$CACHE11/1.0.0/scripts/plugin-update-check.sh" )
 [[ -z "$OUT" ]] && ok "an orphaned, higher-versioned folder is not 'on disk' → silent" || no "an orphaned, higher-versioned folder is not 'on disk' → silent (got: $OUT)"
 # A real behind case still fires, with the right advice, when the only
 # higher version present is the orphan (nothing was really installed there).
 MF11B="$TMP/manifest11b.json"
 printf '{"version":"1.24.0"}' > "$MF11B"
-OUT=$( cd "$HERE" && TMPDIR="$TMP/st11b" WD_PLUGIN_CACHE_ROOT="$CACHE11" WD_PLUGIN_MANIFEST_URL="file://$MF11B"   bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sN)" "$CACHE11/1.0.0/scripts/plugin-update-check.sh" )
+OUT=$( cd "$HERE" && TMPDIR="$TMP/st11b" WD_PLUGIN_CACHE_ROOT="$CACHE11" WD_PLUGIN_MANIFEST_URL="file://$MF11B"   bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sN)" "$CACHE11/1.0.0/scripts/plugin-update-check.sh" )
 case "$OUT" in
   *"claude plugin update workflow-dev"*) ok "an orphan never masks a real 'behind' case" ;;
   *) no "an orphan never masks a real 'behind' case (got: $OUT)" ;;
@@ -181,13 +181,13 @@ STATE12="$TMP/st12"
 mkdir -p "$STATE12"
 BROKEN="file:///does/not/exist/plugin-update-check-$RANDOM.json"
 ( cd "$HERE" && TMPDIR="$STATE12" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="$BROKEN" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sO)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sO)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
 [[ -f "$STATE12/workflow-dev-update-check/last-failed-fetch" ]] && ok "a failed fetch leaves a throttle marker" || no "a failed fetch leaves a throttle marker"
 # A manifest fixed afterward is still not re-fetched within the failure TTL.
 GOODM="$TMP/manifest12.json"
 printf '{"version":"1.2.0"}' > "$GOODM"
 OUT=$( cd "$HERE" && TMPDIR="$STATE12" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$GOODM" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sP)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sP)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 [[ -z "$OUT" ]] && ok "a recent fetch failure is not immediately retried" || no "a recent fetch failure is not immediately retried (got: $OUT)"
 
 # --- 13: an unwritable/unusable state dir degrades silently, no stderr ------
@@ -197,7 +197,7 @@ MOK="$TMP/manifest13.json"
 printf '{"version":"1.2.0"}' > "$MOK"
 ERR13="$TMP/st13.err"
 RAW=$( cd "$HERE" && TMPDIR="$STATE13" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$MOK" ERRFILE="$ERR13" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message 2>"$ERRFILE"; echo "RC=$?"' _ "$(mk sQ)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2" 2>"$ERRFILE"; echo "RC=$?"' _ "$(mk sQ)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 case "$RAW" in
   *"claude plugin update workflow-dev"*"RC=0") ok "a file where the state dir belongs → still answers, exit 0" ;;
   *) no "a file where the state dir belongs → still answers, exit 0 (got: $RAW)" ;;
@@ -207,7 +207,7 @@ esac
 # --- 14: unset $HOME degrades to 'no on-disk scan', never aborts ------------
 ERR14="$TMP/st14.err"
 RAW=$( cd "$HERE" && env -u HOME -u WD_PLUGIN_CACHE_ROOT TMPDIR="$TMP/st14" WD_PLUGIN_MANIFEST_URL="file://$MOK" ERRFILE="$ERR14" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message 2>"$ERRFILE"; echo "RC=$?"' _ "$(mk sR)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2" 2>"$ERRFILE"; echo "RC=$?"' _ "$(mk sR)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 case "$RAW" in
   *"RC=0"*) ok "unset \$HOME → exit 0, not an abort" ;;
   *) no "unset \$HOME → exit 0, not an abort (got: $RAW)" ;;
@@ -220,7 +220,7 @@ mkdir -p "$STATE15/workflow-dev-update-check"
 printf '{"version":"1.0.0","fetchedAt":9999999999}' > "$STATE15/workflow-dev-update-check/latest.json"
 BROKEN15="file:///does/not/exist/plugin-update-check-$RANDOM.json"
 OUT=$( cd "$HERE" && TMPDIR="$STATE15" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="$BROKEN15" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sS)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sS)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 # The planted cache is rejected, so it falls through to the broken URL and
 # stays quiet — but it must NOT have silently trusted the planted "1.0.0" as
 # fresh (which would have hidden a real update forever).
@@ -231,7 +231,7 @@ OUT=$( cd "$HERE" && TMPDIR="$STATE15" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_M
 mk_version "1.08.0"
 ERR16="$TMP/st16.err"
 OUT=$( cd "$HERE" && TMPDIR="$TMP/st16" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$MOK" ERRFILE="$ERR16" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message 2>"$ERRFILE"' _ "$(mk sT)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2" 2>"$ERRFILE"' _ "$(mk sT)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 [[ ! -s "$ERR16" ]] && ok "a leading-zero version in a cache folder name → no stderr arithmetic error" || no "a leading-zero version in a cache folder name → no stderr arithmetic error (got: $(cat "$ERR16"))"
 
 # --- 17: without a session id, the notify key rotates with the cache TTL,
@@ -239,7 +239,7 @@ OUT=$( cd "$HERE" && TMPDIR="$TMP/st16" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_
 STATE17="$TMP/st17"
 PAYLOAD_NOSID='{"tool_input":{},"skill":"plan"}'
 ( cd "$HERE" && TMPDIR="$STATE17" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$MOK" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$PAYLOAD_NOSID" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$PAYLOAD_NOSID" "$CACHE/1.0.0/scripts/plugin-update-check.sh" ) >/dev/null
 NOTIFIED_CONTENT="$(cat "$STATE17/workflow-dev-update-check/notified" 2>/dev/null)"
 case "$NOTIFIED_CONTENT" in
   "window|"*) no "no-session-id key rotates with the TTL window, not a bare literal (got: $NOTIFIED_CONTENT)" ;;
@@ -254,7 +254,7 @@ printf 'sX|behind|1.2.1|1.0.0\n' > "$STATE18/workflow-dev-update-check/notified"
 M18="$TMP/manifest18.json"
 printf '{"version":"1.2.10"}' > "$M18"
 OUT=$( cd "$HERE" && TMPDIR="$STATE18" WD_PLUGIN_CACHE_ROOT="$CACHE" WD_PLUGIN_MANIFEST_URL="file://$M18" \
-  bash -c 'printf "%s" "$1" | bash "$2" --message' _ "$(mk sX)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
+  bash -c 'printf "%s" "$1" | bash "$2"' _ "$(mk sX)" "$CACHE/1.0.0/scripts/plugin-update-check.sh" )
 [[ -n "$OUT" ]] && ok "a stored key is not a false-positive substring match for a similar, longer key" || no "a stored key is not a false-positive substring match for a similar, longer key (got: $OUT)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -34,19 +34,6 @@
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
-# Two modes:
-#   pre-compact-check.sh
-#       Claude Code `PreCompact` — arms the state from the hook's own
-#       `transcript_path`, a field only a hook receives.
-#   pre-compact-check.sh --arm
-#       Arms the same state with no transcript at all, for a harness that has no
-#       PreCompact event to fire from. Delivering anything is not this script's
-#       job in either mode — see the header.
-MODE="hook"
-case "${1:-}" in
-  --arm) MODE="arm" ;;
-esac
-
 # Tolerant to how the Implementation Status section is actually worded — the
 # template says "### Implementation Status: In Progress" on one line, but a
 # real /workflow-dev:init run paraphrased it as a "## Implementation Status"
@@ -68,7 +55,12 @@ is_in_progress() {
 
 STATE_DIR="$CONTEXT_DIR/.compaction-state"
 
-# The state JSON's transcriptPath is a local absolute filesystem path —
+# The state's shape is the one save-mark-saved.sh writes —
+# {"claudePath":…,"claudeLength":N,"dateTime":…,"pendingSave":…} — and the
+# older `transcriptPath`/`length` names are read as the same two fields, so the
+# hooks and the save never disagree about where the last save stopped.
+#
+# The state JSON's transcript path is a local absolute filesystem path —
 # it encodes the OS username and directory structure. There's no way
 # around storing it (a plain Bash tool call has no way to learn the
 # session's transcript path on its own; only hooks receive it, verified
@@ -95,56 +87,6 @@ json_get_number() {
   printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[0-9]*" | head -1 | grep -o '[0-9]*$'
 }
 
-# --- --arm: the harness has no PreCompact to fire from ----------------------
-# Deliberately the most conservative thing that can work, because the file it
-# touches is shared: the OpenCode save flow keeps `opencodeSession` and
-# `opencodeSeq` in this very JSON, and this script does not otherwise know those
-# fields exist. So it flips `pendingSave` **in place** and reads nothing else —
-# anything it does not parse cannot be lost by writing it back.
-#
-# It also never *creates* a state file. Arming a story that has no state would
-# mean inventing the session fields the save flow depends on, and guessing at
-# those is worse than not reminding: the honest gap is narrower than the bug.
-# A story whose state file does not exist yet gets no compaction reminder on
-# OpenCode — recorded as such rather than papered over.
-#
-# ⚠️ One deliberate divergence from the hook path above: this arms on the
-# compaction event itself and never compares "has anything been written since
-# the last save?" — the check the hook path makes from `transcript_path`, a
-# field OpenCode does not hand a plugin. The reasoning is that the event is
-# already the signal (a compaction is where unsaved conversation goes missing),
-# so arming there is not a guess about content, it is the event's own meaning.
-# The cost is a "run /workflow-dev:save" prompt for a story with nothing
-# unsaved. Confirmed as a real divergence by the story's adversarial verify;
-# left in place knowingly, and flagged for the live run — if the compaction
-# events turn out to fire, this is the first thing to re-examine.
-if [[ "$MODE" == "arm" ]]; then
-  while IFS= read -r STORY_FILE; do
-    is_in_progress "$STORY_FILE" || continue
-    STORY_NAME=$(basename "$STORY_FILE" .md)
-    STATE_FILE="$STATE_DIR/${STORY_NAME}.json"
-    [[ -f "$STATE_FILE" ]] || continue
-    # Same shape the substitution below rewrites. A bare `grep -q '"pendingSave"'`
-    # would accept a key carrying something the regex cannot match, and then the
-    # `sed` would no-op while this still exited 0 — a guard and a rewrite
-    # disagreeing about what they are guarding.
-    grep -qE '"pendingSave"[[:space:]]*:[[:space:]]*(true|false)' "$STATE_FILE" || continue
-    mkdir -p "$STATE_DIR"
-    ensure_gitignored
-    # mktemp in the same directory, not a fixed "$STATE_FILE.tmp": a predictable
-    # name written with `>` follows a symlink someone else could have planted
-    # there, and two concurrent runs would race on the same path.
-    TMP_STATE=$(mktemp "$STATE_DIR/.pendingSave.XXXXXX") || continue
-    if sed -E 's/"pendingSave"[[:space:]]*:[[:space:]]*(true|false)/"pendingSave":true/' \
-        "$STATE_FILE" > "$TMP_STATE"; then
-      mv "$TMP_STATE" "$STATE_FILE"
-    else
-      rm -f "$TMP_STATE"
-    fi
-  done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
-  exit 0
-fi
-
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 
@@ -163,13 +105,15 @@ while IFS= read -r STORY_FILE; do
       EXISTING_PATH=""
       if [[ -f "$STATE_FILE" ]]; then
         EXISTING_JSON=$(cat "$STATE_FILE")
-        EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "transcriptPath")
+        EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "claudePath")
+        [[ -n "$EXISTING_PATH" ]] || EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "transcriptPath")
       fi
 
       if [[ "$EXISTING_PATH" == "$TRANSCRIPT_PATH" ]]; then
         # Same file this story is already tracking — only worth a reminder
         # if there's actually new content past what was last saved.
-        EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "length")
+        EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "claudeLength")
+        [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "length")
         [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=0
         CURRENT_TOTAL=$(wc -l < "$TRANSCRIPT_PATH" | tr -d '[:space:]')
         if [[ "$CURRENT_TOTAL" -le "$EXISTING_LENGTH" ]]; then
@@ -179,7 +123,7 @@ while IFS= read -r STORY_FILE; do
         EXISTING_DATETIME=$(json_get_string "$EXISTING_JSON" "dateTime")
         DATETIME_JSON="null"
         [[ -n "$EXISTING_DATETIME" ]] && DATETIME_JSON="\"$EXISTING_DATETIME\""
-        printf '{"transcriptPath":"%s","length":%s,"dateTime":%s,"pendingSave":true}' \
+        printf '{"claudePath":"%s","claudeLength":%s,"dateTime":%s,"pendingSave":true}' \
           "$TRANSCRIPT_PATH" "$EXISTING_LENGTH" "$DATETIME_JSON" > "$STATE_FILE"
       else
         # No state yet, or it belongs to a different transcript file (a new
@@ -189,7 +133,7 @@ while IFS= read -r STORY_FILE; do
         # save against the OLD transcript, if any, is untouched: the old
         # state file simply gets overwritten, but nothing on disk related
         # to it is destroyed — it's just no longer what this story tracks.
-        printf '{"transcriptPath":"%s","length":0,"dateTime":null,"pendingSave":true}' "$TRANSCRIPT_PATH" > "$STATE_FILE"
+        printf '{"claudePath":"%s","claudeLength":0,"dateTime":null,"pendingSave":true}' "$TRANSCRIPT_PATH" > "$STATE_FILE"
       fi
     fi
     # terminalSequence is the one field documented as "supported on all

@@ -4,7 +4,7 @@ description: Executes task groups from the plan with the quality rules loaded. U
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -117,13 +117,11 @@ inference, with no fallback.
 >   this, but relaying it to the human is still this step's job.
 > - **One commit per task group** — don't fold unrelated task groups into one
 >   commit.
-> - **Record the run's ids:** when you spawn a sub-agent, note its id in the
->   story's context (OpenCode's `subagent sessionID`; Claude Code's transcript
->   path), so `validate` can total cost **per story**, not just per session
->   (`session-usage.sh --sessions` / `--transcripts`).
+> - **Record the run's ids:** when a story spans sessions, note each session's
+>   transcript path in the story's context, so cost can be totalled **per
+>   story**, not just per session (`session-usage.sh --transcripts`).
 > - **Plugin updates are repo-first and post-merge:** change the **repo** →
->   PR → merge → *then* update the installed copy (Claude Code **and**
->   OpenCode). Never edit an installed copy, and never update ahead of the
+>   PR → merge → *then* update the installed copy. Never edit an installed copy, and never update ahead of the
 >   merge.
 
 When all tasks in the group are done:
@@ -145,7 +143,7 @@ it — never downgrade a blocking finding to a warning so the run can keep going
      `/workflow-dev:validate`. If FAIL → fix issues, re-validate. Once it
      PASSes, continue to point 4.
    - **"Once, at the end"**: defer this task group's validation instead of
-     running it. Call `"$PLUGIN_ROOT"/scripts/validate-mark-deferred.sh` (`PLUGIN_ROOT` is `${CLAUDE_PLUGIN_ROOT}` on Claude Code; OpenCode doesn't set it, so use `cd -P "<this skill's directory>/../.." && pwd -P`) — this marks the
+     running it. Call `"$PLUGIN_ROOT"/scripts/validate-mark-deferred.sh` (`PLUGIN_ROOT` is `${CLAUDE_PLUGIN_ROOT}` when set; a skill's shell calls don't get it, so fall back to `cd -P "<this skill's directory>/../.." && pwd -P`) — this marks the
      current diff so the commit-time hook (`pre-commit-validate-check.sh`)
      lets the commit through with a visible note instead of asking. Add
      one line to the completion summary: "Validation: deferred (story

@@ -1,8 +1,7 @@
 ---
 type: tool_used
 # `Bash` is Claude Code's shell tool, which is the vocabulary the `claude plugin
-# eval` runner records tool calls in; OpenCode's equivalent is `shell` — see
-# ../../references/harness-tools.md.
+# eval` runner records tool calls in.
 tool: Bash
 input_match: 'model-tiering-check\.sh\s+--status\s+\S*\{'
 ---

@@ -4,7 +4,7 @@ description: Creates a structured implementation plan (task groups) in the activ
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -119,7 +119,7 @@ Once the plan is approved — before writing anything, and before
 the whole story:
 
 ```
-Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
+Ask the human (ask-question tool):
   question: "The full quality check uses several sub-agents. Run it once at
     the end of the story, or after every task group?"
   header: "Validation mode"
@@ -169,7 +169,7 @@ Immediately after the validation-mode answer (same sitting, same tool), ask
 once more for the whole story:
 
 ```
-Ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
+Ask the human (ask-question tool):
   question: "When the quality check passes, also test this story in the
     running app, in a real browser or device?"
   header: "Manual QA"
@@ -230,8 +230,8 @@ Tell the human the plan is saved and suggest running `/workflow-dev:implement` t
 Then record the plan checkpoint (WD-0037):
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage plan`,
 and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
-`PLUGIN_ROOT` resolves as elsewhere in this plugin (`${CLAUDE_PLUGIN_ROOT}` on
-Claude Code; `cd -P "<this skill's directory>/../.." && pwd -P` on OpenCode).
+`PLUGIN_ROOT` resolves as elsewhere in this plugin (`${CLAUDE_PLUGIN_ROOT}` when
+set; a skill's shell calls don't get it, so `cd -P "<this skill's directory>/../.." && pwd -P`).
 
 ## Principles
 

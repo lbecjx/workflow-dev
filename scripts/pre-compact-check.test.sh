@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -7,12 +7,15 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
 #
-# Tests for pre-compact-check.sh's `--arm` mode — the harness-with-no-PreCompact
-# half. Its whole job is a side effect on a file it does not own: the very same
-# JSON carries `opencodeSession`/`opencodeSeq` for the OpenCode save flow, and
-# `--arm` deliberately reads none of them. So the assertions that matter are the
-# ones about what it must NOT do — lose a field, invent a file, touch a closed
-# story, or arm something it cannot rewrite.
+# Tests for pre-compact-check.sh — the PreCompact hook. It never delivers text
+# (PreCompact can't); its job is the story's compaction-state JSON: track the
+# hook's `transcript_path` and flip `pendingSave` when there is content past
+# the last save. Each case gets a fresh throwaway project, because the hook
+# stops at the first In Progress story it finds.
+#
+# Also pinned (WD-0026): a state file written by an older version — with
+# `current`, `opencodeSession`, `opencodeSeq` — must not break the hook. It is
+# replaced by the transcript-tracking shape like any state for another file.
 #
 #   bash scripts/pre-compact-check.test.sh
 
@@ -30,65 +33,76 @@ no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
 PROJ="$TMP/proj"
 STATE_DIR="$PROJ/.workflow-dev/context/.compaction-state"
+TRANSCRIPT="$TMP/session.jsonl"
 
-# A state file in the real OpenCode shape: no transcriptPath, the save flow's
-# own fields, and one field this script has never heard of.
-seed_state() { # $1 = story, $2 = pendingSave value
-  mkdir -p "$STATE_DIR"
-  printf '{"current":"opencode","claudePath":"","claudeLength":0,"opencodeSession":"ses_abc","opencodeSeq":4179,"dateTime":"2026-09-27T08:33:52Z","pendingSave":%s,"somethingNew":42}' "$2" > "$STATE_DIR/$1.json"
-}
-in_progress() { mkdir -p "$PROJ/.workflow-dev/context"; printf '# %s\n\n### Implementation Status: In Progress\n' "$1" > "$PROJ/.workflow-dev/context/$1.md"; }
-
-arm() { ( cd "$PROJ" && bash "$SCRIPT" --arm '{"harness":"opencode"}' ); }
+fresh() { rm -rf "$PROJ"; mkdir -p "$PROJ/.workflow-dev/context"; ( cd "$PROJ" && git init -q . ); }
+story() { printf '# %s\n\n### Implementation Status: %s\n' "$1" "${2:-In Progress}" > "$PROJ/.workflow-dev/context/$1.md"; }
 hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$SCRIPT" ); }
+precompact() { hook "{\"hook_event_name\":\"PreCompact\",\"transcript_path\":\"$TRANSCRIPT\"}"; }
 state() { cat "$STATE_DIR/$1.json" 2>/dev/null; }
 
-# --- 1: arming flips the flag, and only the flag ----------------------------
-in_progress WD-0001
-seed_state WD-0001 false
-OUT="$(arm)"
-[[ -z "$OUT" ]] && ok "--arm is silent" || no "--arm is silent (got: $OUT)"
+printf 'l1\nl2\nl3\n' > "$TRANSCRIPT"
+
+# --- 1: a new story starts tracking the transcript, armed ------------------
+fresh; story WD-0001
+OUT="$(precompact)"; code=$?
 S="$(state WD-0001)"
-case "$S" in *'"pendingSave":true'*) ok "--arm flips pendingSave to true" ;; *) no "--arm flips pendingSave to true (got: $S)" ;; esac
-case "$S" in *'"opencodeSession":"ses_abc"'*) ok "the save flow's session id survives" ;; *) no "the save flow's session id survives (got: $S)" ;; esac
-case "$S" in *'"opencodeSeq":4179'*) ok "the save flow's seq survives" ;; *) no "the save flow's seq survives (got: $S)" ;; esac
-case "$S" in *'"claudePath":""'*) ok "the other harness's fields survive too" ;; *) no "the other harness's fields survive too (got: $S)" ;; esac
-case "$S" in *'"somethingNew":42'*) ok "a field this script has never heard of survives" ;; *) no "a field it has never heard of survives (got: $S)" ;; esac
-[[ -f "$STATE_DIR/.pendingSave.XXXXXX" ]] && no "no template file left behind" || ok "no template file left behind"
-TMP_LEFTOVERS=$(find "$STATE_DIR" -name '.pendingSave.*' 2>/dev/null | wc -l | tr -d ' ')
-[[ "$TMP_LEFTOVERS" == "0" ]] && ok "no mktemp leftovers" || no "no mktemp leftovers (found $TMP_LEFTOVERS)"
+case "$S" in *"\"claudePath\":\"$TRANSCRIPT\""*) ok "state tracks the hook's transcript" ;; *) no "state tracks the hook's transcript (got: $S)" ;; esac
+case "$S" in *'"pendingSave":true'*) ok "a freshly tracked transcript is pending" ;; *) no "a freshly tracked transcript is pending (got: $S)" ;; esac
+case "$OUT" in *terminalSequence*) ok "the hook rings the bell (its only output)" ;; *) no "the hook rings the bell (got: $OUT)" ;; esac
+[[ "$code" == "0" ]] && ok "exit 0" || no "exit 0 (got $code)"
+grep -qxF '.workflow-dev/context/.compaction-state/' "$PROJ/.gitignore" 2>/dev/null \
+  && ok "the state directory is gitignored" || no "the state directory is gitignored"
 
-# --- 2: a story with no state file is skipped, never invented ---------------
-in_progress WD-0002
-arm >/dev/null 2>&1
-[[ -f "$STATE_DIR/WD-0002.json" ]] && no "--arm never creates a state file" || ok "--arm never creates a state file"
+# --- 2: nothing past the last save → not re-armed --------------------------
+fresh; story WD-0002; mkdir -p "$STATE_DIR"
+printf '{"transcriptPath":"%s","length":3,"dateTime":"2026-10-01T00:00:00Z","pendingSave":false}' "$TRANSCRIPT" > "$STATE_DIR/WD-0002.json"
+precompact >/dev/null
+case "$(state WD-0002)" in *'"pendingSave":false'*) ok "no new lines since the save → stays unarmed" ;; *) no "no new lines since the save → stays unarmed (got: $(state WD-0002))" ;; esac
 
-# --- 3: a closed story is left alone ----------------------------------------
-mkdir -p "$PROJ/.workflow-dev/context"
-printf '# WD-0003\n\n### Implementation Status: Done\n' > "$PROJ/.workflow-dev/context/WD-0003.md"
-seed_state WD-0003 false
-arm >/dev/null 2>&1
-case "$(state WD-0003)" in *'"pendingSave":false'*) ok "a Done story is not armed" ;; *) no "a Done story is not armed (got: $(state WD-0003))" ;; esac
+# --- 3: new lines past the last save → armed, save point kept --------------
+fresh; story WD-0003; mkdir -p "$STATE_DIR"
+printf '{"transcriptPath":"%s","length":1,"dateTime":"2026-10-01T00:00:00Z","pendingSave":false}' "$TRANSCRIPT" > "$STATE_DIR/WD-0003.json"
+precompact >/dev/null
+S="$(state WD-0003)"
+case "$S" in *'"pendingSave":true'*) ok "new lines since the save → armed" ;; *) no "new lines since the save → armed (got: $S)" ;; esac
+case "$S" in *'"claudeLength":1'*'"dateTime":"2026-10-01T00:00:00Z"'*) ok "the last save point is kept" ;; *) no "the last save point is kept (got: $S)" ;; esac
 
-# --- 4: a shape it cannot rewrite is skipped rather than half-done ----------
-# The guard and the substitution must agree; a key carrying something the regex
-# cannot match has to be skipped, not rewritten to an identical file.
-in_progress WD-0004
-printf '{"current":"opencode","opencodeSession":"ses_q","pendingSave":"maybe"}' > "$STATE_DIR/WD-0004.json"
-arm >/dev/null 2>&1
-case "$(state WD-0004)" in *'"pendingSave":"maybe"'*) ok "an unrewritable pendingSave is left untouched" ;; *) no "an unrewritable pendingSave is left untouched (got: $(state WD-0004))" ;; esac
+# --- 3b: the save's own shape is read — a saved position survives a compaction
+# save-mark-saved.sh writes `claudePath`/`claudeLength`. Reading only the older
+# names once made the hook treat every saved story as a new transcript and reset
+# it to 0, so the next save re-read everything already saved.
+fresh; story WD-0033; mkdir -p "$STATE_DIR"
+printf '{"claudePath":"%s","claudeLength":3,"dateTime":"2026-10-01T00:00:00Z","pendingSave":false}' "$TRANSCRIPT" > "$STATE_DIR/WD-0033.json"
+precompact >/dev/null
+case "$(state WD-0033)" in *'"claudeLength":3'*'"pendingSave":false'*) ok "a saved position (save's shape) is kept, nothing new → unarmed" ;; *) no "a saved position (save's shape) is kept (got: $(state WD-0033))" ;; esac
+printf 'l4\n' >> "$TRANSCRIPT"
+precompact >/dev/null
+case "$(state WD-0033)" in *'"claudeLength":3'*'"pendingSave":true'*) ok "a saved position (save's shape) is kept, new lines → armed" ;; *) no "a saved position (save's shape) is kept, new lines → armed (got: $(state WD-0033))" ;; esac
+printf 'l1\nl2\nl3\n' > "$TRANSCRIPT"
 
-# --- 5: the Claude Code hook path still needs a transcript ------------------
-# --arm must not become the hook path's behaviour: without a transcript_path
-# there is nothing to measure, so the hook mode does not arm.
-in_progress WD-0005
-seed_state WD-0005 false
-hook '{"hook_event_name":"PreCompact"}' >/dev/null 2>&1
-case "$(state WD-0005)" in *'"pendingSave":false'*) ok "hook mode without a transcript stores nothing to arm" ;; *) no "hook mode without a transcript stores nothing to arm (got: $(state WD-0005))" ;; esac
+# --- 4: a closed story is left alone ---------------------------------------
+fresh; story WD-0004 Done
+precompact >/dev/null
+[[ -f "$STATE_DIR/WD-0004.json" ]] && no "a Done story gets no state" || ok "a Done story gets no state"
 
-# --- 6: no .workflow-dev/context at all is silence, not a failure -----------
+# --- 5: no transcript_path → nothing to measure, nothing stored ------------
+fresh; story WD-0005
+hook '{"hook_event_name":"PreCompact"}' >/dev/null
+[[ -f "$STATE_DIR/WD-0005.json" ]] && no "no transcript → no state written" || ok "no transcript → no state written"
+
+# --- 6: a state file from an older version does not break the hook ---------
+fresh; story WD-0006; mkdir -p "$STATE_DIR"
+printf '{"current":"opencode","claudePath":"","claudeLength":0,"opencodeSession":"ses_abc","opencodeSeq":4179,"dateTime":"2026-09-27T08:33:52Z","pendingSave":false}' > "$STATE_DIR/WD-0006.json"
+OUT="$(precompact)"; code=$?
+S="$(state WD-0006)"
+[[ "$code" == "0" ]] && ok "legacy state: exit 0" || no "legacy state: exit 0 (got $code)"
+case "$S" in *"\"claudePath\":\"$TRANSCRIPT\""*'"pendingSave":true'*) ok "legacy state → tracks the transcript, armed" ;; *) no "legacy state → tracks the transcript, armed (got: $S)" ;; esac
+case "$S" in *opencode*) no "legacy fields are not carried forward (got: $S)" ;; *) ok "legacy fields are not carried forward" ;; esac
+
+# --- 7: no .workflow-dev/context at all is silence, not a failure ----------
 rm -rf "$PROJ/.workflow-dev"
-OUT="$(arm)"; code=$?
+OUT="$(precompact)"; code=$?
 [[ -z "$OUT" && "$code" == "0" ]] && ok "no context dir → silent, exit 0" || no "no context dir → silent, exit 0 (got '$OUT', exit $code)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
