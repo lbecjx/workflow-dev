@@ -85,8 +85,11 @@ the Free Software Foundation, either version 3 of the License, or
   permission `allow` rule (for example `Skill(workflow-dev:resume)`) that silences
   the reminder without configuring anything or recording a choice. Rewording the
   text (WD-0042) could not fix that. A `deny` opens no dialog, so there is no such
-  button: the hook denies the skill call, and the reason — which the agent reads —
-  tells it to put one question to the user, with three answers in this order:
+  button: the hook denies the skill call with a plain description as its reason and, in `additionalContext`, which only
+  the agent reads, the instruction to ask and the path of
+  `references/tiering-question.md` (Claude Code prints a deny reason to the user verbatim, behind an "Error:"
+  prefix the plugin cannot change, so it must read well and carry neither a path nor an instruction). The file
+  tells the agent to put one question to the user, with three answers in this order:
   configure the agents (the agent runs `/workflow-dev:setup-models` itself, as the
   main agent, since the flow is interactive), a default model for this story (a
   `Tiering: default model` row in the active story's Decisions), or a default model

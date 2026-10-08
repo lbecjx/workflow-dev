@@ -67,27 +67,54 @@ OUT="$(hook "" "$NOT_OURS")"
 OUT="$(hook "" "$SETUP")"
 [[ -z "$OUT" ]] && ok "setup-models → silent" || no "setup-models → silent (got: $OUT)"
 
-# --- 3: unbound → deny, with the question as the reason -----------------------------------------
+# --- 3: unbound → deny, with a short reason that points at the question -------
+QFILE="$HERE/../references/tiering-question.md"
 OUT="$(hook "" "$VALIDATE")"
 has '"permissionDecision":"deny"' "$OUT" "unbound role → permissionDecision deny: the question comes first (WD-0045)"
-has '"permissionDecisionReason"' "$OUT" "unbound role → the question rides as the reason the agent reads"
-has 'The skill call was blocked and nothing ran yet' "$OUT" "the reason says the skill did not run"
-has 'Then call the skill again' "$OUT" "the reason says to call the skill again after the answer"
+has '"permissionDecisionReason"' "$OUT" "unbound role → a reason the agent reads"
+has 'Then call this skill again' "$OUT" "the agent context says to call the skill again after the answer"
+has 'references/tiering-question.md' "$OUT" "the question file is named for the agent"
+if command -v jq >/dev/null 2>&1; then
+  REASON="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.permissionDecisionReason)"
+  case "$REASON" in
+    *"ask the user"*|*"Ask the user"*|*"call this skill"*) no "the user-visible reason must not be an instruction to the agent (got: $REASON)" ;;
+    *) ok "the user-visible reason carries no instruction to the agent" ;;
+  esac
+  case "$REASON" in
+    *tiering-question.md*|*/*/*) no "the user-visible reason must carry no file path (got: $REASON)" ;;
+    *) ok "the user-visible reason carries no file path" ;;
+  esac
+  CTX="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
+  case "$CTX" in
+    *references/tiering-question.md*) ok "the file path rides in additionalContext, for the agent only" ;;
+    *) no "additionalContext must name the question file (got: $CTX)" ;;
+  esac
+fi
+has 'You need to set up the model for each agent before continuing.' "$OUT" "the reason is one plain sentence for the user (Claude Code prefixes it with Error:)"
+has 'it is required, also in autonomous mode' "$OUT" "the agent context says the question is required in autonomous mode"
 case "$OUT" in
   *'"ask"'*) no "unbound role must not ask (got: $OUT)" ;;
   *) ok "unbound role never asks" ;;
 esac
-has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
 json_ok "$OUT" "unbound output is valid JSON"
-# WD-0045: a deny opens no dialog, so there is no "don't ask again"; the reason
-# carries the three-answer question for the agent to put to the user — and never
-# to write the user-level opt-out on its own.
-has 'run /workflow-dev:setup-models yourself, as the main agent and not as a sub-agent' "$OUT" "agent note tells it to run setup-models itself"
-has 'offering exactly these options in this order: (1) Configure the agents' "$OUT" "agent note puts configuring first"
-has '(2) Default model for this story' "$OUT" "agent note offers a per-story default"
-has '(3) Default model for this repo' "$OUT" "agent note offers a per-repo default"
-has "offer this option only when the current git branch name carries that story's code" "$OUT" "the per-story option is offered only on a branch the hook can match"
-has 'This question is required, also in autonomous mode: never choose an answer for the user' "$OUT" "the question is required in autonomous mode too"
+# Claude Code prints a deny reason to the user verbatim: keep it short (WD-0045).
+REASON_LEN=${#OUT}
+[[ $REASON_LEN -lt 700 ]] && ok "the deny output stays short ($REASON_LEN chars)" || no "the deny output is too long to show a user ($REASON_LEN chars)"
+[[ -f "$QFILE" ]] && ok "the question file exists" || no "the question file is missing: $QFILE"
+Q="$(cat "$QFILE")"
+# WD-0045: a deny opens no dialog, so there is no "don't ask again"; the file the
+# reason names carries the three-answer question for the agent to put to the user.
+has 'Run `/workflow-dev:setup-models` yourself, as the' "$Q" "question file: option 1 runs setup-models itself"
+has '1. **Configure the agents.**' "$Q" "question file puts configuring first"
+has '2. **Default model for this story.**' "$Q" "question file offers a per-story default"
+has '3. **Default model for this repo.**' "$Q" "question file offers a per-repo default"
+has "Offer this option only when the current git branch name carries that story's" "$Q" "the per-story option is offered only on a branch the hook can match"
+has 'The question is required, also in autonomous mode: never choose an answer for' "$Q" "the question is required in autonomous mode too"
+has 'There is no machine-wide opt-out' "$Q" "question file: no machine-wide opt-out"
+has 'a weak model there does more harm than the default' "$Q" "question file carries the reasoning note"
+# The plain reminder (OpenCode's text) still names the fix and the story/repo default.
+OUT="$(hook --message "$VALIDATE")"
+has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
 has 'or choose the default model for this story or this repo' "$OUT" "reminder offers the story/repo default, not a machine-wide opt-out"
 case "$OUT" in
   *optOut*|*tiering.json*) no "the machine-wide opt-out is gone (got: $OUT)" ;;
@@ -98,7 +125,7 @@ esac
 OUT="$(hook --expansion "$VALIDATE")"
 has '"hookEventName":"UserPromptExpansion"' "$OUT" "expansion → UserPromptExpansion output"
 has '"additionalContext"' "$OUT" "expansion → advisory context"
-has 'run /workflow-dev:setup-models yourself' "$OUT" "expansion context carries the same question"
+has 'references/tiering-question.md' "$OUT" "expansion context points at the same question file"
 json_ok "$OUT" "expansion output is valid JSON"
 case "$OUT" in
   *permissionDecision*) no "expansion must not emit a permission decision" ;;
@@ -129,9 +156,10 @@ printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- wor
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "stale" ]] && ok "--status → stale" || no "--status → stale (got: $OUT)"
 OUT="$(hook "" "$VALIDATE")"
-has 'stale' "$OUT" "stale reminder says the roles are stale"
-has '"permissionDecision":"deny"' "$OUT" "stale reminder also blocks until answered"
+has '"permissionDecision":"deny"' "$OUT" "stale roles also block until answered"
 json_ok "$OUT" "stale output is valid JSON"
+OUT="$(hook --message "$VALIDATE")"
+has 'stale' "$OUT" "stale reminder says the roles are stale"
 has 'or choose the default model for this story or this repo' "$OUT" "stale reminder offers the story/repo default"
 
 # --- 8: one role stale + another missing → incomplete ----------------------
@@ -317,7 +345,7 @@ rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 
 # init offers the same menu; its Phase 4 only finds the roles bound if option 1 ran.
 OUT="$(hook "" "$INIT")"
-has '(1) Configure the agents' "$OUT" "init gets the same three options (its Phase 4 stays the backstop)"
+has 'references/tiering-question.md' "$OUT" "init gets the same question (its Phase 4 stays the backstop)"
 json_ok "$OUT" "init output is valid JSON"
 
 # --- WD-0045: the repo and story defaults silence the reminder ---------------

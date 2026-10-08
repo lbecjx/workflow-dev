@@ -293,15 +293,22 @@ fi
 # "don't ask again" saves a permission `allow` rule that silences this reminder
 # without configuring anything (hooks/README.md). So the PreToolUse path denies
 # the skill call — a deny opens no dialog, so there is no such button — and the
-# reason, which the agent reads, tells it to put one question to the user with
-# three answers, configuring first, and to call the skill again afterwards. Once
+# reason, which the agent reads, points it at the question to put to the user
+# (three answers, configuring first) and tells it to call the skill again. Once
 # an answer is recorded the hook is silent, so the second call goes through. The
 # question is required in autonomous mode too: no answer is assumed for the user.
 # There is no machine-wide opt-out: tiering is configured once (the agent files
 # live in the user's agents directory) or the default is chosen per repo or story.
-QUESTION="Ask the user with the ask-question tool, in the user's language, what to do, offering exactly these options in this order: (1) Configure the agents: run /workflow-dev:setup-models yourself, as the main agent and not as a sub-agent. (2) Default model for this story: add the row | <today> | Tiering: default model | Human | to the Decisions table of the active story's file in .workflow-dev/context/, and change nothing else; offer this option only when the current git branch name carries that story's code (for example wd-0045-…), because the hook finds the story through the branch, and otherwise offer only options 1 and 3. (3) Default model for this repo: set \"tiering\": \"default\" in .workflow-dev/config.json, keeping its other keys. Some roles need strong reasoning, so setup-models lets the user keep the default for any role, and a weak model there does more harm than the default. This question is required, also in autonomous mode: never choose an answer for the user."
-BLOCK_NOTE="$REMINDER The skill call was blocked and nothing ran yet. $QUESTION Then call the skill again."
-EXPANSION_NOTE="$REMINDER Before continuing the skill the user asked for: $QUESTION"
+# The instructions live in references/tiering-question.md, not in this reason:
+# Claude Code prints a deny reason to the user verbatim, so a long one reads as a
+# wall of red error text. The reason is one plain sentence for the user, with no
+# file path in it; the path goes in `additionalContext`, which only the agent
+# reads. The reason also says nothing is wrong: Claude Code prefixes every hook deny with "Error:", which
+# the plugin cannot change, so the wording after it has to be calm.
+QUESTION_FILE="$(cd -P "$HERE/.." && pwd -P)/references/tiering-question.md"
+BLOCK_NOTE="You need to set up the model for each agent before continuing."
+BLOCK_CONTEXT="Put that choice to the user as one question and wait for the answer; it is required, also in autonomous mode. The options, how each answer is recorded, and the rules are in $QUESTION_FILE: read it before asking. Then call this skill again."
+EXPANSION_NOTE="$REMINDER Before continuing the skill the user asked for, read $QUESTION_FILE and ask the user what to do."
 
 case "$MODE" in
   message)
@@ -311,7 +318,7 @@ case "$MODE" in
     emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$EXPANSION_NOTE")\"}}"
     ;;
   *)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$(json_escape "$BLOCK_NOTE")\"}}"
+    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$(json_escape "$BLOCK_NOTE")\",\"additionalContext\":\"$(json_escape "$BLOCK_CONTEXT")\"}}"
     ;;
 esac
 exit 0
