@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.2
+
+- The model-tiering ask now says what each dialog answer does (Yes runs the skill
+  on the default model; for `init`, it sets tiering up first) and presents the
+  opt-out as a manual choice, so accepting it no longer reads as configuring.
+
 ## 1.32.1
 
 - `resume` shows a Mode line, so a story left in autonomous mode is not resumed

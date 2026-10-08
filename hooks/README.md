@@ -77,4 +77,20 @@ the Free Software Foundation, either version 3 of the License, or
   `opencode/plugin.ts`'s `execute.before`) has no marker and no bypass, so it
   blocks in autonomous mode exactly as it does in a human-piloted one. See
   `../references/autonomous-mode.md`.
+- **What the model-tiering ask can and cannot do** (WD-0042). On Claude Code the
+  `PreToolUse:Skill` hook can return `allow`, `ask`, `deny` or `defer`, plus
+  `permissionDecisionReason`, `updatedInput` (replaces the tool's arguments) and
+  `additionalContext` (placed next to the tool result, where the model sees it).
+  The dialog an `ask` produces — its buttons and what each one does — belongs to
+  Claude Code: the plugin controls only the reason text. "Yes" lets the skill that
+  was asked for run; it cannot be made to mean "configure the models". Two ways to
+  get closer exist and neither is shipped: rewriting the Skill input to
+  `workflow-dev:setup-models` with `updatedInput` (undocumented for the Skill tool,
+  and it would drop the skill the user asked for), and steering the agent with
+  `additionalContext` after a "Yes" (not verified to be delivered on an `ask`). So
+  the reason text states plainly what each answer does, offers
+  `/workflow-dev:setup-models` as the way to configure, and describes `optOut` as a
+  separate manual choice the hook never applies. The `UserPromptExpansion` path
+  (the user typing `/workflow-dev:<skill>`) has no permission decision at all, so it
+  stays an advisory.
 - Tool-name mapping across harnesses: `../references/harness-tools.md`.

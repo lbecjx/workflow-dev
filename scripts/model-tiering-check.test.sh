@@ -72,6 +72,12 @@ OUT="$(hook "" "$VALIDATE")"
 has '"permissionDecision":"ask"' "$OUT" "unbound role → permissionDecision ask"
 has '/workflow-dev:setup-models' "$OUT" "ask names the command that fixes it"
 json_ok "$OUT" "unbound ask is valid JSON"
+# WD-0042: the dialog's "Yes" only lets the skill run — the ask must say what each
+# answer does, point at setup-models as the way to configure, and present the
+# opt-out as a manual choice, never as what "Yes" does.
+has 'Answering Yes runs this skill now on your default model, without tiering' "$OUT" "ask states what Yes does"
+has 'answering No cancels it so you can run /workflow-dev:setup-models first' "$OUT" "ask states what No does"
+has 'yourself — nothing here sets it for you' "$OUT" "ask presents optOut as a separate manual choice"
 
 # --- 4: the typed path gets context, never an ask ---------------------------
 OUT="$(hook --expansion "$VALIDATE")"
@@ -110,6 +116,8 @@ OUT="$(hook "" "$VALIDATE")"
 has 'stale' "$OUT" "stale ask says the roles are stale"
 has '"permissionDecision":"ask"' "$OUT" "stale ask is still an ask"
 json_ok "$OUT" "stale ask is valid JSON"
+has 'Answering Yes runs this skill now on your default model' "$OUT" "stale ask states what Yes does"
+has 'yourself — nothing here sets it for you' "$OUT" "stale ask presents optOut as a separate manual choice"
 
 # --- 8: one role stale + another missing → incomplete ----------------------
 # Rebuild from a clean slate so this doesn't depend on the prior test's state:
@@ -288,6 +296,26 @@ printf '\xEF\xBB\xBF---\nname: %s\nmodel: sonnet\n---\n<!-- workflow-dev:roles-h
   "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 has "$FIRST_ROLE	bound	sonnet" "$(RR)" "a leading BOM does not hide the binding"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# init heals itself (Phase 4), so its "Yes" really does configure — the note says so.
+OUT="$(hook "" "$INIT")"
+has 'Answering Yes runs init, which walks you through /workflow-dev:setup-models first' "$OUT" "init ask says Yes leads to setup"
+json_ok "$OUT" "init ask is valid JSON"
+
+# --- WD-0042: no mode ever opts the user out on its own ---------------------
+# Unbound, every mode: the hook may read tiering.json but must never create it.
+rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR/.claude/agents"
+for m in "" --expansion --message --status; do
+  hook "$m" "$VALIDATE" >/dev/null
+done
+[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" ]] \
+  && ok "no mode writes the opt-out file" || no "a mode wrote ~/.workflow-dev/tiering.json"
+# The plain (advisory) text carries no dialog wording: OpenCode has no Yes/No.
+OUT="$(hook --message "$VALIDATE")"
+case "$OUT" in
+  *"Answering Yes"*) no "--message must not carry the dialog wording (got: $OUT)" ;;
+  *) ok "--message stays plain, without dialog wording" ;;
+esac
 
 echo
 echo "$pass passed, $fail failed"

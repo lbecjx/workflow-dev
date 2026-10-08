@@ -258,9 +258,19 @@ fi
 # This text is the single source of truth, shared by Claude Code (the JSON
 # envelope below) and OpenCode (the plugin's `--message` mode). It stays plain
 # here; only the JSON boundary escapes it (json_escape above).
-REMINDER="Model tiering isn't set up on this harness: run /workflow-dev:setup-models to bind each agent role to a model, or set {\"optOut\": true} in ~/.workflow-dev/tiering.json to run everything on your default model and stop being asked."
+REMINDER="Model tiering isn't set up on this harness. Run /workflow-dev:setup-models to bind each agent role to a model. To run everything on your default model and stop being asked, set {\"optOut\": true} in ~/.workflow-dev/tiering.json yourself — nothing here sets it for you."
 if [[ -n "$STALE" ]] && [[ -z "$MISSING" ]]; then
-  REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept), or set {\"optOut\": true} in ~/.workflow-dev/tiering.json to run everything on your default model."
+  REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept). To run everything on your default model, set {\"optOut\": true} in ~/.workflow-dev/tiering.json yourself — nothing here sets it for you."
+fi
+# Only the Claude Code ask is a dialog whose buttons the harness owns (WD-0042,
+# hooks/README.md): there "Yes" just lets the skill run, so say so plainly
+# instead of letting it read as "configure". The advisory paths (--message,
+# --expansion) have no such dialog, so they keep the plain text above.
+DIALOG_NOTE=" Answering Yes runs this skill now on your default model, without tiering; answering No cancels it so you can run /workflow-dev:setup-models first."
+# `init` is the exception: its Phase 4 runs the setup flow itself when the roles
+# are unbound or stale, so there "Yes" really does lead to configuring.
+if [[ "$SKILL" == "init" ]]; then
+  DIALOG_NOTE=" Answering Yes runs init, which walks you through /workflow-dev:setup-models first; answering No cancels it."
 fi
 
 case "$MODE" in
@@ -271,7 +281,7 @@ case "$MODE" in
     emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$REMINDER")\"}}"
     ;;
   *)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"$(json_escape "$REMINDER")\"}}"
+    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"$(json_escape "$REMINDER$DIALOG_NOTE")\"}}"
     ;;
 esac
 exit 0
