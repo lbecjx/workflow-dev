@@ -264,13 +264,14 @@ way (the `-P` resolves OpenCode's skill symlink; a logical `..` would not).
 
 **Record the run's cost — every run, full or reduced.** After the report, run
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot <STORY-ID> --stage validate`
-and show the line it prints (this run's spend and the story's running total).
+and show the line it prints (this run's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
 It appends a checkpoint to the story's durable ledger
 (`.workflow-dev/context/.usage/<STORY-ID>.json`), so the cost survives even if
 the session is later deleted — a bare per-session number does not (WD-0037).
 For a reduced run with no sub-agents the delta is the orchestrator's own cost;
 say so rather than omitting it. The script is best-effort: an unresolvable
-source is reported `unavailable`, never a misleading zero.
+source is reported `unavailable`, never a misleading zero; a cost estimated from
+the price table is marked `(estimated)` — show it as such.
 
 Then render the **run report** from the ledger with
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --story <STORY-ID>`: the total, the

@@ -160,7 +160,8 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 7. **Record the story's base cost checkpoint** (WD-0037). Run
    `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage init`
    and show the line it prints — this step's spend and the story's running
-   total. It appends to the story's durable ledger
+   total; when it also prints a `spend verified ✓` line, tell the human the
+   story's spend is now verified. It appends to the story's durable ledger
    (`.workflow-dev/context/.usage/[STORY-ID].json`), so the cost outlives the
    session that produced it. Best-effort: an unresolvable source is reported
    `unavailable`, never a zero. Resolve `PLUGIN_ROOT` as `references/workflow.md`

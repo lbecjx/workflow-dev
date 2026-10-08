@@ -46,8 +46,15 @@ so a story started on one and continued on the other still sums correctly.
 
    ```sh
    PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+   "$PLUGIN_ROOT"/scripts/session-usage.sh --reconcile <STORY-ID>
    "$PLUGIN_ROOT"/scripts/session-usage.sh --story <STORY-ID>
    ```
+
+   `--reconcile` first: a session whose last checkpoint was an estimate may
+   hold Claude Code's exact figure by now, and it is appended to the ledger as
+   a `reconcile` checkpoint (best-effort; it never blocks the report). If it
+   prints a `spend verified ✓` line, tell the human the story's spend is now
+   verified; the report's `verified:` line says whether it is.
 
 3. Present the report as-is: the total, the tokens, the split by stage and by
    session, the **per-agent/role** breakdown (each cub's model included), the

@@ -14,6 +14,18 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.33.0
+
+- Story cost checkpoints are recorded reliably, per session, from any
+  subdirectory; a checkpoint that cannot be recorded says so.
+- A checkpoint no longer freezes at an old total: newer spend is priced from
+  `scripts/model-prices.json` and marked `(estimated)`, about 3% low.
+- An exact figure that lands later is added as a `reconcile` entry; a story
+  holding only exact figures is marked verified.
+- `.workflow-dev/context/.usage/.index.json` serves each story's cost to
+  dashboards (`references/usage-api.md`).
+- `session-usage.sh --transcript <path>` names the transcript explicitly.
+
 ## 1.32.4
 
 - Questions and messages follow the language of the conversation, with short

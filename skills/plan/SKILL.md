@@ -229,7 +229,7 @@ Tell the human the plan is saved and suggest running `/workflow-dev:implement` t
 
 Then record the plan checkpoint (WD-0037):
 `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage plan`,
-and show the line it prints (this step's spend and the story's running total).
+and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
 `PLUGIN_ROOT` resolves as elsewhere in this plugin (`${CLAUDE_PLUGIN_ROOT}` on
 Claude Code; `cd -P "<this skill's directory>/../.." && pwd -P` on OpenCode).
 
