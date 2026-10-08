@@ -10,11 +10,11 @@ the Free Software Foundation, either version 3 of the License, or
 
 # The model-tiering question
 
-`scripts/model-tiering-check.sh` blocks a workflow-dev skill call while the agent
-roles are unbound or stale and no default model was chosen for the repo or the
-story. Its one-line reason points the agent here, so the user sees a short
-message and the instructions live in one place (WD-0045). Read this, put the
-question to the user, record the answer, then call the skill again.
+`scripts/model-tiering-check.sh` pauses a workflow-dev skill while the agent roles
+are unbound or stale and no default model was chosen for the repo or the story.
+Its context for the agent points here, so the instructions live in one place
+(WD-0045, WD-0046). Read this, put the question to the user, record the answer,
+then continue the skill.
 
 ## Ask the user
 
@@ -41,5 +41,6 @@ for any role, and a weak model there does more harm than the default.
   the user.
 - There is no machine-wide opt-out. Never write `~/.workflow-dev/tiering.json`;
   an old one is ignored.
-- After the answer is recorded, call the skill the user asked for again. The hook
-  is silent once the roles are bound or a default is recorded.
+- After the answer is recorded, continue the skill the user asked for; it is
+  already loaded, so do not call it again. The hook is silent once the roles are
+  bound or a default is recorded.

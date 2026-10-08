@@ -67,39 +67,24 @@ OUT="$(hook "" "$NOT_OURS")"
 OUT="$(hook "" "$SETUP")"
 [[ -z "$OUT" ]] && ok "setup-models → silent" || no "setup-models → silent (got: $OUT)"
 
-# --- 3: unbound → deny, with a short reason that points at the question -------
+# --- 3: unbound → allow, with the question in the agent's context -------------
 QFILE="$HERE/../references/tiering-question.md"
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"deny"' "$OUT" "unbound role → permissionDecision deny: the question comes first (WD-0045)"
-has '"permissionDecisionReason"' "$OUT" "unbound role → a reason the agent reads"
-has 'Then call this skill again' "$OUT" "the agent context says to call the skill again after the answer"
-has 'references/tiering-question.md' "$OUT" "the question file is named for the agent"
-if command -v jq >/dev/null 2>&1; then
-  REASON="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.permissionDecisionReason)"
-  case "$REASON" in
-    *"ask the user"*|*"Ask the user"*|*"call this skill"*) no "the user-visible reason must not be an instruction to the agent (got: $REASON)" ;;
-    *) ok "the user-visible reason carries no instruction to the agent" ;;
-  esac
-  case "$REASON" in
-    *tiering-question.md*|*/*/*) no "the user-visible reason must carry no file path (got: $REASON)" ;;
-    *) ok "the user-visible reason carries no file path" ;;
-  esac
-  CTX="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
-  case "$CTX" in
-    *references/tiering-question.md*) ok "the file path rides in additionalContext, for the agent only" ;;
-    *) no "additionalContext must name the question file (got: $CTX)" ;;
-  esac
-fi
-has 'You need to set up the model for each agent before continuing.' "$OUT" "the reason is one plain sentence for the user (Claude Code prefixes it with Error:)"
-has 'it is required, also in autonomous mode' "$OUT" "the agent context says the question is required in autonomous mode"
+has '"permissionDecision":"allow"' "$OUT" "unbound role → allow: no \"Error:\" line, no dialog (WD-0046)"
+has '"additionalContext"' "$OUT" "unbound role → the question rides as context the agent reads"
 case "$OUT" in
-  *'"ask"'*) no "unbound role must not ask (got: $OUT)" ;;
-  *) ok "unbound role never asks" ;;
+  *'"ask"'*|*'"deny"'*|*permissionDecisionReason*) no "unbound role must neither ask nor deny (got: $OUT)" ;;
+  *) ok "unbound role neither asks nor denies" ;;
 esac
+has 'do not start the skill' "$OUT" "the context says to hold the skill until the user answers"
+has 'Then continue the skill.' "$OUT" "the context says to continue the skill, not call it again"
+has 'it is required, also in autonomous mode' "$OUT" "the context says the question is required in autonomous mode"
+has 'references/tiering-question.md' "$OUT" "the question file is named for the agent"
 json_ok "$OUT" "unbound output is valid JSON"
-# Claude Code prints a deny reason to the user verbatim: keep it short (WD-0045).
-REASON_LEN=${#OUT}
-[[ $REASON_LEN -lt 700 ]] && ok "the deny output stays short ($REASON_LEN chars)" || no "the deny output is too long to show a user ($REASON_LEN chars)"
+# Everything but the context stays out of the user's sight, and the context stays
+# short: the instructions live in the question file.
+OUT_LEN=${#OUT}
+[[ $OUT_LEN -lt 900 ]] && ok "the hook output stays short ($OUT_LEN chars)" || no "the hook output is too long ($OUT_LEN chars)"
 [[ -f "$QFILE" ]] && ok "the question file exists" || no "the question file is missing: $QFILE"
 Q="$(cat "$QFILE")"
 # WD-0045: a deny opens no dialog, so there is no "don't ask again"; the file the
@@ -156,7 +141,7 @@ printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- wor
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "stale" ]] && ok "--status → stale" || no "--status → stale (got: $OUT)"
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"deny"' "$OUT" "stale roles also block until answered"
+has '"permissionDecision":"allow"' "$OUT" "stale roles also raise the question"
 json_ok "$OUT" "stale output is valid JSON"
 OUT="$(hook --message "$VALIDATE")"
 has 'stale' "$OUT" "stale reminder says the roles are stale"
@@ -183,7 +168,7 @@ mv "$ROLES.bak" "$ROLES"
 mkdir -p "$HOME_DIR/.workflow-dev"
 printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"deny"' "$OUT" "a leftover user-level optOut file is ignored"
+has '"permissionDecision":"allow"' "$OUT" "a leftover user-level optOut file is ignored"
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" != "opted-out" && -n "$OUT" ]] && ok "--status ignores the leftover optOut file" || no "--status ignores the leftover optOut file (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
@@ -354,7 +339,7 @@ git -C "$REPO_DIR" init -q -b wd-0045-example
 CWD_PAYLOAD="{\"tool_name\":\"Skill\",\"cwd\":\"$REPO_DIR\",\"tool_input\":{\"skill\":\"workflow-dev:validate\"}}"
 rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
 OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"deny"' "$OUT" "no repo/story default → the question still comes first"
+has '"permissionDecision":"allow"' "$OUT" "no repo/story default → the question still comes first"
 printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
 OUT="$(hook "" "$CWD_PAYLOAD")"
 [[ -z "$OUT" ]] && ok "repo default → silent" || no "repo default → silent (got: $OUT)"
@@ -364,13 +349,13 @@ rm -f "$REPO_DIR/.workflow-dev/config.json"
 # A prose mention of the row must not count — only a Decisions table row does.
 printf 'The row `| date | Tiering: default model | Human |` is what silences it.\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
 OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"deny"' "$OUT" "a story that only mentions the row does not opt out"
+has '"permissionDecision":"allow"' "$OUT" "a story that only mentions the row does not opt out"
 printf '## Decisions\n| 2026-10-08 | Tiering: default model | Human |\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
 OUT="$(hook "" "$CWD_PAYLOAD")"
 [[ -z "$OUT" ]] && ok "story default on the story's branch → silent" || no "story default on the story's branch → silent (got: $OUT)"
 git -C "$REPO_DIR" checkout -q -b wd-0099-other
 OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"deny"' "$OUT" "story default does not carry to another story's branch"
+has '"permissionDecision":"allow"' "$OUT" "story default does not carry to another story's branch"
 
 # --- WD-0042: no mode ever opts the user out on its own ---------------------
 # Unbound, every mode: the hook must never create a tiering file or a repo default.

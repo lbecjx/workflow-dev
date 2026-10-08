@@ -14,6 +14,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.3
+
+- The model-tiering question no longer shows as an error. Claude Code prints any
+  hook deny behind "Error:"; the hook now allows the skill and tells the agent to
+  ask first, so nothing is blocked and nothing is shown in red.
+
 ## 1.32.2
 
 - The model-tiering reminder no longer opens a dialog. Its "Yes, and don't ask
