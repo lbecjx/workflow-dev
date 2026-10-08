@@ -71,6 +71,14 @@ one and record it without asking"), generalised to every decision point. The two
 places that still lack a fallback today — `implement`'s per-task confirmation
 and its decision points — get theirs from this rule.
 
+## Save after every task group
+
+`save` is not optional in an autonomous run. After each task group, `implement`
+(Step 6) runs `/workflow-dev:save` itself rather than suggesting it, so the
+Decisions it recorded, the progress, and the discoveries reach the story file
+before the next task group starts. `save` applies without its confirmation in
+this mode, and each save's contents go into the end-of-run report.
+
 ## The hard boundary — what autonomous mode never does
 
 No decision point, however the inference goes, may cross these lines. They are
