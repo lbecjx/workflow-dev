@@ -19,19 +19,19 @@ directory**, deliberately. Claude Code gives a plugin's agents a scoped name
 (`workflow-dev:<role>`) while a user's own agent file is unscoped, and the docs
 don't settle whether a same-named user file overrides a plugin's scoped agent or
 is a separate agent. Rather than depend on that ambiguity, `setup-models` reads
-this file and **generates** the agent in each harness (Claude Code:
-`~/.claude/agents/<role>.md` with a `model:` field; OpenCode: its agent config) —
-one mechanism, both harnesses, no scoping question to answer. It also means the
+this file and **generates** the agent as the user's own file
+(`~/.claude/agents/<role>.md` with a `model:` field) — no scoping question to
+answer. It also means the
 plugin never ships an agent definition whose model it cannot set. Each generated
 file embeds a hash of this file, so a stale generation can be told from a
 current one; change a role here and the next `setup-models` run regenerates it.
 
-**Why roles and not models.** This plugin runs on at least two harnesses with
-incompatible model spaces: OpenCode exposes ~1000 selectable `provider/model`
-pairs, while Claude Code exposes a short list of aliases that get renamed and
-deprecated over time — an alias valid today may not exist next month. A plugin
-that named a model would be wrong on most machines, and would rot as the model
-landscape moves. A role is stable; the binding is local.
+**Why roles and not models.** The models a user can pick differ from machine to
+machine — an account's plan, a gateway in front of Claude Code — and Claude
+Code's aliases get renamed and deprecated over time: an alias valid today may
+not exist next month. A plugin that named a model would be wrong on many
+machines, and would rot as the model landscape moves. A role is stable; the
+binding is local.
 
 ## Roles
 

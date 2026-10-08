@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -45,12 +45,6 @@
 #       Claude Code `UserPromptExpansion` — the user typing
 #       `/workflow-dev:<skill>` directly, same text, that event's own
 #       additionalContext envelope.
-#   plugin-update-check.sh --message [payload]
-#       Prints the reminder as plain text, nothing otherwise. Not called by
-#       any harness today (OpenCode support is out of scope for this check —
-#       its update path is a `git pull` in a clone, not `claude plugin
-#       update`) — kept anyway so this script's tests, and any future caller,
-#       have one place to ask "what would it say" without parsing JSON.
 #
 # This script does NOT reuse model-tiering-check.sh's "is this one of our
 # skills" detection by sourcing it — it duplicates the small check inline so a
@@ -79,19 +73,13 @@
 set -u
 
 MODE="hook"
-PAYLOAD_ARG=""
 case "${1:-}" in
   --expansion) MODE="expansion" ;;
-  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
 esac
 
 quiet() { exit 0; }
 
-if [[ "$MODE" == "message" && -n "$PAYLOAD_ARG" ]]; then
-  INPUT="$PAYLOAD_ARG"
-else
-  INPUT="$(cat)"
-fi
+INPUT="$(cat)"
 
 HERE="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_ROOT="$(cd -P "$HERE/.." && pwd -P)"
@@ -108,13 +96,12 @@ json_string() { # $1 = key
 SKILL="$(json_string skill)"
 [[ -z "$SKILL" ]] && SKILL="$(json_string command_name)"
 SKILL="${SKILL#workflow-dev:}"
-SKILL="${SKILL#workflow-dev-}"
 
 if [[ -z "$SKILL" ]]; then
   for d in "$PLUGIN_ROOT"/skills/*/; do
     name="$(basename "$d")"
     case "$INPUT" in
-      *"workflow-dev:$name"*|*"workflow-dev-$name"*) SKILL="$name"; break ;;
+      *"workflow-dev:$name"*) SKILL="$name"; break ;;
     esac
   done
 fi
@@ -330,9 +317,6 @@ if [[ "$STATE_OK" -eq 1 ]]; then
 fi
 
 case "$MODE" in
-  message)
-    printf '%s' "$REMINDER"
-    ;;
   expansion)
     REMINDER_JSON="${REMINDER//\\/\\\\}"; REMINDER_JSON="${REMINDER_JSON//\"/\\\"}"
     printf '{"hookSpecificOutput":{"hookEventName":"UserPromptExpansion","additionalContext":"%s"}}' "$REMINDER_JSON"

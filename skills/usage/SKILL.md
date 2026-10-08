@@ -1,10 +1,10 @@
 ---
 name: usage
-description: Shows the active story's total consumption — dollars and tokens — totalled from its durable cost ledger across sessions and harnesses. Use when the user asks "usage", "cost", "how much did this story cost", "cuánto costó", or wants the current story's spend.
+description: Shows the active story's total consumption — dollars and tokens — totalled from its durable cost ledger across sessions. Use when the user asks "usage", "cost", "how much did this story cost", "cuánto costó", or wants the current story's spend.
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -20,10 +20,10 @@ the Free Software Foundation, either version 3 of the License, or
 ## What this does
 
 Prints the active story's cost report, summed from its **durable ledger**
-(`.workflow-dev/context/.usage/<STORY-ID>.json`) — not from the harness's live
-store, which can be deleted (OpenCode hard-deletes sessions; a Claude Code
-transcript can be removed). The total spans every session and both harnesses,
-so a story started on one and continued on the other still sums correctly.
+(`.workflow-dev/context/.usage/<STORY-ID>.json`) — not from the live
+transcript, which can be removed. The total spans every session, so a story
+continued in a new session still sums correctly. Checkpoints recorded from
+OpenCode before its support was removed still count, on a line of their own.
 
 ## When to use
 
@@ -41,8 +41,7 @@ so a story started on one and continued on the other still sums correctly.
    `Implementation Status` is `In Progress` (usually the one the git branch
    names). If none is active, ask which story, or list the ones that have a
    ledger under `.workflow-dev/context/.usage/`.
-2. Run the one script — harness-agnostic, no branching here (it dispatches to
-   the right adapter itself):
+2. Run the one script:
 
    ```sh
    PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
@@ -68,8 +67,8 @@ never the live store, a deleted session does not change the answer.
 
 ## Principles
 
-- **One report, both harnesses.** The script dispatches on the harness; this
-  skill never branches on it.
+- **One report, one script.** This skill renders what the script prints; it
+  never re-derives a number.
 - **The ledger is the truth, not the live store.** The total survives deletion
   of the session or transcript that produced it.
 - **No invented numbers.** `unavailable` when nothing is recorded — the repo's

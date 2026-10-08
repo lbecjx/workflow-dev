@@ -2,8 +2,7 @@
 max_turns: 30
 timeout_seconds: 900
 # `allowed_tools` are Claude Code tool names — the vocabulary the `claude plugin
-# eval` runner expects. OpenCode's equivalents for the same capabilities are
-# `shell`, `question`, `skill` and `subagent`; see ../../references/harness-tools.md.
+# eval` runner expects.
 allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]
 ---
 

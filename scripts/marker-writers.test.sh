@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -56,8 +56,8 @@ mkdir -p "$PROJ/.workflow-dev/context"
   && printf 'one\ntwo\n' > tracked.txt ) || { echo "  FAIL could not build the throwaway repo"; exit 1; }
 
 mk() { printf '{"tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)"; }
-validate_hook() { ( cd "$PROJ" && bash "$HERE/pre-commit-validate-check.sh" --message "$1" ); }
-message_status() { ( cd "$PROJ" && bash "$HERE/pre-commit-message-check.sh" --status "$1" ); }
+validate_hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$HERE/pre-commit-validate-check.sh" ); }
+message_hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$HERE/pre-commit-message-check.sh" ); }
 defer() { ( cd "$PROJ" && bash "$HERE/validate-mark-deferred.sh" ); }
 review() { printf '%s' "$1" | ( cd "$PROJ" && bash "$HERE/git-message-mark-reviewed.sh" ); }
 
@@ -70,14 +70,17 @@ defer >/dev/null 2>&1 || no "validate-mark-deferred.sh succeeds on a private sto
 [[ "$(mode_of "$MARKER_DIR")" == "700" ]] && ok "the deferred writer creates the store mode 700" || no "the deferred writer creates the store mode 700 (got: $(mode_of "$MARKER_DIR"))"
 MARKER_FILE="$(ls "$MARKER_DIR"/*.json 2>/dev/null | head -1)"
 [[ -n "$MARKER_FILE" && "$(mode_of "$MARKER_FILE")" == "600" ]] && ok "the deferred marker is mode 600" || no "the deferred marker is mode 600"
-[[ -z "$(validate_hook "$COMMIT")" ]] && ok "a deferred marker silences the validate hook (the round-trip)" || no "a deferred marker silences the validate hook"
+case "$(validate_hook "$COMMIT")" in
+  *'"permissionDecision":"allow"'*) ok "a deferred marker lets the validate hook allow (the round-trip)" ;;
+  *) no "a deferred marker lets the validate hook allow (got: $(validate_hook "$COMMIT"))" ;;
+esac
 
 # --- the reviewed writer creates privately and the marker round-trips --------
 review 'feat: a reviewed message' >/dev/null 2>&1 || no "git-message-mark-reviewed.sh succeeds on a private store"
 [[ "$(mode_of "$MSG_DIR")" == "700" ]] && ok "the reviewed writer creates the messages store mode 700" || no "the reviewed writer creates the messages store mode 700 (got: $(mode_of "$MSG_DIR"))"
 MSG_FILE="$(ls "$MSG_DIR"/*.json 2>/dev/null | head -1)"
 [[ -n "$MSG_FILE" && "$(mode_of "$MSG_FILE")" == "600" ]] && ok "the reviewed marker is mode 600" || no "the reviewed marker is mode 600"
-[[ "$(message_status "$COMMIT")" == "ok" ]] && ok "a reviewed marker silences the message hook (the round-trip)" || no "a reviewed marker silences the message hook (got: $(message_status "$COMMIT"))"
+[[ -z "$(message_hook "$COMMIT")" ]] && ok "a reviewed marker silences the message hook (the round-trip)" || no "a reviewed marker silences the message hook (got: $(message_hook "$COMMIT"))"
 
 # --- nothing to defer → no marker, no directory even -------------------------
 FRESH_TMP="$TMP/fresh"

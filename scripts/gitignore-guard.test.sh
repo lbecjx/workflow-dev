@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -29,25 +29,23 @@ no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 STORY="GIT-1"
 PATTERN='.workflow-dev/context/.compaction-state/'
 
-# A minimal OpenCode store with one top-level session for the given directory,
-# so the save's OpenCode path runs (and calls ensure_gitignored).
-mkdb() { # $1 db path, $2 directory
-  sqlite3 "$1" <<SQL
-CREATE TABLE session_v2 (id text, parent_id text, directory text, time_updated integer);
-CREATE TABLE session_message (session_id text, seq integer, type text, data text);
-INSERT INTO session_v2 VALUES ('ses_g',NULL,'$2',100);
-INSERT INTO session_message VALUES ('ses_g',1,'user','{"x":1}');
-SQL
+# A state file pointing at a transcript with unsaved lines, so the save's read
+# runs far enough to call ensure_gitignored.
+seed() { # $1 project dir
+  mkdir -p "$1/.workflow-dev/context/.compaction-state"
+  printf '{"n":1}\n' > "$1/transcript.jsonl"
+  printf '{"claudePath":"%s","claudeLength":0}' "$1/transcript.jsonl" \
+    > "$1/.workflow-dev/context/.compaction-state/$STORY.json"
 }
-run_save() { # $1 project dir, $2 db
-  ( cd "$1" && env -u CLAUDECODE OPENCODE_TERMINAL=1 OPENCODE_DB="$2" bash "$READ" "$STORY" >/dev/null 2>&1 )
+run_save() { # $1 project dir
+  ( cd "$1" && bash "$READ" "$STORY" >/dev/null 2>&1 )
 }
 
 # --- A: an ancestor already ignores .workflow-dev/ → .gitignore untouched -----
 A="$TMP/a"; mkdir -p "$A"; ( cd "$A" && git init -q )
 printf '.workflow-dev/\n' > "$A/.gitignore"
-mkdb "$TMP/a.db" "$(cd "$A" && pwd -P)"
-run_save "$A" "$TMP/a.db"
+seed "$A"
+run_save "$A"
 if [[ "$(cat "$A/.gitignore")" == ".workflow-dev/" ]]; then
   ok "ancestor ignores it: .gitignore untouched"
 else
@@ -57,14 +55,14 @@ fi
 # --- B: not ignored → the pattern is appended, exactly once -------------------
 B="$TMP/b"; mkdir -p "$B"; ( cd "$B" && git init -q )
 : > "$B/.gitignore"
-mkdb "$TMP/b.db" "$(cd "$B" && pwd -P)"
-run_save "$B" "$TMP/b.db"
+seed "$B"
+run_save "$B"
 if grep -qxF "$PATTERN" "$B/.gitignore"; then
   ok "not ignored: pattern appended"
 else
   no "not ignored: pattern missing"
 fi
-run_save "$B" "$TMP/b.db"
+run_save "$B"
 n=$(grep -cxF "$PATTERN" "$B/.gitignore")
 [[ "$n" == "1" ]] && ok "not ignored: appended once (not duplicated)" || no "not ignored: appended $n times"
 

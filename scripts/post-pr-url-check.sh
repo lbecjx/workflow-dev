@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -11,15 +11,8 @@
 # succeeds, hands the agent the PR's full URL so it can relay it plainly
 # (WD-0024). The command has already run; this only reminds, never blocks.
 #
-# Two modes, one owner of both the detection and the wording:
-#   post-pr-url-check.sh
-#       Claude Code `PostToolUse` — emits the JSON envelope. Reads
-#       tool_response.stdout/exit_code from the payload.
-#   post-pr-url-check.sh --message [payload]
-#       Prints the reminder as plain text, nothing when there is none.
-#       OpenCode's plugin calls this with { tool_input, tool_output }: no
-#       exit code is available there, so a found URL is the only signal of
-#       success (documented gap, see hooks/README.md).
+# Reads tool_response.stdout/exit_code from the PostToolUse payload and emits
+# the JSON envelope.
 #
 # command-match.sh owns detection, same as pre-commit-message-check.sh: `no`
 # means the command only mentions `gh pr create`/`gh pr edit` (a heredoc body,
@@ -29,17 +22,7 @@
 
 set -u
 
-MODE="hook"
-PAYLOAD_ARG=""
-case "${1:-}" in
-  --message) MODE="message"; PAYLOAD_ARG="${2:-}" ;;
-esac
-
-if [[ -n "$PAYLOAD_ARG" ]]; then
-  INPUT="$PAYLOAD_ARG"
-else
-  INPUT=$(cat)
-fi
+INPUT=$(cat)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=command-match.sh
@@ -60,23 +43,15 @@ json_get_string() {
   printf '%s' "$1" | grep -oE "\"$2\"[[:space:]]*:[[:space:]]*\"([^\"\\\\]|\\\\.)*\"" | head -1 | sed -E 's/^"[^"]*"[[:space:]]*:[[:space:]]*"(.*)"$/\1/'
 }
 
-if [[ "$MODE" == "hook" ]]; then
-  if command -v jq >/dev/null 2>&1; then
-    EXIT_CODE=$(printf '%s' "$INPUT" | jq -r '.tool_response.exit_code // 0' 2>/dev/null)
-    STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // empty' 2>/dev/null)
-  else
-    EXIT_CODE=$(printf '%s' "$INPUT" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9-]*' | head -1 | grep -o '[0-9-]*$')
-    TOOL_RESPONSE=$(printf '%s' "$INPUT" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*{.*}' | head -1)
-    STDOUT=$(json_get_string "$TOOL_RESPONSE" "stdout")
-  fi
-  [[ -z "${EXIT_CODE:-}" || "$EXIT_CODE" == "0" ]] || exit 0
+if command -v jq >/dev/null 2>&1; then
+  EXIT_CODE=$(printf '%s' "$INPUT" | jq -r '.tool_response.exit_code // 0' 2>/dev/null)
+  STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // empty' 2>/dev/null)
 else
-  if command -v jq >/dev/null 2>&1; then
-    STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_output // empty' 2>/dev/null)
-  else
-    STDOUT=$(json_get_string "$INPUT" "tool_output")
-  fi
+  EXIT_CODE=$(printf '%s' "$INPUT" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9-]*' | head -1 | grep -o '[0-9-]*$')
+  TOOL_RESPONSE=$(printf '%s' "$INPUT" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*{.*}' | head -1)
+  STDOUT=$(json_get_string "$TOOL_RESPONSE" "stdout")
 fi
+[[ -z "${EXIT_CODE:-}" || "$EXIT_CODE" == "0" ]] || exit 0
 
 URL_PATTERN='https://[A-Za-z0-9.-]+/[^/[:space:]"]+/[^/[:space:]"]+/pull/[0-9]+'
 URL=$(printf '%s' "$STDOUT" | grep -oE "$URL_PATTERN" | tail -1)
@@ -112,11 +87,6 @@ fi
 
 REMINDER="The PR command just ran — relay its full URL to the human as plain text, on its own line, not only as a Markdown link label: $URL"
 
-case "$MODE" in
-  message) printf '%s' "$REMINDER" ;;
-  *)
-    REMINDER_JSON="${REMINDER//\\/\\\\}"
-    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}' "$REMINDER_JSON"
-    ;;
-esac
+REMINDER_JSON="${REMINDER//\\/\\\\}"
+printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}' "$REMINDER_JSON"
 exit 0

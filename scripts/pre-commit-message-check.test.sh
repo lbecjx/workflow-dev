@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -10,9 +10,9 @@
 # Tests for pre-commit-message-check.sh, which is the one script here that has
 # *two* enforcement levels — so it owns three words, not a boolean:
 # `ok` (nothing to raise), `notify` (the Part 12 review) and `block` (the
-# AI-attribution hard rule). All three are pinned, because OpenCode's plugin
-# reads that word to decide whether to post a notice or stop the command, and a
-# missing word would silently become "no reminder".
+# AI-attribution hard rule). All three are pinned through the hook's own JSON:
+# silence, an `ask`, or a `deny` — a wrong decision would silently become "no
+# reminder", or a commit that should have stopped.
 #
 # The reviewed-marker path is exercised too: it is the only thing that turns
 # `notify` into `ok`, and TMPDIR is redirected so the live marker store is
@@ -55,9 +55,20 @@ mkdir -p "$PROJ/.workflow-dev/context" "$PLAIN_DIR"
 
 mk() { printf '{"tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)"; }
 hook() { ( cd "$PROJ" && printf '%s' "$1" | bash "$SCRIPT" ); }
-status() { ( cd "$PROJ" && bash "$SCRIPT" --status "$1" ); }
-plain() { ( cd "$PROJ" && bash "$SCRIPT" --message "$1" ); }
 envelope_reason() { printf '%s' "$1" | sed -E 's/.*"permissionDecisionReason":"(.*)"\}\}$/\1/'; }
+# The hook's JSON read back as the script's three words: silence is `ok`, a
+# `deny` is `block`, an `ask` is `notify`.
+word_of() {
+  case "$1" in
+    '') printf ok ;;
+    *'"permissionDecision":"deny"'*) printf block ;;
+    *'"permissionDecision":"ask"'*) printf notify ;;
+    *) printf 'unexpected: %s' "$1" ;;
+  esac
+}
+status() { word_of "$(hook "$1")"; }
+# The reason the hook carries — empty when it is silent.
+plain() { local out; out="$(hook "$1")"; [[ -n "$out" ]] && envelope_reason "$out"; }
 
 ATTR="$(mk 'git commit -m "feat: x
 
@@ -68,61 +79,39 @@ PR="$(mk 'gh pr create --title "Add a thing" --body "Some description."')"
 
 # --- 1: not a commit/PR → ok, and silence -----------------------------------
 [[ "$(status "$OTHER")" == "ok" ]] && ok "non-commit command → ok" || no "non-commit command → ok (got: $(status "$OTHER"))"
-[[ -z "$(plain "$OTHER")" ]] && ok "non-commit command → --message silent" || no "non-commit command → --message silent"
-[[ -z "$(hook "$OTHER")" ]] && ok "non-commit command → hook mode silent" || no "non-commit command → hook mode silent"
+[[ -z "$(hook "$OTHER")" ]] && ok "non-commit command → silent" || no "non-commit command → silent"
 
-# --- 2: attribution → block, and the same text in both modes ----------------
+# --- 2: attribution → block -------------------------------------------------
 [[ "$(status "$ATTR")" == "block" ]] && ok "AI attribution → block" || no "AI attribution → block (got: $(status "$ATTR"))"
 ATTR_TEXT="$(plain "$ATTR")"
-[[ -n "$ATTR_TEXT" ]] && ok "AI attribution → --message prints the reason" || no "AI attribution → --message prints the reason"
+[[ -n "$ATTR_TEXT" ]] && ok "AI attribution → the deny carries a reason" || no "AI attribution → the deny carries a reason"
 ATTR_JSON="$(hook "$ATTR")"
 case "$ATTR_JSON" in
-  *'"permissionDecision":"deny"'*) ok "AI attribution → hook mode still denies" ;;
-  *) no "AI attribution → hook mode still denies (got: $ATTR_JSON)" ;;
+  *'"permissionDecision":"deny"'*) ok "AI attribution → denies" ;;
+  *) no "AI attribution → denies (got: $ATTR_JSON)" ;;
 esac
-[[ "$(envelope_reason "$ATTR_JSON")" == "$ATTR_TEXT" ]] \
-  && ok "attribution: hook JSON and --message carry the same text" \
-  || no "attribution: hook JSON and --message carry the same text"
 case "$ATTR_TEXT" in
   *"Part 12.3"*) ok "the block reason names the hard rule" ;;
   *) no "the block reason names the hard rule (got: $ATTR_TEXT)" ;;
 esac
 
-# --- 3: clean but unreviewed → notify, and the same text in both modes ------
+# --- 3: clean but unreviewed → notify --------------------------------------
 [[ "$(status "$CLEAN")" == "notify" ]] && ok "clean unreviewed → notify" || no "clean unreviewed → notify (got: $(status "$CLEAN"))"
 CLEAN_TEXT="$(plain "$CLEAN")"
 CLEAN_JSON="$(hook "$CLEAN")"
 case "$CLEAN_JSON" in
-  *'"permissionDecision":"ask"'*) ok "clean unreviewed → hook mode still asks (never denies)" ;;
-  *) no "clean unreviewed → hook mode still asks (got: $CLEAN_JSON)" ;;
+  *'"permissionDecision":"ask"'*) ok "clean unreviewed → asks (never denies)" ;;
+  *) no "clean unreviewed → asks (got: $CLEAN_JSON)" ;;
 esac
-[[ "$(envelope_reason "$CLEAN_JSON")" == "$CLEAN_TEXT" ]] \
-  && ok "review: hook JSON and --message carry the same text" \
-  || no "review: hook JSON and --message carry the same text"
+[[ -n "$CLEAN_TEXT" ]] && ok "clean unreviewed → the ask carries a reason" || no "clean unreviewed → the ask carries a reason"
 
-# --- 3b: --verdict returns the verdict and the reason from a single run -----
-# The mode OpenCode's plugin reads (WD-0020): first line the verdict, the rest
-# the same reason --message prints — so the two can never come from runs that
-# disagree.
-verdict() { ( cd "$PROJ" && bash "$SCRIPT" --verdict "$1" ); }
-V_OTHER="$(verdict "$OTHER")"
-[[ "$V_OTHER" == "ok" ]] && ok "--verdict: non-commit → ok, no reason" || no "--verdict: non-commit → ok (got: $V_OTHER)"
-V_ATTR="$(verdict "$ATTR")"
-[[ "${V_ATTR%%$'\n'*}" == "block" ]] && ok "--verdict: attribution → block" || no "--verdict: attribution → block (got: $V_ATTR)"
-[[ "${V_ATTR#*$'\n'}" == "$ATTR_TEXT" ]] && ok "--verdict: attribution reason matches --message" || no "--verdict: attribution reason matches --message"
-V_CLEAN="$(verdict "$CLEAN")"
-[[ "${V_CLEAN%%$'\n'*}" == "notify" ]] && ok "--verdict: unreviewed → notify" || no "--verdict: unreviewed → notify (got: $V_CLEAN)"
-[[ "${V_CLEAN#*$'\n'}" == "$CLEAN_TEXT" ]] && ok "--verdict: review reason matches --message" || no "--verdict: review reason matches --message"
-
-# --- 4: a reviewed message is ok, in both modes -----------------------------
+# --- 4: a reviewed message is ok --------------------------------------------
 # Same formula the script uses to key its marker: shasum of the extracted body.
 BODY_HASH="$(printf '%s' 'feat: add a thing' | shasum | cut -d' ' -f1)"
 mkdir -p "$TMPDIR/workflow-dev-validate/messages"
 : > "$TMPDIR/workflow-dev-validate/messages/$BODY_HASH.json"
 [[ "$(status "$CLEAN")" == "ok" ]] && ok "reviewed message → ok" || no "reviewed message → ok (got: $(status "$CLEAN"))"
-[[ -z "$(plain "$CLEAN")" ]] && ok "reviewed message → --message silent" || no "reviewed message → --message silent"
-[[ "$(verdict "$CLEAN")" == "ok" ]] && ok "reviewed message → --verdict ok, no reason" || no "reviewed message → --verdict ok (got: $(verdict "$CLEAN"))"
-[[ -z "$(hook "$CLEAN")" ]] && ok "reviewed message → hook mode silent" || no "reviewed message → hook mode silent"
+[[ -z "$(hook "$CLEAN")" ]] && ok "reviewed message → silent" || no "reviewed message → silent"
 # ...and it does not launder attribution: the deny does not consult the marker.
 [[ "$(status "$ATTR")" == "block" ]] && ok "a reviewed marker never un-blocks attribution" || no "a reviewed marker never un-blocks attribution"
 rm -rf "$TMPDIR/workflow-dev-validate/messages"
@@ -193,7 +182,6 @@ case "$MAYBE_TEXT" in
   *"Part 12.3"*) ok "…and its reason names the attribution rule" ;;
   *) no "…and its reason names the attribution rule (got: $MAYBE_TEXT)" ;;
 esac
-[[ "$(envelope_reason "$MAYBE_JSON")" == "$MAYBE_TEXT" ]] && ok "…hook JSON and --message carry the same text" || no "…hook JSON and --message carry the same text"
 [[ "$MAYBE_TEXT" != "$ATTR_TEXT" ]] && ok "…and it is not the deny's wording" || no "…and it is not the deny's wording"
 
 # `maybe` without attribution is the ordinary Part 12 reminder (AC #6: err toward asking).
@@ -252,7 +240,7 @@ mkdir -p "$NOJQ"
 for t in bash cat grep sed awk head cut sort tr git shasum dirname uname find; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$NOJQ/$t"
 done
-nojq_status() { ( cd "$PROJ" && PATH="$NOJQ" bash "$SCRIPT" --status "$1" ); }
+nojq_status() { word_of "$( cd "$PROJ" && printf '%s' "$1" | PATH="$NOJQ" bash "$SCRIPT" )"; }
 if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then
   echo "  skip  could not hide jq from the fallback checks"
 else
@@ -268,13 +256,12 @@ fi
 
 # --- 10: outside a workflow-dev project the review ask stays quiet -----------
 # The attribution rule is not part of that gate: it blocks in any directory.
-in_plain() { ( cd "$PLAIN_DIR" && bash "$SCRIPT" "$@" ); }
 in_plain_hook() { ( cd "$PLAIN_DIR" && printf '%s' "$1" | bash "$SCRIPT" ); }
-[[ "$(in_plain --status "$CLEAN")" == "ok" ]] && ok "no workflow-dev project: a clean unreviewed commit → ok" || no "no workflow-dev project: a clean unreviewed commit → ok (got: $(in_plain --status "$CLEAN"))"
-[[ -z "$(in_plain --message "$CLEAN")" ]] && ok "no workflow-dev project: --message silent" || no "no workflow-dev project: --message silent"
+in_plain() { word_of "$(in_plain_hook "$1")"; }
+[[ "$(in_plain "$CLEAN")" == "ok" ]] && ok "no workflow-dev project: a clean unreviewed commit → ok" || no "no workflow-dev project: a clean unreviewed commit → ok (got: $(in_plain "$CLEAN"))"
 [[ -z "$(in_plain_hook "$CLEAN")" ]] && ok "no workflow-dev project: hook mode silent" || no "no workflow-dev project: hook mode silent"
-[[ "$(in_plain --status "$PR")" == "ok" ]] && ok "no workflow-dev project: an unreviewed PR → ok" || no "no workflow-dev project: an unreviewed PR → ok"
-[[ "$(in_plain --status "$ATTR")" == "block" ]] && ok "no workflow-dev project: attribution still blocks" || no "no workflow-dev project: attribution still blocks (got: $(in_plain --status "$ATTR"))"
+[[ "$(in_plain "$PR")" == "ok" ]] && ok "no workflow-dev project: an unreviewed PR → ok" || no "no workflow-dev project: an unreviewed PR → ok"
+[[ "$(in_plain "$ATTR")" == "block" ]] && ok "no workflow-dev project: attribution still blocks" || no "no workflow-dev project: attribution still blocks (got: $(in_plain "$ATTR"))"
 case "$(in_plain_hook "$ATTR")" in
   *'"permissionDecision":"deny"'*) ok "no workflow-dev project: hook mode still denies attribution" ;;
   *) no "no workflow-dev project: hook mode still denies attribution" ;;
@@ -371,7 +358,7 @@ TEMPD="$PLATFORM_TMP/wd-0028-$$"
 mkdir -p "$TEMPD"
 printf 'feat: a message under the platform temp dir\n' > "$TEMPD/msg.txt"
 CMD_TMPDIR="git commit -m \"\$(cat \"\$TMPDIR/wd-0028-$$/msg.txt\")\""
-got="$( cd "$PROJ" && env -u TMPDIR bash "$SCRIPT" --status "$(mk "$CMD_TMPDIR")" )"
+got="$(word_of "$( cd "$PROJ" && mk "$CMD_TMPDIR" | env -u TMPDIR bash "$SCRIPT" )")"
 [[ "$got" == "notify" ]] && ok "a \$TMPDIR path is read when the hook env has no TMPDIR" \
                         || no "a \$TMPDIR path is read when the hook env has no TMPDIR (got: $got)"
 rm -rf "$TEMPD"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -8,22 +8,16 @@
 # (at your option) any later version. See LICENSE for the full text.
 #
 # session-usage.sh — report the token usage, cost, and wall-time of a workflow
-# run, read from whichever harness ran it.
+# run, read from the Claude Code session transcript.
 #
 # Why this exists (WD-0007, AC 8): the workflow's cost is dominated by
-# sub-agents, and nothing else exposes what they cost. Two harnesses, two
-# sources — both read here, never guessed at:
-#
-#   * Claude Code — the session transcript (.jsonl). `message.usage` on the
-#     main thread; each async Agent writes its own side-chain file (the
-#     `output_file` named in its tool_result) with the same fields. Cost comes
-#     from the transcript's last `cost-state` record (`totalCostUSD`), which
-#     already includes the sub-agents; `modelUsage` splits it per model. An
-#     older note here said "no cost field, so tokens only" — that was wrong.
-#   * OpenCode — its SQLite store (`session_v2`). One row per session with
-#     `cost` and `tokens_*`; a sub-agent is a child session (`parent_id`), so
-#     per-sub-agent attribution (and cost) is exact, and no side-chain files to
-#     lose. Read via `sqlite3`.
+# sub-agents, and nothing else exposes what they cost. The source is read here,
+# never guessed at: the session transcript (.jsonl). `message.usage` on the
+# main thread; each async Agent writes its own side-chain file (the
+# `output_file` named in its tool_result) with the same fields. Cost comes from
+# the transcript's last `cost-state` record (`totalCostUSD`), which already
+# includes the sub-agents; `modelUsage` splits it per model. An older note here
+# said "no cost field, so tokens only" — that was wrong.
 #
 # IMPORTANT — the Claude transcript repeats usage per content block. The
 # harness writes one JSONL record per assistant *content block* (thinking /
@@ -37,8 +31,8 @@
 # than reported as this run's. See REPO.md's "fail toward doing nothing rather
 # than a false positive".
 #
-# Usage: session-usage.sh [--session <id>] [--transcript <path> | transcript.jsonl]
-#   --transcript <path> / transcript.jsonl (Claude Code) — the same explicit
+# Usage: session-usage.sh [--transcript <path> | transcript.jsonl]
+#   --transcript <path> / transcript.jsonl — the same explicit
 #     path, named or positional; a --transcript with no value exits 2. Without
 #     it the Claude source is resolved, in order: this session's own transcript
 #     (CLAUDE_CODE_SESSION_ID, under this project's slug, then any project's);
@@ -47,34 +41,27 @@
 #     another run, refused rather than reported as this one. The project is
 #     the git toplevel (the cwd outside git), so a call from a subdirectory
 #     resolves and writes the ledger as if made from the root.
-#   --session <id> — OpenCode only; without it, the current session
-#     (OPENCODE_SESSION_ID, only when it validates for this directory) is used,
-#     else the newest session for the current directory.
-#   --sessions <id,id,…> — OpenCode: sum exactly these sessions. A session can
-#     mix several stories, so this is the per-story attribution path: the story
-#     records each sub-agent's session id and this totals just those.
-#   --transcripts <path,path,…> — Claude Code: sum these transcripts plus each
-#     one's side-chain sub-agents. The analogue of --sessions, for a story that
-#     spanned several Claude sessions (the transcript path is the id there).
-#   --snapshot <STORY-ID> --stage <stage> — normalize the current run (both
-#     harnesses) and append a checkpoint to the story's durable ledger
+#   --transcripts <path,path,…> — sum these transcripts plus each one's
+#     side-chain sub-agents, for a story that spanned several sessions (the
+#     transcript path is the session's id).
+#   --snapshot <STORY-ID> --stage <stage> — normalize the current run and
+#     append a checkpoint to the story's durable ledger
 #     (.workflow-dev/context/.usage/<STORY-ID>.json). Prints the normalized
 #     object; the one-line tramo/acumulado summary goes to stderr.
 #   --story <STORY-ID> — total a story from its ledger ONLY (the source is
-#     never touched), across sessions and harnesses, by stage/session/agent.
+#     never touched), across sessions, by stage/session/agent. Checkpoints an
+#     older version recorded from OpenCode still count, on a line of their own.
 #   --reconcile <STORY-ID> — append an exact `reconcile` checkpoint for each of
 #     the story's sessions whose last checkpoint was an estimate and whose
 #     transcript now holds an exact cost-state (`--snapshot` does this too, for
 #     the story's other sessions). Rebuilds `.usage/.index.json`, the
 #     machine-readable summary for dashboards (references/usage-api.md).
-#   OPENCODE_DB env var overrides the OpenCode database path (testing).
 
 set -u
 
-# The plugin root, so the one harness-detector (`list-models.sh --print-harness`)
-# can be asked rather than re-deriving its signals here — a second copy could
-# disagree with setup-models about which harness this is. `cd -P` resolves the
-# OpenCode symlink; a logical `..` would stop at its parent.
+# The plugin root, so the role→model reader (`model-tiering-check.sh
+# --role-models`) is asked rather than re-derived here. `cd -P` resolves a
+# symlinked checkout; a logical `..` would stop at the link's parent.
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null && pwd -P)"
 PLUGIN_ROOT="$(cd -P "$SCRIPT_DIR/.." && pwd -P)"
 
@@ -100,13 +87,9 @@ if [[ "$(pwd -P)" != "$PROJECT_BASE" ]]; then
   PROJECT_SLUGS+=("$(pwd -P | sed 's#/#-#g')")
 fi
 PROJECT_SLUGS+=("$(printf '%s' "$PROJECT_BASE" | sed 's#/#-#g')")
-have_sqlite3() { command -v sqlite3 >/dev/null 2>&1; }
 g() { printf '%s' "$1" | jq -r "$2"; }   # get a field from an AGG result
-sqlq() { printf '%s' "${1//\'/\'\'}"; }  # quote a value for a SQL literal
 
 TRANSCRIPT_ARG=""
-SESSION_ARG=""
-SESSIONS_ARG=""
 TRANSCRIPTS_ARG=""
 SNAPSHOT_STORY=""
 SNAPSHOT_STAGE=""
@@ -114,8 +97,6 @@ STORY_ARG=""
 RECONCILE_STORY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session) SESSION_ARG="${2:-}"; shift 2 ;;
-    --sessions) SESSIONS_ARG="${2:-}"; shift 2 ;;
     --transcripts) TRANSCRIPTS_ARG="${2:-}"; shift 2 ;;
     --transcript)
       # The named form of the positional path. A missing value is an error,
@@ -361,10 +342,9 @@ claude_totals() {
     "$(( $(g "$MAIN" .cr) + GCR ))" "$(( $(g "$MAIN" .cc) + GCC ))" "$n"
 }
 
-# Sum an explicit set of transcripts plus each one's side-chain sub-agents —
-# the Claude Code analogue of OpenCode's `--sessions`, for attributing cost to
-# a story that spanned several Claude sessions. (Claude Code has no per-session
-# row to point at, so the transcript path is the identifier.)
+# Sum an explicit set of transcripts plus each one's side-chain sub-agents, for
+# attributing cost to a story that spanned several sessions. (There is no
+# per-session row to point at, so the transcript path is the identifier.)
 transcripts_report() {
   local list="$1" path in out cr cc s
   echo "Workflow usage (Claude Code — explicit transcripts)"
@@ -383,169 +363,18 @@ transcripts_report() {
 }
 
 # ---------------------------------------------------------------------------
-# OpenCode: SQLite (session_v2)
+# Snapshot: one normalized checkpoint of the current run
 # ---------------------------------------------------------------------------
 
-# Explicit session list — the per-story attribution path: the story context
-# records the session id of each sub-agent it spawned, and this sums exactly
-# those, so cost is attributable to a story even when it spans sessions or
-# harnesses (a session alone can mix several stories).
-sessions_report() {
-  local db="$1" list="$2" id row
-  echo "Workflow usage (OpenCode — explicit sessions)"
-  echo "Database: $db"
-  printf '  %-46s %9s %8s %10s %11s %9s\n' session input output reasoning cache_read cost
-  local TI=0 TO=0 TR=0 TCR=0 TC=0
-  local OLDIFS="$IFS"; IFS=','
-  for id in $list; do
-    [[ -z "$id" ]] && continue
-    row=$(sqlite3 -separator "$(printf '\t')" "$db" \
-      "SELECT substr(id,1,44), tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, round(cost,4) FROM session_v2 WHERE id='$(sqlq "$id")';")
-    if [[ -z "$row" ]]; then printf '  %-46s %s\n' "$id" "(not found)"; continue; fi
-    local sid i o r cr c
-    IFS=$'\t' read -r sid i o r cr c <<< "$row"
-    TI=$((TI + i)); TO=$((TO + o)); TR=$((TR + r)); TCR=$((TCR + cr))
-    TC=$(awk -v a="$TC" -v b="$c" 'BEGIN{printf "%.4f", a+b}')
-    printf '  %-46s %9s %8s %10s %11s %9s\n' "$sid" "$i" "$o" "$r" "$cr" "$c"
-  done
-  IFS="$OLDIFS"
-  printf '  %-46s %9s %8s %10s %11s %9s\n' TOTAL "$TI" "$TO" "$TR" "$TCR" "$TC"
-}
-
-# Which session is "this run"? The harness hands every shell command its own id
-# in OPENCODE_SESSION_ID, so trust that when it is a top-level session of this
-# directory — a stray value (another project's session, a sub-agent's child)
-# must not point the default report at another run; otherwise the newest
-# top-level session for the directory. Same rule as the save point's
-# `resolve_opencode_session` (WD-0008), applied to the report (WD-0035).
-opencode_default_session() {
-  local db="$1" dir="$2" sid=""
-  local clause="lower(rtrim(directory,'/'))=lower(rtrim('$(sqlq "$dir")','/'))"
-  if [[ -n "${OPENCODE_SESSION_ID:-}" ]]; then
-    # The id can be a sub-agent's child session (at any depth); walk up to the
-    # run it belongs to before validating. A value that is not this directory's
-    # top-level session is refused, not guessed at. `depth < 64` bounds the walk
-    # so a corrupt parent cycle terminates instead of looping forever.
-    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE parent_id IS NULL AND ($clause) AND id = (WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM session_v2 WHERE id='$(sqlq "$OPENCODE_SESSION_ID")' UNION ALL SELECT s.id,s.parent_id,up.depth+1 FROM session_v2 s JOIN up ON s.id=up.parent_id WHERE up.depth < 64) SELECT id FROM up WHERE parent_id IS NULL LIMIT 1) LIMIT 1;")
-  fi
-  [[ -n "$sid" ]] || sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE ($clause) AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1;")
-  printf '%s' "$sid"
-}
-
-opencode_report() {
-  local db="$1" dir="${PWD}" sid
-  if [[ -n "$SESSION_ARG" ]]; then
-    sid=$(sqlite3 "$db" "SELECT id FROM session_v2 WHERE id='$(sqlq "$SESSION_ARG")' LIMIT 1;")
-    if [[ -z "$sid" ]]; then echo "No such session: $SESSION_ARG" >&2; exit 1; fi
-  else
-    # `directory` is stored as typed when the session started; a case-only
-    # difference ($PWD can be lowercase where the DB has Projects) must still
-    # match — SQLite's = is case-sensitive, so compare case-folded. The second
-    # call retries with the physical path, in case a symlinked component
-    # (/tmp → /private/tmp) changed the spelling the store recorded.
-    sid=$(opencode_default_session "$db" "$dir")
-    if [[ -z "$sid" ]]; then
-      dir=$(pwd -P)
-      sid=$(opencode_default_session "$db" "$dir")
-    fi
-  fi
-  if [[ -z "$sid" ]]; then
-    echo "No OpenCode session found for $PWD. Pass --session <id>." >&2
-    exit 0
-  fi
-
-  local FMT="substr(id,1,12), coalesce(title,''), coalesce(agent,''), coalesce(json_extract(model,'\$.id'),''), \
-             round(cost,4), tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, \
-             strftime('%Y-%m-%dT%H:%M:%SZ', time_created/1000, 'unixepoch'), \
-             strftime('%Y-%m-%dT%H:%M:%SZ', time_updated/1000, 'unixepoch'), \
-             COALESCE((SELECT (MAX(time_created)-MIN(time_created))/1000 FROM session_message WHERE session_id=session_v2.id), 0)"
-
-  echo "Workflow usage (OpenCode)"
-  echo "Database: $db"
-  local row
-  row=$(sqlite3 -separator "$(printf '\t')" "$db" "SELECT $FMT FROM session_v2 WHERE id='$(sqlq "$sid")';")
-  IFS=$'\t' read -r s_id s_title s_agent s_model s_cost s_in s_out s_re s_cr s_cw s_c0 s_c1 s_wall <<< "$row"
-  echo "Session: $sid  model: ${s_model:-?}  agent: ${s_agent:-?}"
-  printf '  wall: %s -> %s (%ss)\n' "$s_c0" "$s_c1" "$s_wall"
-  printf '  tokens: input %s  output %s  reasoning %s  cache_read %s  cache_write %s\n' "$s_in" "$s_out" "$s_re" "$s_cr" "$s_cw"
-  printf '  cost: $%s\n' "$s_cost"
-  echo
-
-  echo "Sub-agents (child sessions)"
-  printf '  %-3s %-38s %-8s %8s %7s %7s %10s %10s %8s %7s\n' \
-    "#" title agent input output reasoning cache_read cache_write cost 'wall(s)'
-  local n=0 TCOST=0 TIN=0 TOUT=0 TRE=0 TCR=0 TCW=0
-  while IFS=$'\t' read -r c_id c_title c_agent c_model c_cost c_in c_out c_re c_cr c_cw c_t0 c_t1 c_wall; do
-    [[ -z "$c_id" ]] && continue
-    n=$((n+1))
-    TCOST=$(awk -v a="$TCOST" -v b="$c_cost" 'BEGIN{printf "%.4f", a+b}')
-    TIN=$((TIN + c_in)); TOUT=$((TOUT + c_out)); TRE=$((TRE + c_re)); TCR=$((TCR + c_cr)); TCW=$((TCW + c_cw))
-    printf '  %-3s %-38s %-8s %8s %7s %7s %10s %10s %8s %7s\n' \
-      "$n" "${c_title:0:38}" "${c_agent:0:8}" "$c_in" "$c_out" "$c_re" "$c_cr" "$c_cw" "$c_cost" "$c_wall"
-  done < <(sqlite3 -separator "$(printf '\t')" "$db" "SELECT $FMT FROM session_v2 WHERE parent_id='$(sqlq "$sid")' ORDER BY time_updated;")
-  echo "  $n sub-agent(s)"
-  echo
-
-  local GC; GC=$(awk -v a="$s_cost" -v b="$TCOST" 'BEGIN{printf "%.4f", a+b}')
-  printf 'Grand total (session + sub-agents)\n'
-  printf '  input: %s  output: %s  reasoning: %s  cache_read: %s  cache_write: %s\n' \
-    "$((s_in + TIN))" "$((s_out + TOUT))" "$((s_re + TRE))" "$((s_cr + TCR))" "$((s_cw + TCW))"
-  printf '  cost: $%s\n' "$GC"
-}
-
-# ---------------------------------------------------------------------------
-# Snapshot: one normalized checkpoint of the current run (both harnesses)
-# ---------------------------------------------------------------------------
-
-# The common object both adapters emit. `cost_usd` is a number, or null when
-# the source carries no price — never an invented 0. The extra `agents` map
-# (per agent/role: cost, tokens, models) is what lets `--story` keep rendering
-# the breakdown after the source itself is gone; it is stored, not recomputed.
+# The normalized object. `cost_usd` is a number, or null when the source
+# carries no price — never an invented 0. The extra `agents` map (per
+# agent/role: cost, tokens, models) is what lets `--story` keep rendering the
+# breakdown after the source itself is gone; it is stored, not recomputed.
 #
-# `source` is the ses_… id (OpenCode) or the transcript path (Claude); the two
-# never collide, so a story that spans both harnesses sums with no special
-# case, and the per-`source` `prev` checkpoint stays harness-agnostic.
-
-# Ask the one owner of harness detection — never re-derive the signals.
-detect_harness_for_usage() {
-  "$PLUGIN_ROOT"/scripts/list-models.sh --print-harness 2>/dev/null || printf ''
-}
-
-# OpenCode: the resolved top-level session plus its WHOLE recursive tree — the
-# human report sums only direct children, which undercounts a grandchild. Every
-# row in the tree is counted once; its own row is the `orchestrator` cub, each
-# descendant is grouped by its `agent` column.
-snapshot_opencode() {
-  local db="$1" sid="$2" tree
-  # `depth < 64` bounds the recursion: a corrupt parent cycle would otherwise
-  # loop forever (UNION ALL does not dedupe a growing depth). Real trees are 1–2.
-  tree="WITH RECURSIVE tree(id,depth) AS (SELECT id,0 FROM session_v2 WHERE id='$(sqlq "$sid")' UNION ALL SELECT s.id,t.depth+1 FROM session_v2 s JOIN tree t ON s.parent_id=t.id WHERE t.depth < 64)"
-  {
-    sqlite3 -separator "$(printf '\t')" "$db" "$tree SELECT 'total','',round(sum(cost),6),coalesce(sum(tokens_input),0),coalesce(sum(tokens_output),0),coalesce(sum(tokens_reasoning),0),coalesce(sum(tokens_cache_read),0),coalesce(sum(tokens_cache_write),0),coalesce(strftime('%Y-%m-%dT%H:%M:%SZ',max(time_updated)/1000,'unixepoch'),'') FROM session_v2 WHERE id IN (SELECT id FROM tree);"
-    sqlite3 -separator "$(printf '\t')" "$db" "$tree SELECT 'model',coalesce(nullif(json_extract(model,'\$.id'),''),'unknown'),round(sum(cost),6),coalesce(sum(tokens_input),0),coalesce(sum(tokens_output),0),coalesce(sum(tokens_reasoning),0),coalesce(sum(tokens_cache_read),0),coalesce(sum(tokens_cache_write),0),'' FROM session_v2 WHERE id IN (SELECT id FROM tree) GROUP BY 2;"
-    sqlite3 -separator "$(printf '\t')" "$db" "$tree SELECT 'agent',coalesce(nullif(agent,''),'unknown'),round(sum(cost),6),coalesce(sum(tokens_input),0),coalesce(sum(tokens_output),0),coalesce(sum(tokens_reasoning),0),coalesce(sum(tokens_cache_read),0),coalesce(sum(tokens_cache_write),0),coalesce(group_concat(DISTINCT nullif(json_extract(model,'\$.id'),'')),'') FROM session_v2 WHERE id IN (SELECT id FROM tree) AND id <> '$(sqlq "$sid")' GROUP BY 2;"
-    sqlite3 -separator "$(printf '\t')" "$db" "SELECT 'orch','',round(sum(cost),6),coalesce(sum(tokens_input),0),coalesce(sum(tokens_output),0),coalesce(sum(tokens_reasoning),0),coalesce(sum(tokens_cache_read),0),coalesce(sum(tokens_cache_write),0),coalesce(group_concat(DISTINCT nullif(json_extract(model,'\$.id'),'')),'') FROM session_v2 WHERE id='$(sqlq "$sid")';"
-  } | jq -R -s --arg src "$sid" '
-    # A NULL `cost` prints as an empty field: a source with no price stays
-    # null, never a fabricated 0 (AC 6).
-    def num: if . == "" or . == null then null else tonumber end;
-    [ split("\n")[] | select(length>0) | split("\t") ] as $rows
-    | ($rows | map(select(.[0]=="total"))[0]) as $t
-    | ($rows | map(select(.[0]=="orch"))[0]) as $o
-    | ( reduce ($rows[] | select(.[0]=="model")) as $r ({};
-          .[$r[1]] = { cost_usd: ($r[2]|num),
-            tokens: { input:($r[3]|tonumber), output:($r[4]|tonumber), reasoning:($r[5]|tonumber), cache_read:($r[6]|tonumber), cache_write:($r[7]|tonumber) } }) ) as $models
-    | ( reduce ($rows[] | select(.[0]=="agent")) as $r ({};
-          .[$r[1]] = { cost_usd: ($r[2]|num),
-            tokens: { input:($r[3]|tonumber), output:($r[4]|tonumber), reasoning:($r[5]|tonumber), cache_read:($r[6]|tonumber), cache_write:($r[7]|tonumber) },
-            models: (($r[8] // "") | if . == "" then [] else split(",") end) }) ) as $child
-    | ( $child | .orchestrator = { cost_usd: ($o[2]|num),
-          tokens: { input:($o[3]|tonumber), output:($o[4]|tonumber), reasoning:($o[5]|tonumber), cache_read:($o[6]|tonumber), cache_write:($o[7]|tonumber) },
-          models: (($o[8] // "") | if . == "" then [] else split(",") end) } ) as $agents
-    | { source: $src, harness: "opencode", cost_usd: ($t[2]|num),
-        tokens: { input:($t[3]|tonumber), output:($t[4]|tonumber), reasoning:($t[5]|tonumber), cache_read:($t[6]|tonumber), cache_write:($t[7]|tonumber) },
-        models: $models, agents: $agents, as_of: $t[8] }'
-}
+# `source` is the transcript path, which pairs a checkpoint with the previous
+# one for the same run. A ledger written by an older version can also hold
+# checkpoints whose `source` is an OpenCode `ses_…` id (`harness: "opencode"`);
+# they never collide with a path, so they still sum with no special case.
 
 # A sub-agent's side-chain file. The tool_result's `output_file` is a /tmp
 # symlink that does not outlive a reboot; Claude Code also keeps the file
@@ -882,7 +711,7 @@ snapshot_claude() {
 # `.workflow-dev/context/.usage/<STORY>.json`, one doc per story. A checkpoint
 # is a photo of the accumulated total at an instant: it stores the absolute
 # (`abs`) and the `delta` against the previous checkpoint of the SAME `source`
-# (same OpenCode session / same Claude transcript). The story total is the sum
+# (the same transcript). The story total is the sum
 # of the deltas — computed from the ledger, never from a source that may be
 # gone. The previous checkpoint IS the "before", so nothing has to be
 # remembered between reads, and pairing is by `source`, not by run.
@@ -1135,9 +964,11 @@ write_index() { # $1 = space-separated story ids touched by this run (announced)
   if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
       def r4: . * 10000 | round / 10000;
       # One reading the harness itself priced, whole: a Claude Code
-      # cost-state with no sub-agent still writing after it, or an OpenCode
-      # row; and no model with tokens left without a price (SQL SUM skips a
-      # NULL child, so an OpenCode total can be partial).
+      # cost-state with no sub-agent still writing after it; and no model with
+      # tokens left without a price. A legacy OpenCode checkpoint (recorded
+      # before OpenCode support was removed) was the exact row of its store,
+      # so it still counts as exact — a story verified before the upgrade
+      # stays verified after it.
       def exactck: .cost_usd != null
         and ((.harness == "claude" and .cost_basis == "cost-state" and (.pending_sidechain // false) == false)
              or .harness == "opencode")
@@ -1210,8 +1041,9 @@ write_index() { # $1 = space-separated story ids touched by this run (announced)
 }
 
 # Totalise a story from the ledger ONLY — never touching the source, so a
-# deleted session row or transcript changes nothing. Sums both harnesses, breaks
-# the spend down by stage, session and agent/role (the cubs are whatever
+# deleted transcript changes nothing. Sums every checkpoint (legacy OpenCode
+# ones included, and named on their own line), breaks the spend down by stage,
+# session and agent/role (the cubs are whatever
 # actually ran), shows the configured role→model binding, marks config-vs-
 # observed discrepancies, and states how many runs carried no price.
 ledger_report() {
@@ -1250,8 +1082,12 @@ ledger_report() {
               "shared-session": "a session is shared with another story, so the split is not measured",
               "no-checkpoints": "nothing recorded" }[$v.reason] // $v.reason) end ),
       ("  tokens: input \([ $c[].token_delta.input // 0 ] | add // 0)  output \([ $c[].token_delta.output // 0 ] | add // 0)  reasoning \([ $c[].token_delta.reasoning // 0 ] | add // 0)  cache_read \([ $c[].token_delta.cache_read // 0 ] | add // 0)  cache_write \([ $c[].token_delta.cache_write // 0 ] | add // 0)"),
-      "  by harness:",
-      ( [ $c[] | { h: .harness, d: (.delta // 0) } ] | group_by(.h)[] | "    \(.[0].h): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
+      # Checkpoints an older version recorded from OpenCode stay in the total;
+      # this line only says how much of it they are. Printed only when some exist.
+      ( [ $c[] | select(.harness == "opencode") | (.delta // 0) ] as $legacy
+        | if ($legacy | length) > 0
+          then "  legacy OpenCode (recorded before OpenCode support was removed): $\(($legacy | add // 0) * 10000 | round / 10000)"
+          else empty end ),
       "  by stage:",
       ( [ $c[] | { s: .stage, d: (.delta // 0) } ] | group_by(.s)[] | "    \(.[0].s): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
       "  by session:",
@@ -1317,17 +1153,15 @@ ledger_report() {
 # An explicit selector names its own source and must win over the implicit
 # resolution below. These branches used to sit *after* `resolve_claude` and the
 # `claude_report` that exits, so whenever a Claude transcript was resolvable
-# (the project root inside a live session) `--transcripts` / `--sessions` /
-# `--session` were silently ignored and the report described the wrong run.
-# That is the cause of the two `session-usage.test.sh` assertions failing from
-# the project root and passing from `/tmp`: from `/tmp` no transcript resolves,
-# so the explicit selector was finally reached.
-OPENCODE_DB_PATH="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
+# (the project root inside a live session) `--transcripts` was silently ignored
+# and the report described the wrong run. That is the cause of the two
+# `session-usage.test.sh` assertions failing from the project root and passing
+# from `/tmp`: from `/tmp` no transcript resolves, so the explicit selector was
+# finally reached.
 
-# A snapshot is its own entry point: it resolves the current run, normalizes it,
-# and never falls through to the human reports below. It dispatches on the one
-# harness detector; when the run cannot be resolved it answers `unavailable`
-# rather than a misleading zero.
+# A snapshot is its own entry point: it resolves the current run's transcript,
+# normalizes it, and never falls through to the human reports below. When the
+# run cannot be resolved it answers `unavailable` rather than a misleading zero.
 if [[ -n "$SNAPSHOT_STORY" ]]; then
   if ! have_jq; then
     echo '{"status":"unavailable","reason":"jq required"}'
@@ -1336,40 +1170,21 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
   SNAP=""
   SNAP_TX=""
   SNAP_ERR=0
-  case "$(detect_harness_for_usage)" in
-    opencode)
-      if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
-        SNAP_SID=""
-        if [[ -n "$SESSION_ARG" ]]; then
-          SNAP_SID=$(sqlite3 "$OPENCODE_DB_PATH" "SELECT id FROM session_v2 WHERE id='$(sqlq "$SESSION_ARG")' LIMIT 1;")
-        else
-          SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$PWD")
-          [[ -n "$SNAP_SID" ]] || SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$(pwd -P)")
-          # Called from a subdirectory, the session's directory is the project
-          # root, not the cwd (WD-0049).
-          [[ -n "$SNAP_SID" ]] || SNAP_SID=$(opencode_default_session "$OPENCODE_DB_PATH" "$PROJECT_BASE")
-        fi
-        [[ -n "$SNAP_SID" ]] && SNAP=$(snapshot_opencode "$OPENCODE_DB_PATH" "$SNAP_SID")
-      fi
-      ;;
-    claude)
-      if [[ -n "$TRANSCRIPT_ARG" ]]; then
-        [[ -f "$TRANSCRIPT_ARG" ]] && SNAP_TX="$TRANSCRIPT_ARG"
-      else
-        SNAP_R="$(resolve_claude)"
-        [[ "$SNAP_R" == *$'\t'* ]] && SNAP_TX="${SNAP_R%%$'\t'*}"
-      fi
-      # The path is the checkpoint's `source`, which pairs it with the previous
-      # one: make it absolute and physical, or the same transcript named from
-      # two directories would count as two runs (WD-0049).
-      if [[ -n "$SNAP_TX" ]]; then
-        # `CDPATH=`: with CDPATH set, `cd` echoes the directory and the path
-        # would carry it.
-        SNAP_TX="$(CDPATH= cd -- "$(dirname -- "$SNAP_TX")" >/dev/null && pwd -P)/$(basename -- "$SNAP_TX")"
-        SNAP=$(snapshot_claude "$SNAP_TX") || SNAP_ERR=$?
-      fi
-      ;;
-  esac
+  if [[ -n "$TRANSCRIPT_ARG" ]]; then
+    [[ -f "$TRANSCRIPT_ARG" ]] && SNAP_TX="$TRANSCRIPT_ARG"
+  else
+    SNAP_R="$(resolve_claude)"
+    [[ "$SNAP_R" == *$'\t'* ]] && SNAP_TX="${SNAP_R%%$'\t'*}"
+  fi
+  # The path is the checkpoint's `source`, which pairs it with the previous
+  # one: make it absolute and physical, or the same transcript named from
+  # two directories would count as two runs (WD-0049).
+  if [[ -n "$SNAP_TX" ]]; then
+    # `CDPATH=`: with CDPATH set, `cd` echoes the directory and the path
+    # would carry it.
+    SNAP_TX="$(CDPATH= cd -- "$(dirname -- "$SNAP_TX")" >/dev/null && pwd -P)/$(basename -- "$SNAP_TX")"
+    SNAP=$(snapshot_claude "$SNAP_TX") || SNAP_ERR=$?
+  fi
   # 2 = the run resolved but is incomplete right now (an unreadable
   # side-chain): said on stderr already, and not the same as no source at all.
   if [[ "$SNAP_ERR" -eq 2 ]]; then
@@ -1423,25 +1238,7 @@ if [[ -n "$TRANSCRIPTS_ARG" ]]; then
   exit 0
 fi
 
-if [[ -n "$SESSIONS_ARG" ]]; then
-  if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
-    sessions_report "$OPENCODE_DB_PATH" "$SESSIONS_ARG"
-    exit 0
-  fi
-  echo "session-usage.sh --sessions needs sqlite3 and the OpenCode database ($OPENCODE_DB_PATH)." >&2
-  exit 1
-fi
-
-if [[ -n "$SESSION_ARG" ]]; then
-  if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
-    opencode_report "$OPENCODE_DB_PATH"
-    exit 0
-  fi
-  echo "session-usage.sh --session needs sqlite3 and the OpenCode database ($OPENCODE_DB_PATH)." >&2
-  exit 1
-fi
-
-# No explicit selector: resolve the current run implicitly, Claude Code first.
+# No explicit selector: resolve the current run implicitly.
 # A resolvable but stale source is refused here, not reported as this run's.
 SOURCE=""
 TRANSCRIPT=""
@@ -1460,10 +1257,5 @@ if [[ -n "$SOURCE" ]]; then
   exit 0
 fi
 
-if have_sqlite3 && [[ -f "$OPENCODE_DB_PATH" ]]; then
-  opencode_report "$OPENCODE_DB_PATH"
-  exit 0
-fi
-
-echo "No usage source found: no Claude Code transcript and no OpenCode database ($OPENCODE_DB_PATH)." >&2
+echo "No usage source found: no Claude Code transcript for this project." >&2
 exit 0

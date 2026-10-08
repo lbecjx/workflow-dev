@@ -4,7 +4,7 @@ description: Binds each workflow-dev agent role to a model the harness actually 
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -28,10 +28,8 @@ adding a role happens there, never here.
 
 ## What it writes
 
-| Harness | File | Frontmatter |
-|---|---|---|
-| Claude Code | `~/.claude/agents/<role>.md` | `name`, `description`, `model` |
-| OpenCode | `~/.config/opencode/agents/<role>.md` | `description`, `mode: subagent`, `model` |
+One file per role, `~/.claude/agents/<role>.md`, with the frontmatter `name`,
+`description` and `model`.
 
 Each body ends with one comment line, `<!-- workflow-dev:roles-hash <hash> -->`,
 so a later run — or the reminder hook — can tell a current file from a stale
@@ -39,9 +37,9 @@ one. Take the hash from `"$PLUGIN_ROOT"/scripts/roles-hash.sh`; never recompute
 it by hand. The hook compares against that same script, and two formulas for one
 value drift apart (the failure `REPO.md` §4 records for the other markers).
 
-It is a body comment, not a frontmatter field, on purpose: Claude Code silently
-ignores a frontmatter key it doesn't recognize, and OpenCode passes unknown
-agent options **through to the provider** as model options.
+It is a body comment, not a frontmatter field, on purpose: the frontmatter is
+Claude Code's own schema, and a key it doesn't know is silently dropped rather
+than kept.
 
 These files belong to the user. The plugin ships no `agents/` directory — a
 plugin agent gets a namespaced name and cannot carry the user's model — so
@@ -57,27 +55,26 @@ nothing here travels with a plugin update. See "Re-running" below.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
 ```
 
-Claude Code sets `CLAUDE_PLUGIN_ROOT`; OpenCode doesn't, so the fallback derives
-the root from where this skill lives. The `-P` is load-bearing — OpenCode
-installs skills as symlinks, and a logical `..` stops at the link instead of
-resolving through it.
+Claude Code sets `CLAUDE_PLUGIN_ROOT` for hooks, but not in a skill's shell
+calls, so the fallback derives the root from where this skill lives. The `-P`
+resolves a symlinked checkout (a plugin loaded through a link) instead of
+stopping at the link.
 
-### Step 1: Learn the harness, and the models it offers
+### Step 1: Learn the models on offer
 
 ```sh
-HARNESS="$("$PLUGIN_ROOT"/scripts/list-models.sh --print-harness)"
 "$PLUGIN_ROOT"/scripts/list-models.sh
 ```
 
-The second command prints one `provider<TAB>model` line per selectable model.
+It prints one `provider<TAB>model` line per selectable model.
 Its exit code is the honest signal for what to do next — ask once per run, not
 once per role:
 
 | Exit | Meaning | Go to |
 |---|---|---|
 | 0 | models listed | Step 2 |
-| 1 | cannot be enumerated (its stderr says why) | "No model source" |
-| 2 | Claude Code with no gateway configured | "No model source" |
+| 1 | cannot be enumerated (its stderr says why — e.g. not running under Claude Code) | "No model source" |
+| 2 | no gateway configured | "No model source" |
 
 ### Step 2: Pick a model per role — provider first, then model
 
@@ -96,15 +93,14 @@ actually holds:
 - `operator` → fastest / cheapest first.
 - `judge` → most capable first.
 
-Where the harness exposes per-model cost or capability in-session, sort by it.
-Where it doesn't — Claude Code's gateway list carries ids only — keep the order
-the script returned and let the `hint` carry the guidance. Never reorder on a
+The gateway list carries ids only, with no cost or capability data, so keep the
+order the script returned and let the `hint` carry the guidance. Never reorder on a
 guess about a model you have no data for.
 
-**Adapt to the picker's limits.** A harness picker takes a handful of options; a
-provider can list hundreds of models. So:
+**Adapt to the picker's limits.** The ask-question picker takes a handful of
+options; a gateway can list hundreds of models. So:
 
-- **Four options or fewer** → the harness's own picker is fine.
+- **Four options or fewer** → the picker is fine.
 - **More than four** → print a numbered list in prose and ask for the number.
   Page it at roughly 40 entries, offering `n` for the next page, and accept a
   substring to filter (a vendor or a family name). Never print a hundreds-long
@@ -115,9 +111,8 @@ themselves. Never add a model the script didn't list, and never a "recommended"
 one.
 
 **Keeping the default is always an option, and for `judge` roles it comes first.**
-Offer "keep the default model" for every role: it writes `model: inherit` on
-Claude Code, and on OpenCode it leaves the role without a `model:` line, so the
-role runs on whatever the session runs on. Say why for `judge` roles — Security,
+Offer "keep the default model" for every role: it writes `model: inherit`, so
+the role runs on whatever the session runs on. Say why for `judge` roles — Security,
 Architecture and the adversarial pair need strong reasoning, and a model that is
 weaker than the default makes them worse, not cheaper. So when the user cannot
 tell the offered models reason well, keeping the default is the safe pick;
@@ -126,10 +121,8 @@ tiering pays off for the `operator` roles first.
 ### Step 3: Write the agent file per role
 
 With `HASH="$("$PLUGIN_ROOT"/scripts/roles-hash.sh)"` and the chosen model, write
-the file for the detected harness, using the role's own `description` and `body`
-from `references/roles.md` verbatim.
-
-**Claude Code** — `~/.claude/agents/<role>.md`:
+the file, using the role's own `description` and `body` from
+`references/roles.md` verbatim — `~/.claude/agents/<role>.md`:
 
 ```markdown
 ---
@@ -148,22 +141,7 @@ model ID, or `inherit` (see the model-config link under "No model source").
 Leave `tools:` out — the role inherits the subagent tool pool, which is what it
 ran with before.
 
-**OpenCode** — `~/.config/opencode/agents/<role>.md` (the filename is the agent
-name):
-
-```markdown
----
-description: <the role's description from roles.md>
-mode: subagent
-model: <provider/model-id>
----
-
-<the role's body from roles.md>
-
-<!-- workflow-dev:roles-hash <hash> -->
-```
-
-Create the target directory if it doesn't exist. On Claude Code, a new
+Create the target directory if it doesn't exist. A new
 `~/.claude/agents/` directory is only picked up after a restart when it wasn't
 present at session start — say so if that is the case, so the user knows why the
 agent isn't visible yet.
@@ -172,8 +150,7 @@ agent isn't visible yet.
 
 Report each role, its file, and the model bound to it. Then state plainly what
 this changes: the skills that spawn sub-agents now reference these roles, and
-any harness that cannot select a model per sub-agent runs everything on the
-default and says so rather than pretending otherwise.
+a role left on `inherit` runs on the session's default model.
 
 There is no machine-wide way out of tiering, and this skill never offers one:
 the agent files live in the user's own agents directory, so binding them is the
@@ -212,7 +189,7 @@ is and let them choose:
 - **Exit 1 — cannot be enumerated.** The script's stderr says why. Offer: (a)
   type a model id or alias by hand, or (b) keep the default for this story or this
   repo, recorded as in "Keeping the default instead".
-- **Exit 2 — Claude Code without a gateway.** Ask them to run `/model` inside
+- **Exit 2 — no gateway.** Ask them to run `/model` inside
   Claude Code, read the list it shows, and give the name or id they want (or a
   full model id). The plugin still names no model — they do. The model-config
   documentation is at
@@ -227,5 +204,4 @@ a silent pretence that tiering happened.
 Per-sub-agent models on Claude Code accept its own aliases and full model IDs.
 Routing a sub-agent to a **non-Claude** model needs a router or gateway in front
 of Claude Code, which is also the only route by which Step 1 can enumerate a
-list there. Documented as a fallback, not a promise — OpenCode has no such limit
-(any `provider/model` it offers is selectable).
+list there. Documented as a fallback, not a promise.

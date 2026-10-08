@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -13,6 +13,12 @@ the Free Software Foundation, either version 3 of the License, or
 All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
+
+## 1.34.0
+
+- OpenCode is no longer supported; workflow-dev is a Claude Code plugin only.
+- Re-run `/workflow-dev:setup-models` once: the role registry changed, so the
+  agent roles read as stale until they are regenerated (your models are kept).
 
 ## 1.33.0
 

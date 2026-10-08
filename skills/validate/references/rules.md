@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -561,7 +561,7 @@ was fixed — worse than saying nothing.
       depend on tone or framing — the mere presence of the attribution fails it.
       **What is blocked is attribution, not mention.** Naming the platform,
       vendor, or model a change is *about* — a commit describing work on
-      "Claude Code", "OpenCode", a provider, or naming an env var like
+      "Claude Code", "GitHub", a provider, or naming an env var like
       `ANTHROPIC_BASE_URL` — describes the subject, it does not credit the
       work, and is not a violation. `git-message-mark-reviewed.sh` and
       `pre-commit-message-check.sh` enforce exactly this line: they match
@@ -614,8 +614,8 @@ Once a rewritten message/description passes, mark it reviewed so the
 commit-time hook recognizes it and doesn't ask again:
 
 ```sh
-# Claude Code sets CLAUDE_PLUGIN_ROOT; OpenCode doesn't — derive the plugin root
-# from this skill's own directory instead.
+# CLAUDE_PLUGIN_ROOT reaches hooks, not a skill's shell calls — derive the plugin
+# root from this skill's own directory instead.
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
 printf '%s' "<final message text>" | "$PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
 ```

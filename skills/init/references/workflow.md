@@ -1,5 +1,5 @@
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -131,8 +131,8 @@ missing or stale, bind them in this session and carry on.
 
 1. Resolve `$PLUGIN_ROOT` the same way `../setup-models/SKILL.md` Step 0 does —
    `PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"`.
-   Claude Code sets that variable; OpenCode does not, and the `cd -P` is what
-   resolves through its skill symlinks.
+   Claude Code sets that variable for hooks, not for a skill's shell calls, so
+   the fallback is what normally runs; the `-P` resolves a symlinked checkout.
 2. Ask the one script that owns the verdict, passing this skill's name as the
    payload **argument**:
    `"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}'`.
@@ -150,7 +150,7 @@ That one word is the whole decision surface:
 | `stale` | every file exists, but its embedded hash predates the registry | same — the flow regenerates the definitions while keeping the models already chosen |
 | `incomplete` | some role files are missing and others are stale | same |
 | `opted-out` | a default model was chosen for this repo (`tiering: default` in `.workflow-dev/config.json`) or this story (a `Tiering: default model` row in its Decisions) | skip silently — never re-offer what they already declined |
-| `no-harness` / `no-registry` | the harness isn't detectable, or the role registry can't be read | do not block: say tiering couldn't be set up and that everything runs on the default model, then continue |
+| `no-harness` / `no-registry` | not running under Claude Code, or the role registry can't be read | do not block: say tiering couldn't be set up and that everything runs on the default model, then continue |
 | `not-ours` | the payload named no skill of ours (the no-argument bug above) | not a state to handle — fix the call |
 
 Model enumeration failing *inside* the inline run (`list-models.sh` exiting 1 or
@@ -165,9 +165,8 @@ Three things this step must not break:
   "am I bound?" check written in this file would be free to disagree with the
   hook that asks about the same thing, and then neither answer could be trusted.
 - **One source for the fix.** The `unmapped` / `stale` / `incomplete` branch
-  invokes the `setup-models` skill — naming the *capability*, so the invocation
-  is `/workflow-dev:setup-models` on Claude Code and `workflow-dev-setup-models`
-  on OpenCode — and that run reads `../setup-models/SKILL.md` as its one
+  invokes the `setup-models` skill (`/workflow-dev:setup-models`) — and that run
+  reads `../setup-models/SKILL.md` as its one
   definition. Never restate its flow in a second wording here.
 - **The way out stays open.** The inline run's "No model source" path offers a
   default model for this story or this repo, and so does the tiering hook's
@@ -186,11 +185,11 @@ Three properties of the inline run, all load-bearing:
   silent once the role files are current, so nothing further needs announcing
   and a second `init` run is a no-op.
 - **What it does *not* promise is that the rest of *this* session runs tiered.**
-  On Claude Code, an agents directory created for the first time is only picked
-  up after a restart (see `../setup-models/SKILL.md`), and a first-time
+  An agents directory created for the first time is only picked up after a
+  restart (see `../setup-models/SKILL.md`), and a first-time
   `unmapped` is exactly that case. So say so when it applies, rather than
   letting the binding read as though this session's research already benefits
-  from it. The binding is real from the next session on either harness.
+  from it. The binding is real from the next session on.
 
 ### Step 7: Repo-level context (REPO.md)
 

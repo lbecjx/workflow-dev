@@ -4,7 +4,7 @@ description: Verifies a story's Acceptance Criteria by exercising the running ap
 ---
 
 <!--
-workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+workflow-dev — a persistent-context development workflow for Claude Code
 Copyright (C) 2026  lbecjx
 
 This program is free software: you can redistribute it and/or modify
@@ -132,7 +132,7 @@ commit, and do not offer the commit yourself; `validate` owns that.
 - **Verify only what's stated.** The story's ACs (plus obvious regressions of
   the changed surface) — no invented checks.
 - **Agent-agnostic, by capability.** Never hardcode a single tool name; map the
-  capability to whatever the agent has. The human-question tool is OpenCode's
-  `question` / Claude Code's `AskUserQuestion`.
+  capability to whatever the agent has (`references/harness-tools.md` at the
+  plugin root).
 - **Cheap by default is validate's job, not this skill's.** This pass is the
   expensive one on purpose; that's why it is opt-in and decided once, up front.

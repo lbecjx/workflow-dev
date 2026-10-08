@@ -1,5 +1,5 @@
 #!/bin/bash
-# workflow-dev — a persistent-context development workflow for Claude Code and OpenCode
+# workflow-dev — a persistent-context development workflow for Claude Code
 # Copyright (C) 2026  lbecjx
 #
 # This program is free software: you can redistribute it and/or modify
@@ -47,11 +47,9 @@ json_ok() { # $1 JSON, $2 label
   printf '%s' "$1" | jq -e . >/dev/null 2>&1 && ok "$2" || no "$2 (invalid JSON: $1)"
 }
 
-# hook MODE input-json -> stdout (Claude Code env, throwaway HOME). OpenCode's
-# own signals are cleared so the test can't inherit the harness it runs under —
-# list-models.sh checks them before CLAUDECODE.
+# hook MODE input-json -> stdout (Claude Code env, throwaway HOME).
 hook() {
-  printf '%s' "$2" | env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" ${1:-}
+  printf '%s' "$2" | env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" ${1:-}
 }
 
 NOT_OURS='{"tool_name":"Skill","tool_input":{"skill":"someone-else:thing"}}'
@@ -97,8 +95,9 @@ has "Offer this option only when the current git branch name carries that story'
 has 'The question is required, also in autonomous mode: never choose an answer for' "$Q" "the question is required in autonomous mode too"
 has 'There is no machine-wide opt-out' "$Q" "question file: no machine-wide opt-out"
 has 'a weak model there does more harm than the default' "$Q" "question file carries the reasoning note"
-# The plain reminder (OpenCode's text) still names the fix and the story/repo default.
-OUT="$(hook --message "$VALIDATE")"
+# The reminder (carried in the typed path's context) still names the fix and the
+# story/repo default.
+OUT="$(hook --expansion "$VALIDATE")"
 has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
 has 'or choose the default model for this story or this repo' "$OUT" "reminder offers the story/repo default, not a machine-wide opt-out"
 case "$OUT" in
@@ -117,7 +116,7 @@ case "$OUT" in
   *) ok "expansion must not emit a permission decision" ;;
 esac
 
-# --- 5: --status reports the state for OpenCode ----------------------------
+# --- 5: --status reports the state (what skills/init asks) -----------------
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "unmapped" ]] && ok "--status → unmapped" || no "--status → unmapped (got: $OUT)"
 
@@ -143,7 +142,7 @@ OUT="$(hook --status "$VALIDATE")"
 OUT="$(hook "" "$VALIDATE")"
 has '"permissionDecision":"allow"' "$OUT" "stale roles also raise the question"
 json_ok "$OUT" "stale output is valid JSON"
-OUT="$(hook --message "$VALIDATE")"
+OUT="$(hook --expansion "$VALIDATE")"
 has 'stale' "$OUT" "stale reminder says the roles are stale"
 has 'or choose the default model for this story or this repo' "$OUT" "stale reminder offers the story/repo default"
 
@@ -173,26 +172,25 @@ OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" != "opted-out" && -n "$OUT" ]] && ok "--status ignores the leftover optOut file" || no "--status ignores the leftover optOut file (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
 
-# --- 11: an undetectable harness is left alone ------------------------------
-OUT="$(printf '%s' "$VALIDATE" | env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --status)"
+# --- 11: outside Claude Code the reminder is left alone (no-harness) --------
+OUT="$(printf '%s' "$VALIDATE" | env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --status)"
 [[ "$OUT" == "no-harness" ]] && ok "--status → no-harness" || no "--status → no-harness (got: $OUT)"
 
-# --- 12: the OpenCode path — payload as an argument, hyphenated skill name -
-OC_JSON='{"tool_name":"skill","tool_input":{"name":"workflow-dev-validate"}}'
-OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$OC_JSON")"
-[[ "$OUT" != "not-ours" ]] && ok "payload arg + OpenCode name → recognized" \
-  || no "payload arg + OpenCode name → recognized (got: $OUT)"
+# --- 12: payload as an argument; only the scoped `workflow-dev:<skill>` counts
+OUT="$(env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$VALIDATE")"
+[[ "$OUT" != "not-ours" ]] && ok "payload arg + scoped name → recognized" \
+  || no "payload arg + scoped name → recognized (got: $OUT)"
 
-OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status '{"tool_input":{"name":"workflow-dev-nope"}}')"
-[[ "$OUT" == "not-ours" ]] && ok "hyphenated but unknown skill → not ours" \
-  || no "hyphenated but unknown skill → not ours (got: $OUT)"
+OUT="$(env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status '{"tool_input":{"name":"workflow-dev-validate"}}')"
+[[ "$OUT" == "not-ours" ]] && ok "hyphenated name (no longer an invocation form) → not ours" \
+  || no "hyphenated name → not ours (got: $OUT)"
 
 # --- 13: --status with no payload and no stdin → not-ours -------------------
 # The shape `init` must never use. With nothing to identify, the script answers
 # `not-ours` — which a caller branching on the status word would read as "not
 # ours" and skip, making the whole check a no-op instead of an error. Pinned so
 # the trap the init flow warns about stays real.
-OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status < /dev/null)"
+OUT="$(env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status < /dev/null)"
 [[ "$OUT" == "not-ours" ]] && ok "no payload, no stdin → not-ours" \
   || no "no payload, no stdin → not-ours (got: $OUT)"
 
@@ -210,7 +208,7 @@ while IFS= read -r role; do
     "$role" "$HASH" > "$HOME_DIR/.claude/agents/$role.md"
 done < <(grep '^### ' "$ROLES" | sed -E 's/^### `([^`]+)`.*/\1/')
 
-OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$INIT" < /dev/null)"
+OUT="$(env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$INIT" < /dev/null)"
 [[ "$OUT" == "ok" ]] && ok "init payload as an argument, bound and current → ok" \
   || no "init payload as an argument, bound and current → ok (got: $OUT)"
 
@@ -239,7 +237,7 @@ AFTER="$(cd "$HOME_DIR/.claude/agents" && shasum ./*.md)"
 # --- 17: --role-models — WD-0025's runtime reader (one line per role) --------
 # Consumed by the usage report: `role<TAB>state<TAB>model`. The roles come from
 # the registry headings, so adding/removing a role needs no code change.
-RR() { env -u OPENCODE -u OPENCODE_TERMINAL HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --role-models; }
+RR() { env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --role-models; }
 OUT="$(RR)"
 has "$FIRST_ROLE	bound	whatever" "$OUT" "--role-models reports a bound role's model"
 NROLES="$(grep -c '^### ' "$ROLES")"
@@ -269,13 +267,13 @@ has "$FIRST_ROLE	opt-out" "$(cd "$RR_REPO" && RR)" "a repo default reads as opt-
 rm -rf "$RR_REPO"
 
 # No harness signal → unreadable, never a guessed model.
-OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
+OUT="$(env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
 has "unreadable" "$OUT" "no harness signal → unreadable"
 
 # --- 18: a hash-matching file with no readable `model:` is never "bound" (N1)
 # A `bound` row with an empty model column is exactly the "never empty" case
 # AC 4 forbids. The hash matches, but there is no `model:` to read — and an
-# absent model is the harness default on both harnesses — so it reads `default`.
+# absent model means the harness default — so it reads `default`.
 printf -- '---\nname: %s\ndescription: d\n---\nbody\n\n<!-- workflow-dev:roles-hash %s -->\n' \
   "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 has "$FIRST_ROLE	default" "$(RR)" "a bound file with no model reads as default"
@@ -360,17 +358,11 @@ has '"permissionDecision":"allow"' "$OUT" "story default does not carry to anoth
 # --- WD-0042: no mode ever opts the user out on its own ---------------------
 # Unbound, every mode: the hook must never create a tiering file or a repo default.
 rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR/.claude/agents"
-for m in "" --expansion --message --status; do
+for m in "" --expansion --status; do
   hook "$m" "$VALIDATE" >/dev/null
 done
 [[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" ]] \
   && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
-# The plain (advisory) text carries no agent instruction: OpenCode reads it as a notice.
-OUT="$(hook --message "$VALIDATE")"
-case "$OUT" in
-  *"yourself, as the main agent"*|*"additionalContext"*) no "--message must stay the plain reminder (got: $OUT)" ;;
-  *) ok "--message stays the plain reminder, without the agent note" ;;
-esac
 
 echo
 echo "$pass passed, $fail failed"
