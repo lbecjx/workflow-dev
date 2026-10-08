@@ -368,12 +368,21 @@ posted.length = 0
 await fire({ tool: "bash", status: "completed", input: { command: "ls" } })
 check("an unknown tool name is ignored", posted.length === 0)
 
+// WD-0045: the only way out is a default model for this repo (or story) — a
+// leftover machine-wide ~/.workflow-dev/tiering.json no longer silences the notice.
 mkdirSync(`${HOME_DIR}/.workflow-dev`, { recursive: true })
 writeFileSync(`${HOME_DIR}/.workflow-dev/tiering.json`, '{"optOut": true}')
 posted.length = 0
 await fire(skillCall("workflow-dev-help"))
-check("opt-out → no notice", posted.length === 0)
+check("a leftover user-level optOut file → still a notice", posted.length === 1)
 rmSync(`${HOME_DIR}/.workflow-dev/tiering.json`)
+
+mkdirSync(`${PROJECT}/.workflow-dev`, { recursive: true })
+writeFileSync(`${PROJECT}/.workflow-dev/config.json`, '{ "tiering": "default" }')
+posted.length = 0
+await fire(skillCall("workflow-dev-help"))
+check("repo default → no notice", posted.length === 0)
+rmSync(`${PROJECT}/.workflow-dev/config.json`)
 
 const ROOT = join(dirname(PLUGIN), "..")
 const HASH = execFileSync("bash", [join(ROOT, "scripts", "roles-hash.sh")], { encoding: "utf8" }).trim()

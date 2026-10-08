@@ -67,16 +67,65 @@ OUT="$(hook "" "$NOT_OURS")"
 OUT="$(hook "" "$SETUP")"
 [[ -z "$OUT" ]] && ok "setup-models → silent" || no "setup-models → silent (got: $OUT)"
 
-# --- 3: unbound → the explicit ask -----------------------------------------
+# --- 3: unbound → deny, with a short reason that points at the question -------
+QFILE="$HERE/../references/tiering-question.md"
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"ask"' "$OUT" "unbound role → permissionDecision ask"
-has '/workflow-dev:setup-models' "$OUT" "ask names the command that fixes it"
-json_ok "$OUT" "unbound ask is valid JSON"
+has '"permissionDecision":"deny"' "$OUT" "unbound role → permissionDecision deny: the question comes first (WD-0045)"
+has '"permissionDecisionReason"' "$OUT" "unbound role → a reason the agent reads"
+has 'Then call this skill again' "$OUT" "the agent context says to call the skill again after the answer"
+has 'references/tiering-question.md' "$OUT" "the question file is named for the agent"
+if command -v jq >/dev/null 2>&1; then
+  REASON="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.permissionDecisionReason)"
+  case "$REASON" in
+    *"ask the user"*|*"Ask the user"*|*"call this skill"*) no "the user-visible reason must not be an instruction to the agent (got: $REASON)" ;;
+    *) ok "the user-visible reason carries no instruction to the agent" ;;
+  esac
+  case "$REASON" in
+    *tiering-question.md*|*/*/*) no "the user-visible reason must carry no file path (got: $REASON)" ;;
+    *) ok "the user-visible reason carries no file path" ;;
+  esac
+  CTX="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
+  case "$CTX" in
+    *references/tiering-question.md*) ok "the file path rides in additionalContext, for the agent only" ;;
+    *) no "additionalContext must name the question file (got: $CTX)" ;;
+  esac
+fi
+has 'You need to set up the model for each agent before continuing.' "$OUT" "the reason is one plain sentence for the user (Claude Code prefixes it with Error:)"
+has 'it is required, also in autonomous mode' "$OUT" "the agent context says the question is required in autonomous mode"
+case "$OUT" in
+  *'"ask"'*) no "unbound role must not ask (got: $OUT)" ;;
+  *) ok "unbound role never asks" ;;
+esac
+json_ok "$OUT" "unbound output is valid JSON"
+# Claude Code prints a deny reason to the user verbatim: keep it short (WD-0045).
+REASON_LEN=${#OUT}
+[[ $REASON_LEN -lt 700 ]] && ok "the deny output stays short ($REASON_LEN chars)" || no "the deny output is too long to show a user ($REASON_LEN chars)"
+[[ -f "$QFILE" ]] && ok "the question file exists" || no "the question file is missing: $QFILE"
+Q="$(cat "$QFILE")"
+# WD-0045: a deny opens no dialog, so there is no "don't ask again"; the file the
+# reason names carries the three-answer question for the agent to put to the user.
+has 'Run `/workflow-dev:setup-models` yourself, as the' "$Q" "question file: option 1 runs setup-models itself"
+has '1. **Configure the agents.**' "$Q" "question file puts configuring first"
+has '2. **Default model for this story.**' "$Q" "question file offers a per-story default"
+has '3. **Default model for this repo.**' "$Q" "question file offers a per-repo default"
+has "Offer this option only when the current git branch name carries that story's" "$Q" "the per-story option is offered only on a branch the hook can match"
+has 'The question is required, also in autonomous mode: never choose an answer for' "$Q" "the question is required in autonomous mode too"
+has 'There is no machine-wide opt-out' "$Q" "question file: no machine-wide opt-out"
+has 'a weak model there does more harm than the default' "$Q" "question file carries the reasoning note"
+# The plain reminder (OpenCode's text) still names the fix and the story/repo default.
+OUT="$(hook --message "$VALIDATE")"
+has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
+has 'or choose the default model for this story or this repo' "$OUT" "reminder offers the story/repo default, not a machine-wide opt-out"
+case "$OUT" in
+  *optOut*|*tiering.json*) no "the machine-wide opt-out is gone (got: $OUT)" ;;
+  *) ok "no mention of a machine-wide opt-out" ;;
+esac
 
 # --- 4: the typed path gets context, never an ask ---------------------------
 OUT="$(hook --expansion "$VALIDATE")"
 has '"hookEventName":"UserPromptExpansion"' "$OUT" "expansion → UserPromptExpansion output"
 has '"additionalContext"' "$OUT" "expansion → advisory context"
+has 'references/tiering-question.md' "$OUT" "expansion context points at the same question file"
 json_ok "$OUT" "expansion output is valid JSON"
 case "$OUT" in
   *permissionDecision*) no "expansion must not emit a permission decision" ;;
@@ -107,9 +156,11 @@ printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- wor
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "stale" ]] && ok "--status → stale" || no "--status → stale (got: $OUT)"
 OUT="$(hook "" "$VALIDATE")"
-has 'stale' "$OUT" "stale ask says the roles are stale"
-has '"permissionDecision":"ask"' "$OUT" "stale ask is still an ask"
-json_ok "$OUT" "stale ask is valid JSON"
+has '"permissionDecision":"deny"' "$OUT" "stale roles also block until answered"
+json_ok "$OUT" "stale output is valid JSON"
+OUT="$(hook --message "$VALIDATE")"
+has 'stale' "$OUT" "stale reminder says the roles are stale"
+has 'or choose the default model for this story or this repo' "$OUT" "stale reminder offers the story/repo default"
 
 # --- 8: one role stale + another missing → incomplete ----------------------
 # Rebuild from a clean slate so this doesn't depend on the prior test's state:
@@ -126,13 +177,15 @@ OUT="$(hook --status "$VALIDATE")"
 mv "$ROLES.bak" "$ROLES"
 [[ "$OUT" == "no-registry" ]] && ok "--status → no-registry" || no "--status → no-registry (got: $OUT)"
 
-# --- 10: the opt-out ends the nagging ---------------------------------------
+# --- 10: a machine-wide opt-out no longer exists (WD-0045) ------------------
+# A leftover ~/.workflow-dev/tiering.json from an older version must not silence
+# the reminder: the default is chosen per repo or per story only.
 mkdir -p "$HOME_DIR/.workflow-dev"
 printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
 OUT="$(hook "" "$VALIDATE")"
-[[ -z "$OUT" ]] && ok "opt-out → silent" || no "opt-out → silent (got: $OUT)"
+has '"permissionDecision":"deny"' "$OUT" "a leftover user-level optOut file is ignored"
 OUT="$(hook --status "$VALIDATE")"
-[[ "$OUT" == "opted-out" ]] && ok "--status → opted-out" || no "--status → opted-out (got: $OUT)"
+[[ "$OUT" != "opted-out" && -n "$OUT" ]] && ok "--status ignores the leftover optOut file" || no "--status ignores the leftover optOut file (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
 
 # --- 11: an undetectable harness is left alone ------------------------------
@@ -224,10 +277,11 @@ has "$FIRST_ROLE	default" "$(RR)" "a stale role reads as default"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 has "$FIRST_ROLE	default" "$(RR)" "a missing role file reads as default"
 
-# Opt-out.
-printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
-has "$FIRST_ROLE	opt-out" "$(RR)" "opt-out reads as opt-out"
-rm -f "$HOME_DIR/.workflow-dev/tiering.json"
+# Default model chosen for the repo the reader runs in (WD-0045).
+RR_REPO="$TMP/rr-repo"; mkdir -p "$RR_REPO/.workflow-dev"; git -C "$RR_REPO" init -q
+printf '{ "tiering": "default" }' > "$RR_REPO/.workflow-dev/config.json"
+has "$FIRST_ROLE	opt-out" "$(cd "$RR_REPO" && RR)" "a repo default reads as opt-out"
+rm -rf "$RR_REPO"
 
 # No harness signal → unreadable, never a guessed model.
 OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
@@ -288,6 +342,50 @@ printf '\xEF\xBB\xBF---\nname: %s\nmodel: sonnet\n---\n<!-- workflow-dev:roles-h
   "$FIRST_ROLE" "$HASH" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 has "$FIRST_ROLE	bound	sonnet" "$(RR)" "a leading BOM does not hide the binding"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
+
+# init offers the same menu; its Phase 4 only finds the roles bound if option 1 ran.
+OUT="$(hook "" "$INIT")"
+has 'references/tiering-question.md' "$OUT" "init gets the same question (its Phase 4 stays the backstop)"
+json_ok "$OUT" "init output is valid JSON"
+
+# --- WD-0045: the repo and story defaults silence the reminder ---------------
+REPO_DIR="$TMP/repo"; mkdir -p "$REPO_DIR/.workflow-dev/context"
+git -C "$REPO_DIR" init -q -b wd-0045-example
+CWD_PAYLOAD="{\"tool_name\":\"Skill\",\"cwd\":\"$REPO_DIR\",\"tool_input\":{\"skill\":\"workflow-dev:validate\"}}"
+rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "no repo/story default → the question still comes first"
+printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+[[ -z "$OUT" ]] && ok "repo default → silent" || no "repo default → silent (got: $OUT)"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "opted-out" ]] && ok "repo default → --status opted-out" || no "repo default → --status opted-out (got: $OUT)"
+rm -f "$REPO_DIR/.workflow-dev/config.json"
+# A prose mention of the row must not count — only a Decisions table row does.
+printf 'The row `| date | Tiering: default model | Human |` is what silences it.\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "a story that only mentions the row does not opt out"
+printf '## Decisions\n| 2026-10-08 | Tiering: default model | Human |\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+[[ -z "$OUT" ]] && ok "story default on the story's branch → silent" || no "story default on the story's branch → silent (got: $OUT)"
+git -C "$REPO_DIR" checkout -q -b wd-0099-other
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "story default does not carry to another story's branch"
+
+# --- WD-0042: no mode ever opts the user out on its own ---------------------
+# Unbound, every mode: the hook must never create a tiering file or a repo default.
+rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR/.claude/agents"
+for m in "" --expansion --message --status; do
+  hook "$m" "$VALIDATE" >/dev/null
+done
+[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" ]] \
+  && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
+# The plain (advisory) text carries no agent instruction: OpenCode reads it as a notice.
+OUT="$(hook --message "$VALIDATE")"
+case "$OUT" in
+  *"yourself, as the main agent"*|*"additionalContext"*) no "--message must stay the plain reminder (got: $OUT)" ;;
+  *) ok "--message stays the plain reminder, without the agent note" ;;
+esac
 
 echo
 echo "$pass passed, $fail failed"

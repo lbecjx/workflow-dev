@@ -98,6 +98,11 @@ not judgment calls, and they have no autonomous fallback:
   as in human-piloted mode. This is the one rule with **no bypass, ever** — the
   agent must not "help" the run along by editing attribution text past the check.
 
+One question is required even in autonomous mode: when model tiering is not set up,
+the tiering hook blocks the first workflow-dev skill call until the user answers
+(configure the agents, or a default model for this story or this repo — see
+`hooks/README.md`). No answer is inferred for the user; the run waits.
+
 Everything else — a validation-mode choice, a manual-QA choice, a
 no-repro-vs-complete depth — is an ordinary decision point and follows
 "infer + record + report".

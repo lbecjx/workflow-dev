@@ -1,13 +1,12 @@
 schema_version: "1.1"
-name: reminder-respects-optout
+name: reminder-respects-default
 description: >
-  Guard for the model-tiering reminder added in WD-0015. With the opt-out set in
-  ~/.workflow-dev/tiering.json, running a workflow-dev skill must NOT surface an
+  Guard for the model-tiering reminder added in WD-0015. With a default model chosen
+  for the repo (`tiering: default` in .workflow-dev/config.json), running a workflow-dev skill must NOT surface an
   ask to configure model tiering. The inverse — unbound roles must ask — is
   covered by scripts/model-tiering-check.test.sh (hermetic, a throwaway HOME),
   because forcing "unbound" here would mean removing the operator's real agent
-  config. This case sets the opt-out file and leaves it in place; run it on a
-  throwaway or CI machine rather than a daily driver.
+  config. The default lives in the scratch repo, so the case never touches the real HOME.
 tags: [model-tiering, reminder, regression]
 context:
   scaffold_script: fixture.sh

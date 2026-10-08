@@ -77,4 +77,32 @@ the Free Software Foundation, either version 3 of the License, or
   `opencode/plugin.ts`'s `execute.before`) has no marker and no bypass, so it
   blocks in autonomous mode exactly as it does in a human-piloted one. See
   `../references/autonomous-mode.md`.
+- **The model-tiering reminder blocks until the user answers a question** (WD-0042,
+  WD-0045). On Claude Code the `PreToolUse:Skill` hook can return `allow`, `ask`,
+  `deny` or `defer`, plus `permissionDecisionReason`, `updatedInput` and
+  `additionalContext`. An `ask` produced a dialog whose buttons belong to Claude
+  Code: "Yes" only lets the skill run, and "Yes, and don't ask again" saves a
+  permission `allow` rule (for example `Skill(workflow-dev:resume)`) that silences
+  the reminder without configuring anything or recording a choice. Rewording the
+  text (WD-0042) could not fix that. A `deny` opens no dialog, so there is no such
+  button: the hook denies the skill call with a plain description as its reason and, in `additionalContext`, which only
+  the agent reads, the instruction to ask and the path of
+  `references/tiering-question.md` (Claude Code prints a deny reason to the user verbatim, behind an "Error:"
+  prefix the plugin cannot change, so it must read well and carry neither a path nor an instruction). The file
+  tells the agent to put one question to the user, with three answers in this order:
+  configure the agents (the agent runs `/workflow-dev:setup-models` itself, as the
+  main agent, since the flow is interactive), a default model for this story (a
+  `Tiering: default model` row in the active story's Decisions), or a default model
+  for this repo (`"tiering": "default"` in `.workflow-dev/config.json`), and then to
+  call the skill again. The hook reads both narrower defaults and stays silent for
+  them — the story one only on the branch that names that story (a table row, not a
+  mention), so the agent offers it only on such a branch — and silent once
+  the roles are bound, so the second call goes through. The question is required in
+  autonomous mode too: no answer is chosen for the user. There is no machine-wide opt-out (WD-0045): the
+  old `~/.workflow-dev/tiering.json` is ignored, because tiering is either configured
+  once or defaulted per repo or story. The
+  `UserPromptExpansion` path (the user typing `/workflow-dev:<skill>`) cannot block
+  and carries the same question as context. This is the one hook here that denies on
+  purpose; the commit and PR hooks still ask. The cost: if the agent ignores the
+  reason, the skill stays blocked until the question is answered.
 - Tool-name mapping across harnesses: `../references/harness-tools.md`.

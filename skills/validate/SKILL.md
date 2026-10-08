@@ -139,7 +139,7 @@ mechanical, checklist work, **`wd-judge`** (class `judge`) for judgment, and
 Name the **role** as the sub-agent's type when you spawn it — never a model name
 or alias; the user bound each role to a model once, via
 `/workflow-dev:setup-models`. If the harness cannot select a model per sub-agent
-— the roles are ungenerated or stale and the user has not opted out, or the
+— the roles are ungenerated or stale and the user has not chosen the default for this repo or story, or the
 harness has no per-sub-agent model mechanism at all — run everything on the
 default and **say so**; never silently pretend the tiering happened.
 

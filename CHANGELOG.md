@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.2
+
+- The model-tiering reminder no longer opens a dialog. Its "Yes, and don't ask
+  again" silenced the reminder without configuring anything; the hook now blocks
+  the skill until the user answers one question: configure the agents, or keep the
+  default model for this story or this repo. `setup-models` lets any role keep the
+  default.
+- The machine-wide opt-out is removed: `~/.workflow-dev/tiering.json` is ignored.
+  Keep the default per repo (`"tiering": "default"` in `.workflow-dev/config.json`)
+  or per story instead.
+
 ## 1.32.1
 
 - `resume` shows a Mode line, so a story left in autonomous mode is not resumed

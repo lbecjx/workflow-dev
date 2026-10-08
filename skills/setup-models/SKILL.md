@@ -112,6 +112,15 @@ Every entry offered is one the script returned, or one the user types
 themselves. Never add a model the script didn't list, and never a "recommended"
 one.
 
+**Keeping the default is always an option, and for `judge` roles it comes first.**
+Offer "keep the default model" for every role: it writes `model: inherit` on
+Claude Code, and on OpenCode it leaves the role without a `model:` line, so the
+role runs on whatever the session runs on. Say why for `judge` roles — Security,
+Architecture and the adversarial pair need strong reasoning, and a model that is
+weaker than the default makes them worse, not cheaper. So when the user cannot
+tell the offered models reason well, keeping the default is the safe pick;
+tiering pays off for the `operator` roles first.
+
 ### Step 3: Write the agent file per role
 
 With `HASH="$("$PLUGIN_ROOT"/scripts/roles-hash.sh)"` and the chosen model, write
@@ -157,22 +166,17 @@ Create the target directory if it doesn't exist. On Claude Code, a new
 present at session start — say so if that is the case, so the user knows why the
 agent isn't visible yet.
 
-### Step 4: Confirm, and offer the opt-out
+### Step 4: Confirm
 
 Report each role, its file, and the model bound to it. Then state plainly what
 this changes: the skills that spawn sub-agents now reference these roles, and
 any harness that cannot select a model per sub-agent runs everything on the
 default and says so rather than pretending otherwise.
 
-Finally, offer the escape hatch: to run everything on the default model and stop
-being asked, write `~/.workflow-dev/tiering.json` containing
-
-```json
-{ "optOut": true }
-```
-
-Create the directory if needed. Write it only if the user chooses it — it is
-their standing decision, and the reminder hook reads it.
+There is no machine-wide way out of tiering, and this skill never offers one:
+the agent files live in the user's own agents directory, so binding them is the
+one global act, and keeping the default is chosen per repo or per story (see
+"Keeping the default instead" below).
 
 ### Re-running
 
@@ -186,14 +190,26 @@ plugin update changes `roles.md`:
   preserving the model.
 - If every file is already current (hashes match), say so and skip writing.
 
+## Keeping the default instead
+
+When the user wants no tiering here, record it where the reminder hook reads it —
+never for the whole machine:
+
+- **This story:** add the row `| <today> | Tiering: default model | Human |` to the
+  Decisions table of the active story's file in `.workflow-dev/context/`.
+- **This repo:** set `"tiering": "default"` in `.workflow-dev/config.json`, keeping
+  its other keys.
+
+Write one of them only if the user chooses it.
+
 ## No model source
 
 Neither path invents a model. When Step 1 exits 1 or 2, tell the user which it
 is and let them choose:
 
 - **Exit 1 — cannot be enumerated.** The script's stderr says why. Offer: (a)
-  type a model id or alias by hand, or (b) opt out. If they choose (b), write the
-  opt-out file from Step 4.
+  type a model id or alias by hand, or (b) keep the default for this story or this
+  repo, recorded as in "Keeping the default instead".
 - **Exit 2 — Claude Code without a gateway.** Ask them to run `/model` inside
   Claude Code, read the list it shows, and give the name or id they want (or a
   full model id). The plugin still names no model — they do. The model-config

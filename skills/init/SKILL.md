@@ -104,7 +104,7 @@ no skill, and answers `not-ours`, making this step a silent no-op. Then:
   (Claude Code `/workflow-dev:setup-models`, OpenCode
   `workflow-dev-setup-models`) — main agent, interactive, never a sub-agent —
   then continue where you left off.
-- `opted-out` → skip silently.
+- `opted-out` → skip silently (a default model was chosen for this repo or this story).
 - `no-harness` / `no-registry` → say that tiering couldn't be set up and that
   everything runs on the default model, then proceed.
 
