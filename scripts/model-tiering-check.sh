@@ -13,9 +13,10 @@
 #
 #   model-tiering-check.sh
 #       Claude Code `PreToolUse` (matcher: Skill) — the agent invoking a
-#       workflow-dev skill. Emits `permissionDecision: "deny"` whose reason
-#       tells the agent to put the setup question to the user, then call the skill
-#       again (WD-0045) — a deny opens no dialog, so there is no "don't ask again".
+#       workflow-dev skill. Emits `permissionDecision: "allow"` with an
+#       `additionalContext` telling the agent to put the setup question to the user
+#       before the skill goes on (WD-0045, WD-0046) — no dialog, so no "don't ask
+#       again", and no "Error:" line either.
 #   model-tiering-check.sh --expansion
 #       Claude Code `UserPromptExpansion` — the user typing
 #       `/workflow-dev:<skill>` directly, which bypasses PreToolUse entirely.
@@ -289,25 +290,21 @@ if [[ -n "$STALE" ]] && [[ -z "$MISSING" ]]; then
   REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept), or choose the default model for this story or this repo."
 fi
 # The agent-facing paths put the question to the user through the agent instead of
-# a dialog (WD-0045). An `ask` dialog's buttons belong to the harness, and its
-# "don't ask again" saves a permission `allow` rule that silences this reminder
-# without configuring anything (hooks/README.md). So the PreToolUse path denies
-# the skill call — a deny opens no dialog, so there is no such button — and the
-# reason, which the agent reads, points it at the question to put to the user
-# (three answers, configuring first) and tells it to call the skill again. Once
-# an answer is recorded the hook is silent, so the second call goes through. The
-# question is required in autonomous mode too: no answer is assumed for the user.
-# There is no machine-wide opt-out: tiering is configured once (the agent files
-# live in the user's agents directory) or the default is chosen per repo or story.
-# The instructions live in references/tiering-question.md, not in this reason:
-# Claude Code prints a deny reason to the user verbatim, so a long one reads as a
-# wall of red error text. The reason is one plain sentence for the user, with no
-# file path in it; the path goes in `additionalContext`, which only the agent
-# reads. The reason also says nothing is wrong: Claude Code prefixes every hook deny with "Error:", which
-# the plugin cannot change, so the wording after it has to be calm.
+# a dialog (WD-0045, WD-0046). An `ask` dialog's buttons belong to the harness, and
+# its "don't ask again" saves a permission `allow` rule that silences this reminder
+# without configuring anything (hooks/README.md). A `deny` avoids that button but
+# Claude Code prints every hook deny behind "Error: ...hook error:", which reads as
+# a failure. So the PreToolUse path allows the skill and hands the agent the
+# instruction as `additionalContext`: stop, put one three-answer question to the
+# user, then continue. Nothing enforces that — the agent could ignore it — which
+# hooks/README.md records as the accepted cost. Once an answer is recorded the hook
+# is silent. The question is required in autonomous mode too: no answer is assumed
+# for the user. There is no machine-wide opt-out: tiering is configured once (the
+# agent files live in the user's agents directory) or the default is chosen per
+# repo or story.
+# The details live in references/tiering-question.md so this text stays short.
 QUESTION_FILE="$(cd -P "$HERE/.." && pwd -P)/references/tiering-question.md"
-BLOCK_NOTE="You need to set up the model for each agent before continuing."
-BLOCK_CONTEXT="Put that choice to the user as one question and wait for the answer; it is required, also in autonomous mode. The options, how each answer is recorded, and the rules are in $QUESTION_FILE: read it before asking. Then call this skill again."
+PAUSE_NOTE="Model tiering is not set up, so the user must choose how to handle the model of each agent before this skill goes any further: do not start the skill's own steps until the user has answered. Put that choice to the user as one question and wait for the answer; it is required, also in autonomous mode. The options, how each answer is recorded, and the rules are in $QUESTION_FILE: read it before asking. Then continue the skill."
 EXPANSION_NOTE="$REMINDER Before continuing the skill the user asked for, read $QUESTION_FILE and ask the user what to do."
 
 case "$MODE" in
@@ -318,7 +315,7 @@ case "$MODE" in
     emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$EXPANSION_NOTE")\"}}"
     ;;
   *)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$(json_escape "$BLOCK_NOTE")\",\"additionalContext\":\"$(json_escape "$BLOCK_CONTEXT")\"}}"
+    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"additionalContext\":\"$(json_escape "$PAUSE_NOTE")\"}}"
     ;;
 esac
 exit 0
