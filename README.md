@@ -67,7 +67,7 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 
   "Real" means the command itself, not a command that mentions one: an `echo`, a `grep`, a heredoc that writes about a commit, `git commit-tree` and the like stay silent. `git -C <dir> commit`, `git -c k=v commit` and a commit after other commands are caught. When a command is wrapped where it cannot be read (`bash -c`, `eval`), it asks rather than guessing, and never blocks.
 - **`PostToolUse`** (after a real `gh pr create` / `gh pr edit` succeeds) — reminds you of the PR's full URL, so it gets relayed as plain text instead of staying buried in a Markdown link label. `gh pr edit` whose own output carries no URL falls back to a read-only `gh pr view --json url`.
-- **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — asks you to bind the agent roles to models, until you do or explicitly opt out.
+- **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — blocks the skill until you answer one question about the agent roles: bind them to models, or keep the default for this story or this repo.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — tells you, at most once per session per version, when a newer copy of this plugin is on GitHub (with the update command) or already on disk and only needs a session restart. Purely informational: it never asks, blocks, or denies.
 
 On **OpenCode** these hooks do not run at all — `hooks/hooks.json` is Claude Code's own format, not a portable one. The reminders themselves are delivered by `opencode/plugin.ts` instead, which asks the **same** `scripts/*.sh` each hook calls, so there is one copy of a reminder's wording and of its "is this warranted?" test rather than two that can drift apart. The two commit reminders are raised as real permission asks through `ctx.permission.hook("evaluate")`: a configured `allow` is escalated to a question carrying the script's own wording, and the plugin never denies. The plugin targets OpenCode 2's API (`export default { id, setup }`, `ctx.tool.hook(...)`, `ctx.permission.hook(...)`); the v1 API described under `/docs/plugins` no longer loads. Installing it is part of the OpenCode setup — see [Installation](#installation).
@@ -82,7 +82,7 @@ What each harness actually gets, reminder by reminder:
 | Git History Disclosure review | asks **before** the commit | asks **before** the command, through the permission hook |
 | AI/agent attribution | blocks outright | blocks outright — the one reminder that stops work on both |
 | PR URL after `gh pr create`/`gh pr edit` | a notice **after** the command ran | a notice **after** the command ran — no exit code available, so a URL found in the output is the only success signal |
-| Model tiering | asks while the roles are unbound | a notice naming the fix |
+| Model tiering | blocks the skill until you answer one question: configure, or a default for this story or repo — no dialog, so no "don't ask again" | a notice naming the fix |
 
 Both commit reminders are now real asks on OpenCode, decided by the same scripts that decide them on Claude Code and raised through `ctx.permission.hook("evaluate")`. Two details are worth knowing. An OpenCode **"always"** reply is saved as a durable, project-scoped `allow` — but the plugin cannot tell that apart from the default `allow`, so it does **not** suppress the guardrail reminder; it re-asks on the next qualifying command, deliberately, rather than let one keystroke retire the guardrail. And a configured **`deny`** is final: it never reaches the hook, so that is the one case where the reminder does not run at all.
 
@@ -117,19 +117,13 @@ Each generated file carries a hash of the role registry, so a later run — or t
 
 **The Claude Code limit.** Claude Code routes a sub-agent to its own models. A non-Claude model per sub-agent needs a router or gateway in front of it, and that gateway is also the only way setup can *enumerate* models there (`GET <base>/v1/models`). Without one, setup asks you to type the name yourself — run `/model` to see it — rather than inventing a list. Documented as a fallback, not a promise; OpenCode has no such limit.
 
-**Degrades honestly.** When the harness can't select a model per sub-agent — the roles are unbound or stale and you haven't opted out — the workflow says so and runs everything on your default model. It never pretends the tiering happened.
+**Degrades honestly.** When the harness can't select a model per sub-agent — the roles are unbound or stale and you haven't chosen the default for this repo or story — the workflow says so and runs everything on your default model. It never pretends the tiering happened.
 
-**Init self-heals.** Before `init` spawns its research sub-agents it runs this same check itself, and when the roles are missing or stale it walks you through setup **in the same session** before carrying on — no detour to a second command and back. Bindings current, and it says nothing. An undetectable harness or an unreadable role registry is reported and it proceeds on the default, as above. Typing `/workflow-dev:init` still triggers the reminder hook first: answering Yes and letting init heal in the same run is the normal path, not a double prompt. For any other skill the dialog's buttons belong to Claude Code, so the reminder spells out what each answer does — Yes runs the skill on your default model, No cancels it so you can run `/workflow-dev:setup-models` — and it never writes the opt-out for you. One caveat, on Claude Code only: an agents directory being created for the first time isn't picked up until you restart, so a first-time binding takes effect from the next session rather than the rest of this one — init says so when that applies.
+**Init self-heals.** Before `init` spawns its research sub-agents it runs this same check itself, and when the roles are missing or stale it walks you through setup **in the same session** before carrying on — no detour to a second command and back. Bindings current, and it says nothing. An undetectable harness or an unreadable role registry is reported and it proceeds on the default, as above. When the roles are unbound the hook blocks the skill and the agent puts one question to you, also in autonomous mode: configure the agents (`/workflow-dev:setup-models`, listed first), keep the default model for this story, or keep it for this repo. The two defaults are recorded where the hook reads them (the story's Decisions, or `tiering` in `.workflow-dev/config.json`) and silence the reminder; the skill runs after you answer. The hook opens no dialog, so there is no "don't ask again" button. `init` also checks the roles itself (below) as a backstop. One caveat, on Claude Code only: an agents directory being created for the first time isn't picked up until you restart, so a first-time binding takes effect from the next session rather than the rest of this one — init says so when that applies.
 
 **Updating.** Roles live in the plugin; your bindings live in your config, which a plugin update doesn't touch. When a release changes a role's definition the reminder flags the binding as stale, and re-running setup regenerates it while keeping the model you picked. The plugin ships no `agents/` directory of its own, deliberately: a plugin agent gets a namespaced name and can't carry your model.
 
-**Opting out.** To run everything on your default model and stop being asked, write:
-
-```json
-{ "optOut": true }
-```
-
-to `~/.workflow-dev/tiering.json`.
+**Keeping the default model.** There is no machine-wide opt-out: either you bind the agents once, or you keep the default per repo or per story. For a repo, set `"tiering": "default"` in `.workflow-dev/config.json`; for a story, add a `Tiering: default model` row to its Decisions. The reminder's question offers both, and records the one you pick. A `~/.workflow-dev/tiering.json` left by an older version is ignored.
 
 ## Installation
 

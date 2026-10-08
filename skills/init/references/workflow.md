@@ -149,14 +149,14 @@ That one word is the whole decision surface:
 | `unmapped` | one or more role files are missing | run the `setup-models` flow inline, then resume here |
 | `stale` | every file exists, but its embedded hash predates the registry | same — the flow regenerates the definitions while keeping the models already chosen |
 | `incomplete` | some role files are missing and others are stale | same |
-| `opted-out` | the human's standing `~/.workflow-dev/tiering.json` says run everything on the default | skip silently — never re-offer what they already declined |
+| `opted-out` | a default model was chosen for this repo (`tiering: default` in `.workflow-dev/config.json`) or this story (a `Tiering: default model` row in its Decisions) | skip silently — never re-offer what they already declined |
 | `no-harness` / `no-registry` | the harness isn't detectable, or the role registry can't be read | do not block: say tiering couldn't be set up and that everything runs on the default model, then continue |
 | `not-ours` | the payload named no skill of ours (the no-argument bug above) | not a state to handle — fix the call |
 
 Model enumeration failing *inside* the inline run (`list-models.sh` exiting 1 or
 2) is that run's own problem to resolve — its "No model source" path decides
-what happens, a hand-typed model or the opt-out — and init carries on either
-way. This step does not shortcut it to a silent default.
+what happens, a hand-typed model or a default for this repo or story — and init
+carries on either way. This step does not shortcut it to a silent default.
 
 Three things this step must not break:
 
@@ -169,10 +169,11 @@ Three things this step must not break:
   is `/workflow-dev:setup-models` on Claude Code and `workflow-dev-setup-models`
   on OpenCode — and that run reads `../setup-models/SKILL.md` as its one
   definition. Never restate its flow in a second wording here.
-- **The way out stays open.** The inline run's own final step offers the opt-out
-  (`~/.workflow-dev/tiering.json`). That offer is what keeps this from being a
-  trap, so it stays reachable from here — never suppressed on the grounds that
-  init is already running.
+- **The way out stays open.** The inline run's "No model source" path offers a
+  default model for this story or this repo, and so does the tiering hook's
+  question. That offer is what keeps this from being a trap, so it stays
+  reachable from here — never suppressed on the grounds that init is already
+  running. There is no machine-wide opt-out.
 
 Three properties of the inline run, all load-bearing:
 

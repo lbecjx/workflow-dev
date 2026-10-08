@@ -748,7 +748,7 @@ ledger_report() {
       [[ -z "$role" ]] && continue
       case "$state" in
         bound)   printf '    %s → %s (bound)\n' "$role" "$model" ;;
-        opt-out) printf '    %s → default (tiering opted out)\n' "$role" ;;
+        opt-out) printf '    %s → default (a default model was chosen for this repo or story)\n' "$role" ;;
         default) printf '    %s → default (role ungenerated, stale, or with no model)\n' "$role" ;;
         *)       printf '    %s → unreadable (no harness signal)\n' "$role" ;;
       esac

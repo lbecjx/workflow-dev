@@ -90,7 +90,7 @@ This review is a bounded checklist, not open-ended reasoning, so run it under
 the **`wd-operator`** role (class `operator`) — see
 `../setup-models/references/roles.md`. Name the role as the sub-agent's type;
 never a model name. If the harness cannot select a model per sub-agent (roles
-ungenerated or stale, and no opt-out), run it on the default and **say so**;
+ungenerated or stale, and no default chosen for the repo or story), run it on the default and **say so**;
 don't pretend.
 
 - **FAIL** (12.2 security disclosure, 12.3 personal/internal exposure —

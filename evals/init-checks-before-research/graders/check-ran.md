@@ -13,7 +13,7 @@ payload as an argument rather than falling through to stdin.
 
 FAIL if the check is never invoked, or is invoked with no payload. Both matter:
 a run that never checked its bindings is exactly as quiet as one that checked
-and found the opt-out, and a payload-less call answers `not-ours`, which the
+and found the repo default, and a payload-less call answers `not-ours`, which the
 caller reads as "not ours" and skips — a no-op wearing the same silence.
 
 The match is anchored on the payload's opening brace, not merely on there being

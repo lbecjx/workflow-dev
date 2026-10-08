@@ -16,9 +16,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 ## 1.32.2
 
-- The model-tiering ask now says what each dialog answer does (Yes runs the skill
-  on the default model; for `init`, it sets tiering up first) and presents the
-  opt-out as a manual choice, so accepting it no longer reads as configuring.
+- The model-tiering reminder no longer opens a dialog. Its "Yes, and don't ask
+  again" silenced the reminder without configuring anything; the hook now blocks
+  the skill until the user answers one question: configure the agents, or keep the
+  default model for this story or this repo. `setup-models` lets any role keep the
+  default.
+- The machine-wide opt-out is removed: `~/.workflow-dev/tiering.json` is ignored.
+  Keep the default per repo (`"tiering": "default"` in `.workflow-dev/config.json`)
+  or per story instead.
 
 ## 1.32.1
 

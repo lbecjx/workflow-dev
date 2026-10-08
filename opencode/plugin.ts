@@ -355,8 +355,7 @@ export default {
       // Scoped to workflow-dev projects, like every other reminder here — the
       // plugin speaks where the workflow is in use, not in every session.
       // `.workflow-dev/context` rather than `.workflow-dev`: the home directory
-      // always has the latter (this plugin's own marker and the tiering opt-out
-      // live there), which would make a session opened in `$HOME` count as a
+      // always has the latter (this plugin's own marker lives there), which would make a session opened in `$HOME` count as a
       // project. Only `init` creates `context/`. A session opened in a
       // subdirectory of a project is not matched — the same cwd-relative view
       // every reminder script takes.

@@ -7,13 +7,15 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
 #
-# The model-tiering reminder: asks while the agent roles are unbound or stale,
+# The model-tiering reminder: speaks up while the agent roles are unbound or stale,
 # and goes quiet once they are bound and current — or once the user has opted
 # out. Called in four ways:
 #
 #   model-tiering-check.sh
 #       Claude Code `PreToolUse` (matcher: Skill) — the agent invoking a
-#       workflow-dev skill. Emits the explicit `permissionDecision: "ask"`.
+#       workflow-dev skill. Emits `permissionDecision: "deny"` whose reason
+#       tells the agent to put the setup question to the user, then call the skill
+#       again (WD-0045) — a deny opens no dialog, so there is no "don't ask again".
 #   model-tiering-check.sh --expansion
 #       Claude Code `UserPromptExpansion` — the user typing
 #       `/workflow-dev:<skill>` directly, which bypasses PreToolUse entirely.
@@ -32,7 +34,7 @@
 #       Prints the reminder text itself (plain, no JSON envelope) when the roles
 #       are unbound/stale, and nothing otherwise. OpenCode's plugin calls this
 #       so the reminder copy has one owner — this script — instead of the plugin
-#       carrying a second wording that can drift from Claude Code's ask.
+#       carrying a second wording that can drift from Claude Code's note.
 #
 # A skill counts as this plugin's whether it arrives scoped as
 # `workflow-dev:<name>` (Claude Code) or hyphenated as `workflow-dev-<name>`
@@ -46,7 +48,7 @@
 #
 # Silent on: a skill that isn't this plugin's, the setup command itself (asking
 # someone to run the fix while they run the fix is noise), an undetectable
-# harness, and the opt-out.
+# harness, and a default model chosen for this repo or this story.
 
 set -u
 
@@ -61,13 +63,33 @@ esac
 
 HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
 ROLES="$HERE/../skills/setup-models/references/roles.md"
-OPTOUT="$HOME/.workflow-dev/tiering.json"
 SETUP_SKILL="setup-models"
 
 emit() { printf '%s' "$1"; }
 
 # One line, always exit 0 — the `--status` contract the OpenCode plugin reads.
 status() { emit "$1"; exit 0; }
+
+# Is the default model chosen for the project containing $1 — or for its active
+# story? Prints `repo` or `story`, nothing when neither (WD-0045). The choice is
+# only ever per repo or per story, never per user or per machine:
+#   repo   .workflow-dev/config.json carries "tiering": "default"
+#   story  the Decisions table of the story the branch names (wd-0045-… →
+#          WD-0045) carries a `Tiering: default model` row
+default_scope() {
+  local root branch code
+  root="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  if grep -qs '"tiering"[[:space:]]*:[[:space:]]*"default"' "$root/.workflow-dev/config.json"; then
+    printf 'repo'; return 0
+  fi
+  branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)" || return 0
+  code="$(printf '%s' "$branch" | grep -oiE '[a-z]+-[0-9]{4}' | head -1 | tr '[:lower:]' '[:upper:]')"
+  # A Decisions table row, not a mention: a story that merely documents this very
+  # row (WD-0045's own file does) must not silence the reminder by quoting it.
+  if [[ -n "$code" ]] && grep -qsE '^\|[^|]*\|[[:space:]]*Tiering: default model[[:space:]]*\|' "$root/.workflow-dev/context/$code.md"; then
+    printf 'story'
+  fi
+}
 
 # The role names, from the registry's `### \`role\`` headings — ONE source, so a
 # renamed/added/removed role is picked up by the reminder and the reader alike
@@ -103,7 +125,8 @@ agents_dir_for() {
 #              hash-matching file with no `model:` is NOT `bound` — claiming so
 #              would render an empty model, the one thing this reader must
 #              never do, and an absent model is the default on both harnesses.
-#   opt-out    ~/.workflow-dev/tiering.json sets optOut: true.
+#   opt-out    a default model was chosen for this repo or this story (see
+#              `default_scope`).
 #   unreadable no harness signal. An unreadable registry prints NOTHING — with
 #              no roles to name there is no row to label — and the consumer
 #              (session-usage.sh) reports that empty case itself.
@@ -111,7 +134,7 @@ agents_dir_for() {
 # scripts/roles-hash.sh, so no second parser can diverge from the reminder's.
 role_models() {
   local agents_dir hash optout=0
-  [[ -f "$OPTOUT" ]] && grep -q '"optOut"[[:space:]]*:[[:space:]]*true' "$OPTOUT" && optout=1
+  [[ -n "$(default_scope "$PWD")" ]] && optout=1
   agents_dir="$(agents_dir_for "$("$HERE/list-models.sh" --print-harness 2>/dev/null)")"
   hash="$("$HERE/roles-hash.sh" 2>/dev/null)" || hash=""
   local role state model f
@@ -166,7 +189,7 @@ if [[ "$MODE" == "role-models" ]]; then
 fi
 
 # JSON-escape a string for embedding in a hand-built JSON envelope. The reminder
-# text contains `"` (around `{"optOut": true}`), which a JSON string value must
+# text contains `"` (around `"tiering": "default"`), which a JSON string value must
 # escape as `\"`. Kept as a function so the text stays plain for `--message` and
 # only the JSON boundary escapes it — the one place a raw quote must never land.
 json_escape() { printf '%s' "$1" | sed 's/"/\\"/g'; }
@@ -208,8 +231,11 @@ fi
 # Never nag while running the thing that fixes it.
 [[ "$SKILL" == "$SETUP_SKILL" ]] && { [[ "$MODE" == "status" ]] && status "not-ours"; exit 0; }
 
-# --- Opted out? ------------------------------------------------------------
-if [[ -f "$OPTOUT" ]] && grep -q '"optOut"[[:space:]]*:[[:space:]]*true' "$OPTOUT"; then
+# --- A default model chosen for this repo or this story? (WD-0045) ---------
+# The only way out of tiering: per repo or per story, never for the whole machine.
+# Both read as "opted-out": run everything on the default model, say nothing.
+PROJECT_DIR="$(json_string cwd)"; [[ -n "$PROJECT_DIR" ]] || PROJECT_DIR="$PWD"
+if [[ -n "$(default_scope "$PROJECT_DIR")" ]]; then
   [[ "$MODE" == "status" ]] && status "opted-out"
   exit 0
 fi
@@ -258,30 +284,34 @@ fi
 # This text is the single source of truth, shared by Claude Code (the JSON
 # envelope below) and OpenCode (the plugin's `--message` mode). It stays plain
 # here; only the JSON boundary escapes it (json_escape above).
-REMINDER="Model tiering isn't set up on this harness. Run /workflow-dev:setup-models to bind each agent role to a model. To run everything on your default model and stop being asked, set {\"optOut\": true} in ~/.workflow-dev/tiering.json yourself — nothing here sets it for you."
+REMINDER="Model tiering isn't set up on this harness. Run /workflow-dev:setup-models to bind each agent role to a model, or choose the default model for this story or this repo."
 if [[ -n "$STALE" ]] && [[ -z "$MISSING" ]]; then
-  REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept). To run everything on your default model, set {\"optOut\": true} in ~/.workflow-dev/tiering.json yourself — nothing here sets it for you."
+  REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept), or choose the default model for this story or this repo."
 fi
-# Only the Claude Code ask is a dialog whose buttons the harness owns (WD-0042,
-# hooks/README.md): there "Yes" just lets the skill run, so say so plainly
-# instead of letting it read as "configure". The advisory paths (--message,
-# --expansion) have no such dialog, so they keep the plain text above.
-DIALOG_NOTE=" Answering Yes runs this skill now on your default model, without tiering; answering No cancels it so you can run /workflow-dev:setup-models first."
-# `init` is the exception: its Phase 4 runs the setup flow itself when the roles
-# are unbound or stale, so there "Yes" really does lead to configuring.
-if [[ "$SKILL" == "init" ]]; then
-  DIALOG_NOTE=" Answering Yes runs init, which walks you through /workflow-dev:setup-models first; answering No cancels it."
-fi
+# The agent-facing paths put the question to the user through the agent instead of
+# a dialog (WD-0045). An `ask` dialog's buttons belong to the harness, and its
+# "don't ask again" saves a permission `allow` rule that silences this reminder
+# without configuring anything (hooks/README.md). So the PreToolUse path denies
+# the skill call — a deny opens no dialog, so there is no such button — and the
+# reason, which the agent reads, tells it to put one question to the user with
+# three answers, configuring first, and to call the skill again afterwards. Once
+# an answer is recorded the hook is silent, so the second call goes through. The
+# question is required in autonomous mode too: no answer is assumed for the user.
+# There is no machine-wide opt-out: tiering is configured once (the agent files
+# live in the user's agents directory) or the default is chosen per repo or story.
+QUESTION="Ask the user with the ask-question tool, in the user's language, what to do, offering exactly these options in this order: (1) Configure the agents: run /workflow-dev:setup-models yourself, as the main agent and not as a sub-agent. (2) Default model for this story: add the row | <today> | Tiering: default model | Human | to the Decisions table of the active story's file in .workflow-dev/context/, and change nothing else; offer this option only when the current git branch name carries that story's code (for example wd-0045-…), because the hook finds the story through the branch, and otherwise offer only options 1 and 3. (3) Default model for this repo: set \"tiering\": \"default\" in .workflow-dev/config.json, keeping its other keys. Some roles need strong reasoning, so setup-models lets the user keep the default for any role, and a weak model there does more harm than the default. This question is required, also in autonomous mode: never choose an answer for the user."
+BLOCK_NOTE="$REMINDER The skill call was blocked and nothing ran yet. $QUESTION Then call the skill again."
+EXPANSION_NOTE="$REMINDER Before continuing the skill the user asked for: $QUESTION"
 
 case "$MODE" in
   message)
     emit "$REMINDER"
     ;;
   expansion)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$REMINDER")\"}}"
+    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$EXPANSION_NOTE")\"}}"
     ;;
   *)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"$(json_escape "$REMINDER$DIALOG_NOTE")\"}}"
+    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$(json_escape "$BLOCK_NOTE")\"}}"
     ;;
 esac
 exit 0

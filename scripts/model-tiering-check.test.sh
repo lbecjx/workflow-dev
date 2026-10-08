@@ -67,22 +67,38 @@ OUT="$(hook "" "$NOT_OURS")"
 OUT="$(hook "" "$SETUP")"
 [[ -z "$OUT" ]] && ok "setup-models → silent" || no "setup-models → silent (got: $OUT)"
 
-# --- 3: unbound → the explicit ask -----------------------------------------
+# --- 3: unbound → deny, with the question as the reason -----------------------------------------
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"ask"' "$OUT" "unbound role → permissionDecision ask"
-has '/workflow-dev:setup-models' "$OUT" "ask names the command that fixes it"
-json_ok "$OUT" "unbound ask is valid JSON"
-# WD-0042: the dialog's "Yes" only lets the skill run — the ask must say what each
-# answer does, point at setup-models as the way to configure, and present the
-# opt-out as a manual choice, never as what "Yes" does.
-has 'Answering Yes runs this skill now on your default model, without tiering' "$OUT" "ask states what Yes does"
-has 'answering No cancels it so you can run /workflow-dev:setup-models first' "$OUT" "ask states what No does"
-has 'yourself — nothing here sets it for you' "$OUT" "ask presents optOut as a separate manual choice"
+has '"permissionDecision":"deny"' "$OUT" "unbound role → permissionDecision deny: the question comes first (WD-0045)"
+has '"permissionDecisionReason"' "$OUT" "unbound role → the question rides as the reason the agent reads"
+has 'The skill call was blocked and nothing ran yet' "$OUT" "the reason says the skill did not run"
+has 'Then call the skill again' "$OUT" "the reason says to call the skill again after the answer"
+case "$OUT" in
+  *'"ask"'*) no "unbound role must not ask (got: $OUT)" ;;
+  *) ok "unbound role never asks" ;;
+esac
+has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
+json_ok "$OUT" "unbound output is valid JSON"
+# WD-0045: a deny opens no dialog, so there is no "don't ask again"; the reason
+# carries the three-answer question for the agent to put to the user — and never
+# to write the user-level opt-out on its own.
+has 'run /workflow-dev:setup-models yourself, as the main agent and not as a sub-agent' "$OUT" "agent note tells it to run setup-models itself"
+has 'offering exactly these options in this order: (1) Configure the agents' "$OUT" "agent note puts configuring first"
+has '(2) Default model for this story' "$OUT" "agent note offers a per-story default"
+has '(3) Default model for this repo' "$OUT" "agent note offers a per-repo default"
+has "offer this option only when the current git branch name carries that story's code" "$OUT" "the per-story option is offered only on a branch the hook can match"
+has 'This question is required, also in autonomous mode: never choose an answer for the user' "$OUT" "the question is required in autonomous mode too"
+has 'or choose the default model for this story or this repo' "$OUT" "reminder offers the story/repo default, not a machine-wide opt-out"
+case "$OUT" in
+  *optOut*|*tiering.json*) no "the machine-wide opt-out is gone (got: $OUT)" ;;
+  *) ok "no mention of a machine-wide opt-out" ;;
+esac
 
 # --- 4: the typed path gets context, never an ask ---------------------------
 OUT="$(hook --expansion "$VALIDATE")"
 has '"hookEventName":"UserPromptExpansion"' "$OUT" "expansion → UserPromptExpansion output"
 has '"additionalContext"' "$OUT" "expansion → advisory context"
+has 'run /workflow-dev:setup-models yourself' "$OUT" "expansion context carries the same question"
 json_ok "$OUT" "expansion output is valid JSON"
 case "$OUT" in
   *permissionDecision*) no "expansion must not emit a permission decision" ;;
@@ -113,11 +129,10 @@ printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- wor
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "stale" ]] && ok "--status → stale" || no "--status → stale (got: $OUT)"
 OUT="$(hook "" "$VALIDATE")"
-has 'stale' "$OUT" "stale ask says the roles are stale"
-has '"permissionDecision":"ask"' "$OUT" "stale ask is still an ask"
-json_ok "$OUT" "stale ask is valid JSON"
-has 'Answering Yes runs this skill now on your default model' "$OUT" "stale ask states what Yes does"
-has 'yourself — nothing here sets it for you' "$OUT" "stale ask presents optOut as a separate manual choice"
+has 'stale' "$OUT" "stale reminder says the roles are stale"
+has '"permissionDecision":"deny"' "$OUT" "stale reminder also blocks until answered"
+json_ok "$OUT" "stale output is valid JSON"
+has 'or choose the default model for this story or this repo' "$OUT" "stale reminder offers the story/repo default"
 
 # --- 8: one role stale + another missing → incomplete ----------------------
 # Rebuild from a clean slate so this doesn't depend on the prior test's state:
@@ -134,13 +149,15 @@ OUT="$(hook --status "$VALIDATE")"
 mv "$ROLES.bak" "$ROLES"
 [[ "$OUT" == "no-registry" ]] && ok "--status → no-registry" || no "--status → no-registry (got: $OUT)"
 
-# --- 10: the opt-out ends the nagging ---------------------------------------
+# --- 10: a machine-wide opt-out no longer exists (WD-0045) ------------------
+# A leftover ~/.workflow-dev/tiering.json from an older version must not silence
+# the reminder: the default is chosen per repo or per story only.
 mkdir -p "$HOME_DIR/.workflow-dev"
 printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
 OUT="$(hook "" "$VALIDATE")"
-[[ -z "$OUT" ]] && ok "opt-out → silent" || no "opt-out → silent (got: $OUT)"
+has '"permissionDecision":"deny"' "$OUT" "a leftover user-level optOut file is ignored"
 OUT="$(hook --status "$VALIDATE")"
-[[ "$OUT" == "opted-out" ]] && ok "--status → opted-out" || no "--status → opted-out (got: $OUT)"
+[[ "$OUT" != "opted-out" && -n "$OUT" ]] && ok "--status ignores the leftover optOut file" || no "--status ignores the leftover optOut file (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
 
 # --- 11: an undetectable harness is left alone ------------------------------
@@ -232,10 +249,11 @@ has "$FIRST_ROLE	default" "$(RR)" "a stale role reads as default"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 has "$FIRST_ROLE	default" "$(RR)" "a missing role file reads as default"
 
-# Opt-out.
-printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
-has "$FIRST_ROLE	opt-out" "$(RR)" "opt-out reads as opt-out"
-rm -f "$HOME_DIR/.workflow-dev/tiering.json"
+# Default model chosen for the repo the reader runs in (WD-0045).
+RR_REPO="$TMP/rr-repo"; mkdir -p "$RR_REPO/.workflow-dev"; git -C "$RR_REPO" init -q
+printf '{ "tiering": "default" }' > "$RR_REPO/.workflow-dev/config.json"
+has "$FIRST_ROLE	opt-out" "$(cd "$RR_REPO" && RR)" "a repo default reads as opt-out"
+rm -rf "$RR_REPO"
 
 # No harness signal → unreadable, never a guessed model.
 OUT="$(env -u OPENCODE -u OPENCODE_TERMINAL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT HOME="$HOME_DIR" bash "$SCRIPT" --role-models)"
@@ -297,24 +315,48 @@ printf '\xEF\xBB\xBF---\nname: %s\nmodel: sonnet\n---\n<!-- workflow-dev:roles-h
 has "$FIRST_ROLE	bound	sonnet" "$(RR)" "a leading BOM does not hide the binding"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 
-# init heals itself (Phase 4), so its "Yes" really does configure — the note says so.
+# init offers the same menu; its Phase 4 only finds the roles bound if option 1 ran.
 OUT="$(hook "" "$INIT")"
-has 'Answering Yes runs init, which walks you through /workflow-dev:setup-models first' "$OUT" "init ask says Yes leads to setup"
-json_ok "$OUT" "init ask is valid JSON"
+has '(1) Configure the agents' "$OUT" "init gets the same three options (its Phase 4 stays the backstop)"
+json_ok "$OUT" "init output is valid JSON"
+
+# --- WD-0045: the repo and story defaults silence the reminder ---------------
+REPO_DIR="$TMP/repo"; mkdir -p "$REPO_DIR/.workflow-dev/context"
+git -C "$REPO_DIR" init -q -b wd-0045-example
+CWD_PAYLOAD="{\"tool_name\":\"Skill\",\"cwd\":\"$REPO_DIR\",\"tool_input\":{\"skill\":\"workflow-dev:validate\"}}"
+rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "no repo/story default → the question still comes first"
+printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+[[ -z "$OUT" ]] && ok "repo default → silent" || no "repo default → silent (got: $OUT)"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "opted-out" ]] && ok "repo default → --status opted-out" || no "repo default → --status opted-out (got: $OUT)"
+rm -f "$REPO_DIR/.workflow-dev/config.json"
+# A prose mention of the row must not count — only a Decisions table row does.
+printf 'The row `| date | Tiering: default model | Human |` is what silences it.\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "a story that only mentions the row does not opt out"
+printf '## Decisions\n| 2026-10-08 | Tiering: default model | Human |\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+[[ -z "$OUT" ]] && ok "story default on the story's branch → silent" || no "story default on the story's branch → silent (got: $OUT)"
+git -C "$REPO_DIR" checkout -q -b wd-0099-other
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"deny"' "$OUT" "story default does not carry to another story's branch"
 
 # --- WD-0042: no mode ever opts the user out on its own ---------------------
-# Unbound, every mode: the hook may read tiering.json but must never create it.
+# Unbound, every mode: the hook must never create a tiering file or a repo default.
 rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR/.claude/agents"
 for m in "" --expansion --message --status; do
   hook "$m" "$VALIDATE" >/dev/null
 done
-[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" ]] \
-  && ok "no mode writes the opt-out file" || no "a mode wrote ~/.workflow-dev/tiering.json"
-# The plain (advisory) text carries no dialog wording: OpenCode has no Yes/No.
+[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" ]] \
+  && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
+# The plain (advisory) text carries no agent instruction: OpenCode reads it as a notice.
 OUT="$(hook --message "$VALIDATE")"
 case "$OUT" in
-  *"Answering Yes"*) no "--message must not carry the dialog wording (got: $OUT)" ;;
-  *) ok "--message stays plain, without dialog wording" ;;
+  *"yourself, as the main agent"*|*"additionalContext"*) no "--message must stay the plain reminder (got: $OUT)" ;;
+  *) ok "--message stays the plain reminder, without the agent note" ;;
 esac
 
 echo
