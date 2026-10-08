@@ -332,6 +332,30 @@ assert_contains 'ghost-cheap' "$REP" "--story shows the bound model"
 assert_contains 'not a configured role' "$REP" "--story flags a config-vs-observed discrepancy"
 assert_contains 'setup-models' "$REP" "--story reminds how to change a role's model"
 
+# --- 6m-b: a bound wd-architect is a configured role, not a discrepancy (WD-0050)
+# Its spend shows as its own cub, and the discrepancy check reads the
+# configured roles from roles.md, so the new role needs no code of its own.
+printf -- '---\nname: wd-architect\ndescription: d\nmodel: ghost-strong\n---\nb\n<!-- workflow-dev:roles-hash %s -->\n' \
+  "$REPORT_HASH" > "$REPORT_HOME/.claude/agents/wd-architect.md"
+ARCH_SIDE="$TMP/arch-side.output"
+printf '%s\n' '{"type":"assistant","message":{"id":"as1","model":"m2","usage":{"input_tokens":4,"output_tokens":2,"cache_read_input_tokens":50,"cache_creation_input_tokens":0}}}' > "$ARCH_SIDE"
+ARCH_TX="$TMP/arch-main.jsonl"
+cat > "$ARCH_TX" <<JSONL
+{"type":"assistant","message":{"id":"am1","model":"m1","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":2}}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_a","name":"Agent","input":{"description":"Draft plan","subagent_type":"wd-architect"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_a","content":[{"type":"text","text":"output_file: $ARCH_SIDE"}]}]}}
+{"type":"cost-state","totalCostUSD":1.5,"modelUsage":{"m1":{"costUSD":1.0},"m2":{"costUSD":0.5}}}
+JSONL
+( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 \
+    bash "$SCRIPT" --snapshot WD-ARCH --stage plan "$ARCH_TX" >/dev/null 2>&1 )
+REP=$( cd "$LEDGER_PROJ" && HOME="$REPORT_HOME" CLAUDECODE=1 bash "$SCRIPT" --story WD-ARCH )
+assert_contains '    wd-architect: ' "$REP" "--story breaks spend down by the wd-architect cub"
+assert_contains 'wd-architect → ghost-strong (bound)' "$REP" "--story shows wd-architect's bound model"
+case "$REP" in
+  *'"wd-architect", which is not a configured role'*) no "a bound wd-architect is not flagged as unconfigured" ;;
+  *) ok "a bound wd-architect is not flagged as unconfigured" ;;
+esac
+
 # --- 6n: robustness — unpriced source, corrupt ledger, bad story id, resume --
 # A source with no price reports cost_usd null, never a fabricated 0 (AC 6).
 NULL_TX="$TMP/nullcost.jsonl"

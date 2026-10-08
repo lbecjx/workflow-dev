@@ -58,6 +58,40 @@ Break the work into ordered task groups. Each group is an atomic unit that:
 
 **Ordering principle:** dependencies first, tests last (or alongside).
 
+**Execution class.** Give every task group one of two classes:
+
+- `mechanical` — the change is fully specified: the file, the function, and the
+  pattern to follow are named, and nothing is left to decide.
+- `judgment` — the group still holds a decision, new logic, or wording to write.
+
+The class is recorded with the group (Steps 4 and 6). It tells the human, and a
+later per-group delegation of the implementation, which groups need judgment.
+
+**Who drafts it.** The decomposition runs in a sub-agent under the
+**`wd-architect`** role (`../setup-models/references/roles.md`) — name the role
+as the sub-agent's type, never a model. Its brief carries the content inline,
+never a command or a path for it to read on its own (the same rule as
+`validate`'s Step 3 — a re-read is paid twice):
+
+- the story file and REPO.md (Step 1);
+- `references/execution-principles.md` and `references/validation-awareness.md`;
+- the relevant source files Step 2 identified, or the parts of them that matter;
+- the task this step defines: ordered task groups in Step 4's format, each with
+  its execution class, and a line on anything the brief left unsettled.
+
+The sub-agent never asks the human anything: presenting the plan, the approval
+(Step 4), and the two one-time questions (Step 5) stay with you, the main agent,
+exactly as in a plan you drafted yourself — and so does every autonomous-mode
+rule below. Read its draft against the code you explored before you present it.
+
+Two fallbacks, and each one is said, never hidden:
+
+- The harness cannot select a model per sub-agent, or `wd-architect` is not
+  bound — its `model-tiering-check.sh --role-models` state is anything other
+  than `bound` → run the sub-agent on the default model and say so.
+- The sub-agent fails, or returns no usable plan → draft the plan yourself and
+  say so.
+
 ### Step 4: Present plan to human
 
 Show the proposed plan clearly:
@@ -65,17 +99,17 @@ Show the proposed plan clearly:
 ```
 Plan — [STORY-ID]:
 
-Task Group 1: <Title>
+Task Group 1: <Title>  [mechanical | judgment]
 - [ ] <specific task with file path>
 - [ ] <specific task with file path>
 Validates: AC #X
 
-Task Group 2: <Title>
+Task Group 2: <Title>  [mechanical | judgment]
 - [ ] <specific task>
 - [ ] <specific task>
 Validates: AC #Y
 
-Task Group 3: Tests
+Task Group 3: Tests  [mechanical | judgment]
 - [ ] <test for TG1 behavior>
 - [ ] <test for TG2 behavior>
 Validates: AC #Z
@@ -207,12 +241,14 @@ If human approves, write the plan as a new section in the story.md file:
 ## 5. Plan
 
 ### Task Group 1: <Title>
+**Execution class:** <mechanical | judgment>
 - [ ] <task>
 - [ ] <task>
 **Validates:** AC #X
 **After completion:** `/workflow-dev:validate` → fix → commit
 
 ### Task Group 2: <Title>
+**Execution class:** <mechanical | judgment>
 - [ ] <task>
 - [ ] <task>
 **Validates:** AC #Y
@@ -242,4 +278,6 @@ set; a skill's shell calls don't get it, so `cd -P "<this skill's directory>/../
 5. **Ordered by dependency** — if Task B needs Task A's output, A comes first.
 6. **Tests are explicit** — never assume tests will "just happen." Make them a task or a task group.
 7. **Commit boundaries** — each task group = one potential commit. Don't mix unrelated changes.
-8. **Validation mode and manual QA are decided once, up front** — both asked together right after plan approval (Step 5), never per task group, never re-asked, and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads the validation mode; `/workflow-dev:validate` reads the manual-QA choice; neither decides its own.
+8. **Every task group carries its execution class** — `mechanical` or `judgment` (Step 3). Never leave it out: a later delegation of the implementation reads it.
+9. **The drafting is delegated, the conversation is not** — a `wd-architect` sub-agent drafts the task groups from an inline brief; the main agent presents them, asks for approval, and asks Step 5's questions (Step 3).
+10. **Validation mode and manual QA are decided once, up front** — both asked together right after plan approval (Step 5), never per task group, never re-asked, and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads the validation mode; `/workflow-dev:validate` reads the manual-QA choice; neither decides its own.

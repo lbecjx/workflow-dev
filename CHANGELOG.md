@@ -14,6 +14,22 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.35.0
+
+- New agent role **`wd-architect`** (class `judge`): `init`'s research
+  sub-agents and the drafting of `plan`'s task groups run under it, so its model
+  can be bound on its own. `wd-judge` keeps `validate`'s judgment dimensions.
+- `plan` hands the drafting to a `wd-architect` sub-agent; you still see,
+  approve and answer the plan's questions in the main conversation. If the
+  sub-agent can't produce a plan, the main agent drafts it and says so.
+- Every task group in a plan carries an execution class, `mechanical` or
+  `judgment`.
+- `init` recommends a tier for the session's model once per story, without
+  asking.
+- Re-run `/workflow-dev:setup-models` once: the role registry changed, so the
+  roles read as incomplete until the new one is generated (your models are
+  kept).
+
 ## 1.34.0
 
 - OpenCode is no longer supported; workflow-dev is a Claude Code plugin only.
