@@ -18,8 +18,8 @@ then continue the skill.
 
 ## Ask the user
 
-Use the ask-question tool, in the user's language, with exactly these options in
-this order:
+Use the ask-question tool, worded per `user-language.md` (next to this file),
+with exactly these options in this order:
 
 1. **Configure the agents.** Run `/workflow-dev:setup-models` yourself, as the
    main agent and not as a sub-agent: it is interactive.

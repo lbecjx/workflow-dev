@@ -15,6 +15,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Save
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What this does
 
 Forces a review of everything that happened since the last context update, and persists what matters. It's a manual trigger for "save now" without the human having to specify exactly what.
@@ -203,4 +205,4 @@ is the checkpoint that most often survives a session that is later deleted.
 Full contract and how-to: see `../../ECOSYSTEM.md`.
 
 Rules:
-1. If Step 5 just wrote `Implementation Status: Done` or `Implementation Status: Won't Do`, the story source is a local `.md` file whose path matches `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part of the filename, e.g. `LB-0018`), and `local-backlog/.backlog-config.json` exists at the repo root, invoke `/local-backlog:update-status <CODE> "Done"`. Always infer the resolution from what the story's context shows happened — one of `Done`, `Won't Do`, `Duplicate`, `Cannot Reproduce`; `Implementation Status: Done` with its ACs complete is `Done`, and `Implementation Status: Won't Do` is `Won't Do` — not from wording in the story's own text. With a human present, ask which resolution applies, listing the inferred one first marked `(Recommended)` so they can accept it or pick another; running autonomously, use the inferred one and record it without asking. If the marker file doesn't exist, skip.
+1. If Step 5 just wrote `Implementation Status: Done` or `Implementation Status: Won't Do`, the story source is a local `.md` file whose path matches `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part of the filename, e.g. `LB-0018`), and `local-backlog/.backlog-config.json` exists at the repo root, invoke `/local-backlog:update-status <CODE> "Done"`. Always infer the resolution from what the story's context shows happened — one of `Done`, `Won't Do`, `Duplicate`, `Cannot Reproduce`; `Implementation Status: Done` with its ACs complete is `Done`, and `Implementation Status: Won't Do` is `Won't Do` — not from wording in the story's own text. With a human present, ask which resolution applies, listing the inferred one first marked `(Recommended)` so they can accept it or pick another — each resolution value stays as it is, and its description explains it in the user's language (`references/user-language.md`); running autonomously, use the inferred one and record it without asking. If the marker file doesn't exist, skip.

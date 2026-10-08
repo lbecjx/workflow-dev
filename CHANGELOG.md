@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.32.4
+
+- Questions and messages follow the language of the conversation, with short
+  option descriptions that say what each choice means to the user. One shared
+  rule, `references/user-language.md`, covers every skill. The run-mode question
+  in `init` now offers "Step by step" or "Autonomous" without internal details.
+
 ## 1.32.3
 
 - The model-tiering question no longer shows as an error. Claude Code prints any

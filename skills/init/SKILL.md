@@ -15,6 +15,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Init
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## What this does
 
 Creates two context files under `.workflow-dev/context/`:
@@ -169,15 +171,19 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
    Decisions already carries an `Autonomous mode: on|off` row, or when the human
    already said how to run ("ve autónomo" / "run this autonomously", or
    "paso a paso" / "step by step") — record that as the row and move on.
-   Otherwise ask the human (OpenCode `question`, Claude Code `AskUserQuestion`):
-   - **Question:** how should this story run?
-   - **Options:** `HITL — confirm each step (Recommended)` (the default; write
-     no row) / `Autonomous — run end-to-end, report at the end` (write
-     `| [date] | Autonomous mode: on | Human |` to Decisions, per
-     `references/autonomous-mode.md`).
+   Otherwise ask the human (OpenCode `question`, Claude Code `AskUserQuestion`),
+   worded per `references/user-language.md`:
+   - **Question:** how do you want to run this story?
+   - **Option 1:** `Step by step (Recommended)` — "I ask you before each step."
+   - **Option 2:** `Autonomous` — "I run the whole story and report at the end."
 
-   Never infer autonomous mode from silence: no answer means HITL. Ask once per
-   story; later skills read the row and do not re-ask.
+   What each answer writes: step by step is the default and writes no row;
+   autonomous writes `| [date] | Autonomous mode: on | Human |` to Decisions, per
+   `references/autonomous-mode.md`. Keep this out of the option text — it is the
+   agent's mechanics, not the user's choice.
+
+   Never infer autonomous mode from silence: no answer means step by step. Ask
+   once per story; later skills read the row and do not re-ask.
 
 ### Phase 7: Ask the human
 

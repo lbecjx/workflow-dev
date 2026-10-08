@@ -19,6 +19,8 @@ Executes the next task group from the story's plan section: loads every executio
 
 **Read every file under `references/` before executing** — they carry the rules this skill enforces.
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## When to use
 
 - The user says "implement", "execute", "go with the plan", "next task group"

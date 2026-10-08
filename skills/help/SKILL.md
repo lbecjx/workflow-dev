@@ -17,6 +17,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 Detects current project state and suggests the next step. Shows available skills and the overall workflow.
 
+**Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
+
 ## Execution
 
 ### Step 1: Detect project state

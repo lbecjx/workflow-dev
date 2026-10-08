@@ -43,7 +43,7 @@ Every entry here is an **example**. None of them is the name to hardcode.
 | find files by name | `glob` / `Glob` |
 | search file contents | `grep` / `Grep` |
 | spawn a sub-agent, naming its role as the type | `subagent` / `Agent` (also `Task`) |
-| ask the human a question | `question` / `AskUserQuestion` |
+| ask the human a question | `question` / `AskUserQuestion` — word it per `user-language.md` |
 | load a skill | `skill` / `Skill` |
 | call an MCP server's tool | `<server>.<tool>` (OpenCode) / `mcp__<server>__<tool>` (Claude Code) |
 | receive a lifecycle event | an OpenCode plugin / Claude Code's `hooks/hooks.json` (see `../hooks/README.md`) |
