@@ -44,15 +44,28 @@
 #   --transcripts <path,path,…> — sum these transcripts plus each one's
 #     side-chain sub-agents, for a story that spanned several sessions (the
 #     transcript path is the session's id).
-#   --snapshot <STORY-ID> --stage <stage> — normalize the current run and
-#     append a checkpoint to the story's durable ledger
+#   --snapshot <STORY-ID> --stage <stage> [--start] — normalize the current run
+#     and append a checkpoint to the story's durable ledger
 #     (.workflow-dev/context/.usage/<STORY-ID>.json). Prints the normalized
-#     object; the one-line tramo/acumulado summary goes to stderr.
-#   --story <STORY-ID> — total a story from its ledger ONLY (the source is
-#     never touched), across sessions, by stage/session/agent. Checkpoints an
-#     older version recorded from OpenCode still count, on a line of their own.
+#     object; the one-line tramo/acumulado summary goes to stderr. A story's
+#     cost is ONLY the spend of its workflow-dev skill runs: each skill records
+#     a start (`--start`, delta 0) when it begins and an end (no flag) when it
+#     finishes, and the end measures from its start, so chat between skills is
+#     never counted. An end with no open start before it is the legacy mode: it
+#     measures from the session's previous checkpoint. A start that never gets
+#     its end is an open run, which makes the total a lower bound (≥). Stages
+#     help, setup-models, usage and reconcile are refused (not part of a story).
+#     `--start` without `--snapshot` exits 2.
+#   --story <STORY-ID> [--final] — total a story from its ledger ONLY (the
+#     source is never touched), across sessions, by stage/session/agent.
+#     Checkpoints an older version recorded from OpenCode still count, on a
+#     line of their own. `--final` adds the closing cost report after it: one
+#     row per skill (runs, cost, ≈/≥), the validate row split by sub-agent, and
+#     a note that spend outside skill runs is not recorded. `--final` without
+#     `--story` exits 2. It is display only; the index is unchanged.
 #   --reconcile <STORY-ID> — append an exact `reconcile` checkpoint for each of
-#     the story's sessions whose last checkpoint was an estimate and whose
+#     the story's sessions whose last checkpoint was an estimate (never a
+#     start: a reconcile corrects only a finished run) and whose
 #     transcript now holds an exact cost-state (`--snapshot` does this too, for
 #     the story's other sessions). Rebuilds `.usage/.index.json`, the
 #     machine-readable summary for dashboards (references/usage-api.md).
@@ -93,23 +106,38 @@ TRANSCRIPT_ARG=""
 TRANSCRIPTS_ARG=""
 SNAPSHOT_STORY=""
 SNAPSHOT_STAGE=""
+SNAPSHOT_START=0
+STORY_FINAL=0
 STORY_ARG=""
 RECONCILE_STORY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --transcripts) TRANSCRIPTS_ARG="${2:-}"; shift 2 ;;
+    --transcripts|--snapshot|--stage|--story)
+      # A missing value (or a flag where the value belongs) is an error: with
+      # `shift 2` and one argument left, the loop never ended, and a flag taken
+      # as the value named a ledger `--start.json` (WD-0054).
+      if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+        echo "session-usage.sh: $1 needs a value" >&2
+        exit 2
+      fi
+      case "$1" in
+        --transcripts) TRANSCRIPTS_ARG="$2" ;;
+        --snapshot) SNAPSHOT_STORY="$2" ;;
+        --stage) SNAPSHOT_STAGE="$2" ;;
+        --story) STORY_ARG="$2" ;;
+      esac
+      shift 2 ;;
     --transcript)
       # The named form of the positional path. A missing value is an error,
       # never a silent fall-through to auto-resolution — that would record
       # whichever run resolves instead of the one the caller named.
-      if [[ $# -lt 2 || -z "$2" ]]; then
+      if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
         echo "session-usage.sh: --transcript needs a path" >&2
         exit 2
       fi
       TRANSCRIPT_ARG="$2"; shift 2 ;;
-    --snapshot) SNAPSHOT_STORY="${2:-}"; shift 2 ;;
-    --stage) SNAPSHOT_STAGE="${2:-}"; shift 2 ;;
-    --story) STORY_ARG="${2:-}"; shift 2 ;;
+    --start) SNAPSHOT_START=1; shift ;;
+    --final) STORY_FINAL=1; shift ;;
     --reconcile)
       if [[ $# -lt 2 || -z "$2" ]]; then
         echo "session-usage.sh: --reconcile needs a story id" >&2
@@ -119,6 +147,16 @@ while [[ $# -gt 0 ]]; do
     *) TRANSCRIPT_ARG="$1"; shift ;;
   esac
 done
+# `--start` only means something for a checkpoint; anywhere else it would be
+# ignored silently, and the caller would believe a run was opened.
+if [[ "$SNAPSHOT_START" -eq 1 && -z "$SNAPSHOT_STORY" ]]; then
+  echo "session-usage.sh: --start needs --snapshot <STORY-ID>" >&2
+  exit 2
+fi
+if [[ "$STORY_FINAL" -eq 1 && -z "$STORY_ARG" ]]; then
+  echo "session-usage.sh: --final needs --story <STORY-ID>" >&2
+  exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Claude Code: transcript (+ per-agent side-chain files)
@@ -216,7 +254,13 @@ AGG='
           cr:     ([ .[].message.usage.cache_read_input_tokens // 0 ]     | add // 0),
           cc:     ([ .[].message.usage.cache_creation_input_tokens // 0 ] | add // 0),
           cost:   ( [ .[] | select(ntok > 0) | msgcost ] as $cs
-                    | if any($cs[]; . == null) then null else ($cs | add // 0) end )
+                    | if any($cs[]; . == null) then null else ($cs | add // 0) end ),
+          # The priced messages alone, and how many had no price: the ledger
+          # prices a run from the change in pcost while nunpriced stays put,
+          # so one unpriced message does not leave every later run unknown.
+          pcost:  ( [ .[] | select(ntok > 0) | msgcost | numbers ] | add // 0 ),
+          nunpriced: ( [ .[] | select(ntok > 0) | select(msgcost == null) ] | length ),
+          utok: ( [ .[] | select(ntok > 0) | select(msgcost == null) | ntok ] | add // 0 )
         }))
     }'
 
@@ -596,9 +640,12 @@ snapshot_claude() {
                 reasoning: 0, cache_read: (map(.cr)|add // 0), cache_write: (map(.cc)|add // 0) } } })
           | from_entries ) as $tok
         | ( $tail | group_by(.model) | map({ key: .[0].model, value: (map(.cost) | sumnull) }) | from_entries ) as $tc
+        | ( $all | group_by(.model) | map({ key: .[0].model,
+              value: { p: (map(.pcost // 0) | add // 0), n: (map(.nunpriced // 0) | add // 0), u: (map(.utok // 0) | add // 0) } }) | from_entries ) as $pc
         | reduce (($tok + $tc) | keys[]) as $k ({};
             .[$k] = { tokens: ($tok[$k].tokens // {input:0,output:0,reasoning:0,cache_read:0,cache_write:0}),
-                      tail: (if $tc | has($k) then $tc[$k] else 0 end) } )'
+                      tail: (if $tc | has($k) then $tc[$k] else 0 end),
+                      priced: ($pc[$k].p // 0), unpriced: ($pc[$k].n // 0), utok: ($pc[$k].u // 0) } )'
   )
   [[ -n "$bymodel" ]] || bymodel='{}'
 
@@ -606,7 +653,11 @@ snapshot_claude() {
   # cost-state's figure (0 without one) plus the tail's estimate. A model seen
   # only in cost-state (a call outside the transcript) keeps that figure.
   models=$(jq -n --argjson mu "$mu" --argjson bm "$bymodel" --arg basis "$basis" '
-    ( $bm | with_entries(.key as $k | .value = { tokens: .value.tokens,
+    # `priced_usd`: the price-table cost of this model priced messages (fast
+    # mode and the cache-write TTL included); `unpriced_msgs`: how many had no
+    # price, and their tokens. The ledger prices a run as the change in
+    # priced_usd while no unpriced message was added or grew (WD-0054).
+    ( $bm | with_entries(.key as $k | .value = { tokens: .value.tokens, priced_usd: .value.priced, unpriced_msgs: .value.unpriced, unpriced_tokens: .value.utok,
           cost_usd: (if $basis == "cost-state" then ($mu[$k].costUSD // null)
                      elif .value.tail == null then null
                      else (($mu[$k].costUSD // 0) + .value.tail) end) }) )
@@ -629,7 +680,7 @@ snapshot_claude() {
   # An up-to-date cost-state is checked against the main thread only; a
   # background sub-agent still writing after it is spend the figure lacks.
   # The cost stays exact for what it covers, but the checkpoint is marked
-  # `pending_sidechain` — never verified, and reconciled later (WD-0049).
+  # `pending_sidechain` — never treated as exact, and reconciled later (WD-0049).
   local pending=false
   if [[ "$basis" == "cost-state" ]] && printf '%s\n' "$rows" | awk -F'\t' '$1 != "" && $3 != "null" && $3 != "none" { print $3 }' \
        | jq -s -e '[ .[][] | (.input + .output + .cr + .cc) ] | add // 0 | . > 0' >/dev/null 2>&1; then
@@ -715,7 +766,84 @@ snapshot_claude() {
 # of the deltas — computed from the ledger, never from a source that may be
 # gone. The previous checkpoint IS the "before", so nothing has to be
 # remembered between reads, and pairing is by `source`, not by run.
+#
+# What a story costs (WD-0054): ONLY the spend of the workflow-dev skill runs
+# made for it. Each skill takes a START checkpoint (`--start`) when it begins
+# and an END checkpoint when it finishes, in the same session. A start records
+# a zero delta, so the end that follows it measures exactly that run (end minus
+# start), and whatever happened before the start (chat between skills, another
+# story in the same session) belongs to no story. A run is exact only when both
+# readings are Claude Code exact figures; otherwise it is priced from the table
+# for the tokens spent between them, because exact minus estimate would put the
+# start estimate error into the run (it went below zero). A run of another
+# story nested inside a run (same session) is taken out of it with the same
+# yardstick, so it is counted once and nothing goes below zero. A skill that
+# wrongly takes a start inside a run of its own story turns the outer run into
+# a visible gap, never a double count.
+#
+# Entry fields: `kind` (`start` | `end`; an entry with no `kind` was written
+# before WD-0054 and is an end) and `run` (an integer the script assigns, never
+# taken from input). An end with no open start before it is the legacy mode:
+# its delta is against the previous checkpoint of the session, as before.
+#
+# A start that never gets its end (the session died, the skill was cut short)
+# is a gap: it is never filled in, because nothing tells "died mid-skill" from
+# "opened and then talked about something else". A gap makes the story total a
+# lower bound and is counted as an open run. A start is a gap when another start
+# follows it in its source, or when it is the last entry of a source that is
+# neither this call's transcript nor written in the last 15 minutes (the same
+# freshness rule `resolve_claude` uses); otherwise the run is still in progress.
 USAGE_DIR="$PROJECT_BASE/.workflow-dev/context/.usage"
+
+# One definition of an open run, used by the checkpoint line, the index and
+# `--story` alike, so the three never disagree. Input: a checkpoints array.
+# `$live` holds (as keys) the sources still being written: a start is in
+# progress while it is the last entry of its source in its own ledger and its
+# session is live. Later work of ANOTHER story in that session does not make
+# it a gap: a run waiting on the human while another story skill runs looks
+# exactly the same. No apostrophes in these comments: the program is a
+# single-quoted shell string.
+OPEN_RUNS_JQ='
+  def open_starts($live):
+    [ group_by(.source)[] | . as $g
+      | range(0; $g | length) as $i
+      | select(($g[$i].kind // "end") == "start")
+      | ($i == ($g | length) - 1) as $last
+      | select(($last and ($live | has($g[$i].source))) | not)
+      | select($last or (($g[$i + 1].kind // "end") == "start"))
+      | $g[$i] ];
+  def open_runs($live): open_starts($live) | length;'
+
+# The sessions still being written, as a JSON object keyed by source (feeds
+# `open_runs`; the values are not used). A
+# session is live when it is the transcript of this call ($1, may be empty) or
+# was modified in the last 15 minutes. Only sources that hold a start are
+# probed, so the cost does not grow with every session the project ever had.
+# A source is probed only as an absolute path: it comes from a ledger, which a
+# tracked `.workflow-dev/` can carry in from a clone, and a name such as
+# `-delete` handed to `find` would be read as an expression (GNU find runs it).
+live_sources() { # $1 current source
+  local cur="$1" src heads
+  local files=()
+  for src in "$USAGE_DIR"/*.json; do
+    local b="${src##*/}"
+    [[ -f "$src" ]] && valid_story_id "${b%.json}" && files+=("$src")
+  done
+  [[ ${#files[@]} -gt 0 ]] || { printf '{}'; return 0; }
+  heads=$(jq -s -c '[ .[] | (.checkpoints // [])[]? | select(type == "object" and (.source | type) == "string") ]
+      | group_by(.source)
+      | map(select(any(.[]; (.kind // "end") == "start"))
+            | { key: .[0].source,
+                value: (map((.tokens.input // 0) + (.tokens.output // 0) + (.tokens.cache_read // 0) + (.tokens.cache_write // 0)) | max) })
+      | from_entries' "${files[@]}" 2>/dev/null)
+  [[ -n "$heads" ]] || { printf '{}'; return 0; }
+  jq -r 'keys[]' <<< "$heads" | while IFS= read -r src; do
+    [[ "$src" == /* ]] || continue
+    if [[ "$src" == "$cur" ]] || { [[ -f "$src" ]] && [[ -z "$(find "$src" -mmin +15 2>/dev/null)" ]]; }; then
+      printf '%s\n' "$src"
+    fi
+  done | jq -R . | jq -sc --argjson h "$heads" 'map({ key: ., value: $h[.] }) | from_entries'
+}
 
 # A story id names a file under `.usage/`, so it must not carry a path
 # separator or be `.`/`..` — otherwise `--snapshot`/`--story` could read or write
@@ -724,8 +852,10 @@ USAGE_DIR="$PROJECT_BASE/.workflow-dev/context/.usage"
 valid_story_id() {
   # A leading dot is refused too: `.index.json` (the dashboard API, below)
   # shares the directory and must never be read or written as a story.
+  # A leading dash is refused too: it is a flag mistaken for a value
+  # (`--snapshot --start`), never a story id.
   case "$1" in
-    ""|.*|*/*) return 1 ;;
+    ""|.*|-*|*/*) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -735,8 +865,10 @@ valid_story_id() {
 # accumulated total is never corrupted, and an unpriced checkpoint never moves
 # the priced baseline (so priced→unpriced→priced does not double-count). Prints
 # a one-line human summary to stderr; stdout stays free for the caller's output.
+# $4 is the kind (`start` | `end`, default end) and $5 the sources still being
+# written (JSON array, for the open-run count; default: only this snapshot).
 ledger_record() {
-  local story="$1" stage="$2" snap="$3"
+  local story="$1" stage="$2" snap="$3" kind="${4:-end}" live="${5:-}"
   if ! valid_story_id "$story"; then
     printf 'usage: refusing an invalid story id %q (must be a bare name)\n' "$story" >&2
     return 1
@@ -774,16 +906,106 @@ ledger_record() {
 
   local entry mark
   mark=$(printf '%s' "$snap" | jq -r '[.cost_usd, .tokens.input, .tokens.output, .tokens.reasoning, .tokens.cache_read, .tokens.cache_write] | @csv' | shasum | cut -c1-12)
-  entry=$(printf '%s' "$snap" | jq -c --arg stage "$stage" --arg mark "$mark" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '. + { stage: $stage, run_marker: $mark, recorded_at: $at }')
+  entry=$(printf '%s' "$snap" | jq -c --arg stage "$stage" --arg mark "$mark" --arg kind "$kind" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '. + { stage: $stage, kind: $kind, run_marker: $mark, recorded_at: $at }')
+  [[ -n "$live" ]] || live='{}'
+
+  # The same session's checkpoints in every OTHER story ledger: a run of
+  # another story nested inside this one is taken out of it (see `nested`).
+  # One jq call over every ledger, so a checkpoint does not fork twice per
+  # story the project ever had.
+  local others of src_now
+  local ofiles=()
+  for of in "$USAGE_DIR"/*.json; do
+    local b="${of##*/}"
+    [[ -f "$of" && "$of" != "$file" ]] && valid_story_id "${b%.json}" && ofiles+=("$of")
+  done
+  src_now=$(printf '%s' "$snap" | jq -r '.source')
+  others='[]'
+  if [[ ${#ofiles[@]} -gt 0 ]]; then
+    others=$(jq -c --arg s "$src_now" '
+        (input_filename | split("/") | last | sub("\\.json$"; "")) as $id
+        | [ (.checkpoints // [])[]? | select(type == "object" and .source == $s)
+            | { story: $id, kind: (.kind // "end"), run, delta, recorded_at, cost_usd, cost_basis,
+                pending_sidechain, models, agents,
+                tt: ((.tokens.input // 0) + (.tokens.output // 0) + (.tokens.cache_read // 0) + (.tokens.cache_write // 0)) } ]' \
+        "${ofiles[@]}" 2>/dev/null | jq -sc 'add // []' 2>/dev/null)
+  fi
+  [[ -n "$others" ]] || others='[]'
 
   local result
-  result=$(jq -n --argjson doc "$existing" --argjson e "$entry" --arg story "$story" '
+  result=$(jq -n --argjson doc "$existing" --argjson e "$entry" --arg story "$story" --argjson others "$others" \
+      --argjson prices "$PRICES_JSON" '
     def cps: ($doc.checkpoints // []);
+    def tt: ((.tokens.input // 0) + (.tokens.output // 0) + (.tokens.cache_read // 0) + (.tokens.cache_write // 0));
+    # A reading Claude Code itself priced, whole: a cost-state with no
+    # sub-agent still writing after it.
+    def exactck: .cost_basis == "cost-state" and (.pending_sidechain // false) == false and .cost_usd != null;
+    def zt: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 };
+    # The price-table cost of the tokens spent between two readings of one
+    # session, model by model (main thread plus side-chains): the same
+    # yardstick at both ends, so the difference is that interval alone
+    # (WD-0054). A model whose tokens did not move costs 0 even with no
+    # price, so one unpriced message early in a session does not leave every
+    # later run unknown. The snapshot priced_usd (fast mode and the cache-write
+    # TTL included) is used when both readings carry it; a reading recorded
+    # before it existed falls back to tokens times the rate, cache writes at
+    # the 1-hour rate Claude Code writes. A token count that fell (a reset)
+    # makes it unknown.
+    def rate($m): ($prices.models // {}) as $t | ($t[$m] // $t[($m | sub("-[0-9]{8}$"; ""))]);
+    def priced_between($a; $b):
+      ($a.models // {}) as $am | ($b.models // {}) as $bm
+      | [ $am | keys[] as $k
+          | ($am[$k].tokens // zt) as $t | ($bm[$k].tokens // zt) as $u
+          | { i: (($t.input // 0) - ($u.input // 0)), o: (($t.output // 0) - ($u.output // 0)),
+              r: (($t.cache_read // 0) - ($u.cache_read // 0)), w: (($t.cache_write // 0) - ($u.cache_write // 0)) } as $d
+          | if $d.i == 0 and $d.o == 0 and $d.r == 0 and $d.w == 0 then 0
+            elif $d.i < 0 or $d.o < 0 or $d.r < 0 or $d.w < 0 then null
+            elif ($am[$k] | has("priced_usd")) and ($bm[$k] == null or ($bm[$k] | has("priced_usd"))) then
+              # An unpriced message added (or grown) in between is spend the
+              # table cannot price: unknown, never priced at a standard rate.
+              ( if (($am[$k].unpriced_msgs // 0) != ($bm[$k].unpriced_msgs // 0))
+                   or (($am[$k].unpriced_tokens // 0) != ($bm[$k].unpriced_tokens // 0)) then null
+                else ( $am[$k].priced_usd as $x | ($bm[$k].priced_usd // 0) as $y
+                       | if $x == null or ($bm[$k] != null and $bm[$k].priced_usd == null) then null else $x - $y end ) end )
+            else rate($k) as $p
+              | if $p == null then null
+                else ($d.i * $p.input + $d.o * $p.output + $d.r * $p.cache_read + $d.w * $p.cache_write_1h) / 1000000 end end ]
+      | if any(.[]; . == null) then null else (add // 0) end;
+    def tdiff($a; $b): { input: ($a.input - $b.input), output: ($a.output - $b.output),
+                         reasoning: ($a.reasoning - $b.reasoning), cache_read: ($a.cache_read - $b.cache_read),
+                         cache_write: ($a.cache_write - $b.cache_write) };
+    # Runs of OTHER stories nested inside the interval ($lo, $hi] of this
+    # source, one {s: start, l: its last end inside} per run, counted only when
+    # the start also lies inside it and was recorded after this run began
+    # ($at; a token reset can bring an older run back into the token range).
+    # Their spend is theirs, so it is taken out of this run; otherwise a story
+    # whose skill ran inside another story run would be counted twice. Partial
+    # overlaps (a nested run that outlives this one) are not handled: one
+    # conversation runs skills one after another (WD-0054).
+    def nested($lo; $hi; $at):
+      [ $others[] | select(.kind == "start" and .tt >= $lo and .tt <= $hi and (.recorded_at // "") >= $at) ] as $os
+      | [ $os[] as $s
+          | [ $others[] | select(.story == $s.story and .run == $s.run and .kind != "start" and .tt > $lo and .tt <= $hi) ] as $l
+          | select(($l | length) > 0) | { s: $s, l: ($l | last) } ]
+      # Only the outermost: a run nested inside another nested run is already
+      # inside that one figure, and taking it out again would count it twice.
+      | . as $all
+      | [ $all[] | . as $x
+          | select(any($all[]; . != $x and .s.tt <= $x.s.tt and $x.l.tt <= .l.tt
+                     and (.s.tt < $x.s.tt or $x.l.tt < .l.tt or (.s.recorded_at // "") < ($x.s.recorded_at // "")
+                          # Same interval, same second: any stable order keeps exactly one.
+                          or ((.s.recorded_at // "") == ($x.s.recorded_at // "")
+                              and ("\(.s.story)#\(.s.run)") < ("\($x.s.story)#\($x.s.run)")))) | not) ];
+    # What the nested runs cost, priced like a priced run (the same yardstick
+    # as this run, so the difference never goes below zero), or exactly (null
+    # unless every nested run is exact at both ends).
+    def npriced($n): [ $n[] | priced_between(.l; .s) ] | if any(.[]; . == null) then null else (add // 0) end;
+    def nexact($n): [ $n[] | if (.s | exactck) and (.l | exactck) then (.l.cost_usd - .s.cost_usd) else null end ]
+      | if any(.[]; . == null) then null else (add // 0) end;
+    def nagent($n; $k): [ $n[] | ((.l.agents[$k].cost_usd? // 0) - (.s.agents[$k].cost_usd? // 0)) | numbers ] | add // 0;
     ( cps | map(select(.source == $e.source)) ) as $same
-    | ( cps | map(select(.source == $e.source)) | last ) as $prev
-    # The last checkpoint of this source that CARRIED a price (any segment) —
-    # used only to detect a falling price.
+    | ( $same | last ) as $prev
     # Only an EXACT reading can reveal a falling price: the cost itself, or —
     # for an estimate built on a stale cost-state — that cost-state. A whole-
     # run estimate has none. An estimate in between must neither fake a fall
@@ -794,10 +1016,28 @@ ledger_record() {
     # checkpoint of this source — NOT a match anywhere in history: a reset can
     # land on a byte-identical tuple of an older checkpoint, and matching it
     # there would silently swallow the reset instead of opening a new segment.
+    # The kind is part of it: a start taken right after an end, with nothing
+    # spent in between, has the same marker and must still be recorded.
     | ( if $prev != null and $prev.stage == $e.stage and $prev.run_marker == $e.run_marker
+           and ($prev.kind // "end") == $e.kind
         then $prev else null end ) as $dupe
+    | (($prev.kind // "end") == "start") as $afterstart
+    # The start of the run the previous entry belongs to, if that run opened
+    # with one; and the last entry that was not a reconcile (a reconcile in
+    # the middle of a run must not end it).
+    | ( if $prev == null or $prev.run == null then null
+        else ( [ cps[] | select(.run == $prev.run and (.kind // "end") == "start") ] | first ) end ) as $rstart
+    | ( [ $same[] | select(.stage != "reconcile") ] | last ) as $pw
+    | ( $e.kind != "start" and $e.stage != "reconcile" and ($afterstart | not) and $rstart != null
+        and $pw != null and ($pw.kind // "end") != "start" and $pw.stage == $e.stage ) as $cont
     | if $dupe != null then
         { action: "duplicate", doc: $doc, entry: $dupe }
+      elif $e.stage == "reconcile" and $afterstart then
+        # A reconcile corrects the end of a finished run; a start is not one.
+        { action: "refused", doc: $doc, entry: $e }
+      elif $e.stage == "reconcile" and $rstart != null and (($rstart | exactck) | not) then
+        # A run whose start was an estimate has no exact figure to settle on.
+        { action: "unsettled", doc: $doc, entry: $e }
       else
         # A falling token counter is itself an unambiguous reset, even when the
         # source carries no price — otherwise the token delta goes negative.
@@ -816,48 +1056,92 @@ ledger_record() {
         | ( if $reset then (($prev.segment // 0) + 1)
             elif $prev == null then 1
             else ($prev.segment // 1) end ) as $segment
-        # The delta baseline is the last priced checkpoint WITHIN THE CURRENT
-        # SEGMENT: a resume after an unpriced checkpoint continues the segment
-        # (so the delta is real), but a resume after a reset starts a new one
-        # with no baseline (so the delta is the whole `abs`, not a delta across
-        # the reset).
+        # The three ways a checkpoint is measured.
+        #  run       — an end that closes a start, or continues a run that
+        #              opened with one: from the previous entry of the run.
+        #              Exact when both readings are exact; otherwise priced
+        #              from the table at both ends (never exact minus
+        #              estimate: the start estimate error would land in the
+        #              run, even below zero). Nested runs of other stories are
+        #              taken out.
+        #  settle    — a reconcile of a run that started exact: the exact run
+        #              cost (end minus start, minus nested runs) less what the
+        #              run already recorded.
+        #  legacy    — anything else (an end with no start, a ledger from
+        #              before WD-0054): from the last priced checkpoint of the
+        #              segment, as it always was.
+        | ( if $e.kind == "start" then "start"
+            elif $reset then "legacy"
+            elif $e.stage == "reconcile" and $rstart != null then "settle"
+            elif $afterstart or $cont then "run"
+            else "legacy" end ) as $mode
         | ( $same | map(select(.cost_usd != null and (.segment // 1) == $segment)) | last ) as $prevp
-        | ( if $e.cost_usd == null then null
-            elif $prevp == null then $e.cost_usd
-            else ($e.cost_usd - $prevp.cost_usd) end ) as $delta
+        | ( ($rstart.recorded_at // "") ) as $runat
+        | ( if $mode == "run" then nested($prev | tt; $e | tt; $runat)
+            elif $mode == "settle" then nested($rstart | tt; $e | tt; $runat)
+            else [] end ) as $nest
+        | ( if $mode == "start" then { d: 0, b: "start" }
+            elif $mode == "run" then
+              # Exact only when both readings are exact and no other story ran
+              # inside; with a nested run both sides are priced, so the part
+              # taken out is measured with the same yardstick.
+              ( if ($e | exactck) and ($prev | exactck) and (nexact($nest) != null) then
+                  { d: ($e.cost_usd - $prev.cost_usd - nexact($nest)), b: "exact" }
+                else ( priced_between($e; $prev) as $a | npriced($nest) as $n
+                       | { d: (if $a == null or $n == null then null else $a - $n end), b: "priced" } ) end )
+            elif $mode == "settle" then
+              ( nexact($nest) as $n
+                | if $n == null then { d: null, b: "unsettled-nested" }
+                  else { d: ($e.cost_usd - $rstart.cost_usd - $n
+                             - ([ cps[] | select(.run == $rstart.run) | .delta | numbers ] | add // 0)),
+                         b: "exact", settles: true } end )
+            elif $e.cost_usd == null then { d: null, b: "legacy" }
+            elif $prevp == null then { d: $e.cost_usd, b: "legacy" }
+            else { d: ($e.cost_usd - $prevp.cost_usd), b: "legacy" } end ) as $m
         # Token deltas use the immediately preceding checkpoint (tokens exist
         # whether or not the source is priced). They restart only when the
         # tokens themselves fell — a cost-only reset (AC 8) must not inflate
         # the token total.
-        | ( if $prev == null or $treset then $e.tokens
-            else { input: ($e.tokens.input - $prev.tokens.input),
-                   output: ($e.tokens.output - $prev.tokens.output),
-                   reasoning: ($e.tokens.reasoning - $prev.tokens.reasoning),
-                   cache_read: ($e.tokens.cache_read - $prev.tokens.cache_read),
-                   cache_write: ($e.tokens.cache_write - $prev.tokens.cache_write) } end ) as $td
+        | ( if $mode == "start" then zt
+            elif $prev == null or $treset then $e.tokens
+            else tdiff($e.tokens; $prev.tokens) end ) as $td
         | ( $e.agents // {} ) as $ag
-        | ( if $prevp == null then {} else ($prevp.agents // {}) end ) as $pcost
+        | ( if $mode == "run" or $mode == "settle" then ($prev.agents // {})
+            elif $prevp == null then {} else ($prevp.agents // {}) end ) as $pcost
         | ( if $treset or $prev == null then {} else ($prev.agents // {}) end ) as $ptok
         | ( reduce ($ag | keys[]) as $k ({};
               ($ag[$k]) as $cur
               | ($pcost[$k] // null) as $oc
               | ($ptok[$k] // null) as $ot
               | .[$k] = {
-                  cost_usd: ( if $cur.cost_usd == null then null
-                              elif ($oc == null or $oc.cost_usd == null) then $cur.cost_usd
-                              else ($cur.cost_usd - $oc.cost_usd) end ),
-                  tokens: ( if $ot == null then $cur.tokens
-                            else { input: ($cur.tokens.input - $ot.tokens.input),
-                                   output: ($cur.tokens.output - $ot.tokens.output),
-                                   reasoning: ($cur.tokens.reasoning - $ot.tokens.reasoning),
-                                   cache_read: ($cur.tokens.cache_read - $ot.tokens.cache_read),
-                                   cache_write: ($cur.tokens.cache_write - $ot.tokens.cache_write) } end ),
+                  cost_usd: ( if $mode == "start" or $mode == "settle" then 0
+                              elif $cur.cost_usd == null then null
+                              elif $mode == "run" and $oc != null and $oc.cost_usd == null then null
+                              elif ($oc == null or $oc.cost_usd == null) then $cur.cost_usd - nagent($nest; $k)
+                              else ($cur.cost_usd - $oc.cost_usd - nagent($nest; $k)) end ),
+                  tokens: ( if $mode == "start" then zt
+                            elif $ot == null then $cur.tokens
+                            else tdiff($cur.tokens; $ot.tokens) end ),
                   models: ($cur.models // []) }
               + (if $cur.output_partial == true then { output_partial: true } else {} end) ) ) as $ad
-        | ( $e + { segment: $segment, delta: $delta, token_delta: $td, agent_deltas: $ad } ) as $new
-        | { action: "appended",
-            doc: ($doc + { story: $story, checkpoints: (cps + [$new]) }),
-            entry: $new }
+        # The run: a start opens a new one; an end closes the start before it,
+        # or continues a run that opened with a start (implement records one
+        # end per task group, and a reconcile in between does not end it); a
+        # reconcile belongs to the run it corrects; any other end is a run of
+        # its own (the legacy mode).
+        | ( [ cps[].run // 0 ] | max // 0 ) as $maxrun
+        | ( if $e.kind == "start" then $maxrun + 1
+            elif $afterstart then $prev.run
+            elif $e.stage == "reconcile" and $prev != null then $prev.run
+            elif $cont then $prev.run
+            else $maxrun + 1 end ) as $run
+        | ( $e + { run: $run, segment: $segment, delta: $m.d, delta_basis: $m.b, token_delta: $td, agent_deltas: $ad }
+            + (if $m.settles == true then { settles: true } else {} end)
+            + (if ($nest | length) > 0 then { nested_usd: ($nest | if $m.b == "exact" then nexact(.) else npriced(.) end) } else {} end) ) as $new
+        | if $m.b == "unsettled-nested" then { action: "unsettled-nested", doc: $doc, entry: $e }
+          else { action: "appended",
+                 doc: ($doc + { story: $story, checkpoints: (cps + [$new]) }),
+                 entry: $new } end
       end')
   # A failed computation must be loud: with no check, an error here (a jq
   # failure on an unexpected snapshot shape) wrote nothing, printed a corrupt
@@ -871,6 +1155,20 @@ ledger_record() {
   local action doc
   action=$(printf '%s' "$result" | jq -r '.action')
   doc=$(printf '%s' "$result" | jq -c '.doc')
+  if [[ "$action" == "refused" ]]; then
+    printf 'usage: the last checkpoint of this session is a start — a reconcile corrects only a finished run; checkpoint NOT recorded\n' >&2
+    return 1
+  fi
+  # Not a failure: there is just no exact figure for this run. The wording
+  # "cannot be settled exactly" is what reconcile_story keeps quiet about.
+  if [[ "$action" == "unsettled" ]]; then
+    printf 'usage: this run started from an estimate, so it cannot be settled exactly; checkpoint NOT recorded\n' >&2
+    return 1
+  fi
+  if [[ "$action" == "unsettled-nested" ]]; then
+    printf 'usage: a run of another story inside this one is an estimate, so it cannot be settled exactly; checkpoint NOT recorded\n' >&2
+    return 1
+  fi
   if [[ "$action" == "appended" ]]; then
     local tmp=""
     if ! tmp=$(mktemp "$USAGE_DIR/.$story.XXXXXX") || ! printf '%s' "$doc" | jq '.' > "$tmp" || ! mv "$tmp" "$file"; then
@@ -881,21 +1179,31 @@ ledger_record() {
     chmod 600 "$file" 2>/dev/null
   fi
 
-  local tramo total nst unpriced estimated basis
+  # Counts are of ends only: a start is bookkeeping, not a measured step.
+  local tramo total nst unpriced estimated basis openr
   tramo=$(printf '%s' "$result" | jq -r '.entry.delta // "?"')
-  basis=$(printf '%s' "$result" | jq -r '.entry.cost_basis // ""')
-  estimated=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select(.cost_basis == "estimated")] | length')
+  # A run priced from the table is an estimate even when its end is exact.
+  basis=$(printf '%s' "$result" | jq -r 'if .entry.delta_basis == "priced" then "estimated" else (.entry.cost_basis // "") end')
+  estimated=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start" and (.cost_basis == "estimated" or .delta_basis == "priced"))] | length')
   total=$(printf '%s' "$doc" | jq -r '[.checkpoints[].delta | select(type=="number")] | add // 0')
-  nst=$(( $(printf '%s' "$doc" | jq -r '.checkpoints | length') ))
-  unpriced=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select(.cost_usd == null)] | length')
+  nst=$(( $(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start")] | length') ))
+  unpriced=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start" and .cost_usd == null)] | length')
+  openr=$(printf '%s' "$doc" | jq -r --argjson live "$live" "$OPEN_RUNS_JQ"' .checkpoints // [] | open_runs($live)' 2>/dev/null)
+  [[ "$openr" =~ ^[0-9]+$ ]] || openr=0
 
-  local atom accum
+  local atom accum gap=""
   atom=$([[ "$tramo" == "?" ]] && printf 'unknown' || awk -v t="$tramo" 'BEGIN{printf "$%.4f", t}')
   [[ "$tramo" == "?" || "$basis" != "estimated" ]] || atom="≈$atom (estimated)"
   [[ "$(printf '%s' "$result" | jq -r '.entry.output_partial // false')" != "true" ]] || atom="$atom, a lower bound"
   accum=$(awk -v t="$total" 'BEGIN{printf "$%.4f", t}')
-  printf 'usage %s · stage %s · this step %s · story total %s over %s checkpoint(s), %s without price, %s estimated\n' \
-    "$story" "$stage" "$atom" "$accum" "$nst" "$unpriced" "$estimated" >&2
+  [[ "$openr" -eq 0 ]] || gap=", $openr open run(s): the total is a lower bound (≥)"
+  if [[ "$kind" == "start" ]]; then
+    printf 'usage %s · stage %s · run started · story total %s over %s checkpoint(s)%s\n' \
+      "$story" "$stage" "$accum" "$nst" "$gap" >&2
+  else
+    printf 'usage %s · stage %s · this step %s · story total %s over %s checkpoint(s), %s without price, %s estimated%s\n' \
+      "$story" "$stage" "$atom" "$accum" "$nst" "$unpriced" "$estimated" "$gap" >&2
+  fi
 }
 
 # Reconcile (WD-0049): a checkpoint taken mid-session is often an estimate,
@@ -913,7 +1221,11 @@ ledger_record() {
 # notification repairs a sub-agent's output). Otherwise the exact figure also
 # holds whatever the session did next, perhaps for another story, and moving
 # it here would count it twice (WD-0049). Then the estimate simply stays.
-reconcile_story() { # $1 story, $2 source to skip (may be empty)
+#
+# A session whose last checkpoint is a start is skipped: a reconcile corrects
+# the end of a finished run, and the run after that start is still open or a
+# gap (WD-0054). `ledger_record` refuses it too.
+reconcile_story() { # $1 story, $2 source to skip (may be empty), $3 live sources (JSON, may be empty)
   local file="$USAGE_DIR/$1.json" src last snap err
   valid_story_id "$1" && [[ -f "$file" ]] || return 0
   while IFS= read -r src; do
@@ -927,12 +1239,19 @@ reconcile_story() { # $1 story, $2 source to skip (may be empty)
       ($p.agents.orchestrator.tokens // $p.tokens) as $a | ($n.agents.orchestrator.tokens // $n.tokens) as $b
       | $p.as_of == $n.as_of
         and $a.input == $b.input and $a.cache_read == $b.cache_read and $a.cache_write == $b.cache_write' >/dev/null 2>&1 || continue
-    if ! err=$(ledger_record "$1" reconcile "$snap" 2>&1); then
+    if ! err=$(ledger_record "$1" reconcile "$snap" end "${3:-}" 2>&1); then
+      # A run with no exact figure to settle on is the normal state of an
+      # estimate, not news on every later snapshot.
+      [[ "$err" == *"cannot be settled exactly"* ]] && continue
       printf 'usage: %s — reconcile of %s skipped: %s\n' "$1" "$(basename -- "$src")" "${err#usage: }" >&2
     else
       printf '%s\n' "$err" >&2
     fi
-  done < <(jq -r '(.checkpoints // []) | group_by(.source) | map(last) | .[]
+  done < <(jq -r '(.checkpoints // []) as $c | $c | group_by(.source) | map(last) | .[]
+                  | select((.kind // "end") != "start")
+                  # A run whose start was an estimate cannot be settled exactly.
+                  | select(. as $l | ([ $c[] | select($l.run != null and .run == $l.run and (.kind // "end") == "start") ] | first) as $st
+                           | $st == null or ($st.cost_basis == "cost-state" and ($st.pending_sidechain // false) == false and $st.cost_usd != null))
                   | select(.harness == "claude" and ((.cost_basis // "") != "cost-state" or .pending_sidechain == true)) | .source' "$file" 2>/dev/null)
   return 0
 }
@@ -941,70 +1260,58 @@ reconcile_story() { # $1 story, $2 source to skip (may be empty)
 # ledger after each write. One small JSON file a status line can read on every
 # refresh — no jq, no script, no plugin path needed. Its shape is a contract,
 # documented in references/usage-api.md; change it only with a new `schema`.
-write_index() { # $1 = space-separated story ids touched by this run (announced)
+write_index() { # $1 story ids touched (unused since verified was removed), $2 this call source (may be empty)
   [[ -d "$USAGE_DIR" ]] || return 0
-  local touched="${1:-}"
-  local f id tmp docs=""
+  local f id tmp docs="" live
+  local files=()
   # Keyed by FILE NAME, the same id `--story` reads; a ledger that does not
   # parse is skipped (ledger_record leaves a corrupt one for the human), so
   # one bad file never freezes every other story's entry.
   for f in "$USAGE_DIR"/*.json; do
     [[ -f "$f" ]] || continue
-    id=$(basename -- "$f" .json)
+    id="${f##*/}"; id="${id%.json}"
     valid_story_id "$id" || continue
     docs+=$(jq -c --arg id "$id" 'select((.checkpoints | type) == "array") | { id: $id, checkpoints }' "$f" 2>/dev/null)$'\n'
+    files+=("$f")
   done
-  # No readable previous index (first run after an upgrade, or a damaged one):
-  # this write is the baseline, and nothing is announced — otherwise every
-  # story that is already exact would be announced at once, mid-way through
-  # some other story's work.
-  local before=""
-  [[ -f "$USAGE_DIR/.index.json" ]] && before=$(jq -c '[ (.stories // {}) | to_entries[] | select(.value.verified == true) | .key ]' "$USAGE_DIR/.index.json" 2>/dev/null)
+  live=$(live_sources "${2:-}")
+  [[ -n "$live" ]] || live='{}'
   tmp=$(mktemp "$USAGE_DIR/.index.XXXXXX") || return 1
-  if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+  # Schema /2 (WD-0054): `verified` and `verified_reason` are gone. They said a
+  # figure came from an exact Claude Code reading, not what was being measured,
+  # and read as a guarantee they were not. Removing fields breaks readers, so
+  # the schema value changed.
+  # Open runs come from the one shared definition (OPEN_RUNS_JQ). Starts are
+  # bookkeeping: they are not counted as checkpoints, never set last_stage
+  # or last_story, and are not a latest reading (WD-0054).
+  if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson live "$live" "$OPEN_RUNS_JQ"'
       def r4: . * 10000 | round / 10000;
-      # One reading the harness itself priced, whole: a Claude Code
-      # cost-state with no sub-agent still writing after it; and no model with
-      # tokens left without a price. A legacy OpenCode checkpoint (recorded
-      # before OpenCode support was removed) was the exact row of its store,
-      # so it still counts as exact — a story verified before the upgrade
-      # stays verified after it.
-      def exactck: .cost_usd != null
-        and ((.harness == "claude" and .cost_basis == "cost-state" and (.pending_sidechain // false) == false)
-             or .harness == "opencode")
-        and ([ (.models // {})[] | select((((.tokens // {}) | [.[]?] | add) // 0) > 0 and .cost_usd == null) ] | length) == 0;
       . as $docs
-      # A session recorded under two stories: the split between them is not
-      # what the harness measured, so neither story can be verified.
-      | ( [ $docs[] | .id as $id | (.checkpoints | map(.source) | unique)[] | { s: ., id: $id } ]
-          | group_by(.s) | map(select((map(.id) | unique | length) > 1) | .[0].s) ) as $shared
       | ( $docs | map(
             .checkpoints as $c
-            | ( $c | group_by(.source) | map(last) ) as $latest
-            # A reconcile is bookkeeping, not work: it never makes a story the
-            # "last" one, nor its stage the last stage.
-            | ( [ $c[] | select(.stage != "reconcile") ] | last // ($c | last) ) as $w
+            | ( [ $c | to_entries[] | .value + { idx: .key } | select((.kind // "end") != "start") ] ) as $ends
+            | ( $ends | group_by(.source) | map(last) ) as $latest
+            | ( $c | open_runs($live) ) as $open
+            # A reconcile or a start is bookkeeping, not work: it never makes a
+            # story the "last" one, nor its stage the last stage.
+            | ( [ $ends[] | select(.stage != "reconcile") ] | last // ($ends | last) ) as $w
+            # An estimate is in the total when a run was priced from the table
+            # and no exact reconcile settled it, or (legacy mode) when a
+            # session latest reading is an estimate. Estimates run low, and a
+            # step with no price adds nothing, so either makes it a lower bound.
+            # A settle covers the run entries before it, never a later end.
+            | ( [ $ends[] | select(.settles == true) | { run, idx } ] ) as $settled
+            | ( any($ends[]; .delta_basis == "priced" and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))
+                or any($latest[]; (.delta_basis // "legacy") == "legacy" and .cost_basis == "estimated") ) as $est
             | { key: .id, value: {
                 total_usd: ([ $c[].delta | select(type == "number") ] | add // 0 | r4),
-                estimated: any($latest[]; .cost_basis == "estimated"),
-                # verified: the total holds only figures the harness recorded, so
-                # its error against what the harness accounts is 0. Every
-                # session latest reading exact, and the last priced reading of
-                # EVERY segment exact too (an estimate in an earlier segment is
-                # still in the sum), and no session shared with another story.
-                verified_reason: (
-                  ( [ $c | group_by(.source)[] | group_by(.segment // 1)[]
-                      | [ .[] | select(.cost_usd != null) ] | last ] ) as $segs
-                  | if ($c | length) == 0 then "no-checkpoints"
-                    elif any($latest[]; .cost_usd == null) or any($segs[]; . == null) then "unpriced"
-                    elif any($latest[]; exactck | not) then "estimated"
-                    elif any($segs[]; exactck | not) then "earlier-estimate"
-                    elif any($c[]; .source as $s | $shared | index($s)) then "shared-session"
-                    else null end ),
-                lower_bound: any($latest[]; .cost_basis == "estimated" or .cost_usd == null or .output_partial == true),
-                checkpoints_exact: true,
-                checkpoints: ($c | length),
-                unpriced_checkpoints: ([ $c[] | select(.cost_usd == null) ] | length),
+                estimated: $est,
+                lower_bound: ($est or $open > 0
+                  or any($latest[]; .cost_usd == null or .output_partial == true)
+                  or any($ends[]; .delta == null and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))),
+                open_runs: $open,
+                checkpoints: ($ends | length),
+                unpriced_checkpoints: ([ $ends[] | select(.cost_usd == null) ] | length),
                 sessions: ($c | map(.source) | unique | length),
                 last_stage: $w.stage,
                 last_recorded_at: $w.recorded_at,
@@ -1018,21 +1325,12 @@ write_index() { # $1 = space-separated story ids touched by this run (announced)
                       cost_usd: ([ .[].value.cost_usd | select(. != null) ] | if length == 0 then null else (add | r4) end),
                       lower_bound: any(.[]; .value.output_partial == true) } })
                   | from_entries ) } } )
-          | from_entries
-          | with_entries(.value |= (del(.checkpoints_exact) | .verified = (.verified_reason == null)))
-          ) as $stories
-      | { schema: "workflow-dev.usage/1", updated_at: $at,
+          | from_entries ) as $stories
+      | { schema: "workflow-dev.usage/2", updated_at: $at,
           last_story: ( [ $stories | to_entries[] | select(.value.last_recorded_at != null) ]
                         | max_by(.value.last_recorded_at) | .key? // null ),
           stories: $stories }' > "$tmp" 2>/dev/null && mv "$tmp" "$USAGE_DIR/.index.json"; then
     chmod 600 "$USAGE_DIR/.index.json" 2>/dev/null
-    # Say it once, when a story THIS RUN touched becomes verified.
-    [[ -n "$before" && -n "$touched" ]] || return 0
-    jq -r --argjson before "$before" --arg touched " $touched " '
-      .stories | to_entries[] | .key as $k
-      | select(.value.verified == true and ($before | index($k) | not) and ($touched | contains(" " + $k + " ")))
-      | "usage \(.key) · spend verified ✓ $\(.value.total_usd) — every session matches the exact figure the harness recorded"' \
-      "$USAGE_DIR/.index.json" >&2 2>/dev/null
     return 0
   fi
   rm -f "$tmp" 2>/dev/null
@@ -1063,24 +1361,22 @@ ledger_report() {
   fi
   echo "Story usage: $story"
   printf '  ledger: %s\n' "$file"
+  echo "  measures: only the spend of workflow-dev skill runs (end minus start); chat between skills is not counted"
 
-  # verified needs every ledger (a session shared with another story), so it
-  # is read from the index, rebuilt here — one rule, never two that disagree.
-  local vinfo
-  write_index "" >/dev/null 2>&1
-  vinfo=$(jq -c --arg s "$story" '.stories[$s] // {} | { verified: (.verified // false), reason: (.verified_reason // "unknown") }' "$USAGE_DIR/.index.json" 2>/dev/null)
-  [[ -n "$vinfo" ]] || vinfo='{"verified":false,"reason":"unknown"}'
-
-  jq -r --argjson v "$vinfo" '
-    (.checkpoints // []) as $c
+  # Starts are bookkeeping: they appear in no count and are never a step
+  # (WD-0054). A run still being written is not a gap.
+  local live
+  live=$(live_sources "")
+  [[ -n "$live" ]] || live='{}'
+  jq -r --argjson live "$live" "$OPEN_RUNS_JQ"'
+    (.checkpoints // []) as $all
+    | [ $all[] | select((.kind // "end") != "start") ] as $c
+    | ( $all | open_runs($live) ) as $open
+    | ( ($all | open_runs({})) - $open ) as $running
     | ( [ $c[].delta | select(type=="number") ] | add // 0 ) as $total
-    | "  total: $\($total * 10000 | round / 10000)   checkpoints: \($c | length)   runs without price: \([ $c[] | select(.cost_usd == null) ] | length)   estimated: \([ $c[] | select(.cost_basis == "estimated") ] | length) (\([ $c[] | select(.stale == true) ] | length) after a stale cost-state, \([ $c[] | select(.output_partial == true) ] | length) lower bounds)",
-      ( if $v.verified then "  verified: yes ✓ — every session matches the exact figure the harness recorded"
-        else "  verified: no — " + ({ "unpriced": "a session or model has no price yet",
-              "estimated": "a session latest reading is an estimate; it settles once the session closes right after its last checkpoint",
-              "earlier-estimate": "an estimate from before a reset is still in the total",
-              "shared-session": "a session is shared with another story, so the split is not measured",
-              "no-checkpoints": "nothing recorded" }[$v.reason] // $v.reason) end ),
+    | "  total: \(if $open > 0 then "≥" else "" end)$\($total * 10000 | round / 10000)   checkpoints: \($c | length)   runs without price: \([ $c[] | select(.cost_usd == null) ] | length)   estimated: \([ $c[] | select(.cost_basis == "estimated" or .delta_basis == "priced") ] | length) (\([ $c[] | select(.stale == true) ] | length) after a stale cost-state, \([ $c[] | select(.output_partial == true) ] | length) lower bounds)",
+      ( if $open > 0 then "  open runs: \($open) — a skill run started and never recorded its end, so its spend is missing and the total is a lower bound (≥)" else empty end ),
+      ( if $running > 0 then "  in progress: \($running) run(s) still being written (not a gap)" else empty end ),
       ("  tokens: input \([ $c[].token_delta.input // 0 ] | add // 0)  output \([ $c[].token_delta.output // 0 ] | add // 0)  reasoning \([ $c[].token_delta.reasoning // 0 ] | add // 0)  cache_read \([ $c[].token_delta.cache_read // 0 ] | add // 0)  cache_write \([ $c[].token_delta.cache_write // 0 ] | add // 0)"),
       # Checkpoints an older version recorded from OpenCode stay in the total;
       # this line only says how much of it they are. Printed only when some exist.
@@ -1101,7 +1397,8 @@ ledger_report() {
         then "  ≥ = lower bound: Claude Code logs a sub-agent message'"'"'s output before it is written; only the final one is recoverable"
         else empty end ),
       "  last step:",
-      ( $c | last | "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" + (if .cost_basis == "estimated" then " (estimated)" else "" end) end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) )
+      ( if ($c | length) == 0 then "    none yet" else empty end ),
+      ( $c | last // empty | "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" + (if .cost_basis == "estimated" then " (estimated)" else "" end) end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) )
   ' "$file"
 
   # The configured role→model binding is WD-0025's reader (extended into
@@ -1124,7 +1421,7 @@ ledger_report() {
   fi
 
   echo "  discrepancies (configured vs observed):"
-  observed=$(jq -r '[.checkpoints[].agent_deltas // {} | keys[]] | unique | .[]' "$file")
+  observed=$(jq -r '[.checkpoints[] | select((.kind // "end") != "start") | .agent_deltas // {} | keys[]] | unique | .[]' "$file")
   configured=$(printf '%s' "$binding" | cut -f1)
   local any=0 cub role
   while IFS= read -r cub; do
@@ -1144,6 +1441,86 @@ ledger_report() {
   [[ "$any" -eq 1 ]] || echo "    none"
 
   echo "  change a role's model with /workflow-dev:setup-models"
+}
+
+# The closing cost report (`--story <ID> --final`, WD-0054): printed after the
+# `--story` report, never instead of it. One row per skill, in the order the
+# skills first ran: how many runs, what they cost, and the marks (≈ an estimate
+# is in it; ≥ a lower bound: an unpriced end, incomplete sub-agent output, or an
+# open run). A run is counted by its `run` id; an entry from before WD-0054 has
+# none and is a run of its own. A reconcile counts under the skill of the run
+# it corrects. A row whose runs had sub-agents is broken down by them (the cubs
+# are whatever spent in it, never a fixed list): `validate`, and `implement`
+# when validate ran nested in it. It ends by saying what is not measured.
+ledger_final_report() {
+  local story="$1" file="$USAGE_DIR/$1.json" live
+  valid_story_id "$story" && have_jq || return 0
+  echo ""
+  echo "Closing cost report: $story"
+  if [[ ! -f "$file" ]]; then
+    echo "  no checkpoints recorded"
+    return 0
+  fi
+  live=$(live_sources "")
+  [[ -n "$live" ]] || live='{}'
+  jq -r --argjson live "$live" "$OPEN_RUNS_JQ"'
+    def money: . * 10000 | round / 10000 | tostring | "$" + .;
+    def lpad($n): tostring | (" " * ($n - length)) + .;
+    def rpad($n): tostring | . + (" " * ($n - length));
+    def spent: ((.value.cost_usd // 0) != 0) or ((.value.tokens // {}) | [.[]?] | add // 0) != 0;
+    (.checkpoints // []) as $all
+    # A run key: its run id, or (legacy, no id) the entry itself. A reconcile
+    # takes the key of the entry it corrects, the previous one of its session,
+    # so it lands under that skill and adds no run.
+    | ( [ $all | to_entries[] | .value + { idx: .key, key: (if .value.run == null then "i\(.key)" else "r\(.value.run)" end) } ] ) as $c0
+    | ( reduce $c0[] as $e ({ out: [], last: {} };
+          if $e.stage == "reconcile" and (.last[$e.source] // null) != null
+          then .out += [ $e + { key: .last[$e.source].key, skill: .last[$e.source].skill } ]
+          else ( $e + { skill: $e.stage } ) as $x
+               | .out += [ $x ] | .last[$e.source] = { key: $x.key, skill: $x.skill } end) | .out ) as $c1
+    # The skill of each run: its first entry that is not a reconcile.
+    | ( reduce $c1[] as $e ({}; if has($e.key) or $e.stage == "reconcile" then . else .[$e.key] = $e.stage end) ) as $skill
+    | ( [ $c1[] | . + { skill: ($skill[.key] // .skill) } ] ) as $c
+    | [ $c[] | select((.kind // "end") != "start") ] as $ends
+    | ( [ $ends[] | select(.settles == true) | { run, idx } ] ) as $settled
+    # A legacy estimate is settled by any later reading of its session, as in
+    # the index: only the latest end of a session can leave one standing.
+    | ( $ends | group_by(.source) | map({ key: .[0].source, value: (map(.idx) | max) }) | from_entries ) as $lastidx
+    | ( $all | open_starts($live) | map(.stage) ) as $openstages
+    | ( [ $c[].skill ] | reduce .[] as $s ([]; if index([$s]) then . else . + [$s] end) ) as $order
+    # ≈ an estimate is in it: a run priced from the table and not settled by
+    # an exact reconcile, or a legacy step measured on an estimate.
+    | def est($es): any($es[]; (.delta_basis == "priced" and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))
+                         or ((.delta_basis // "legacy") == "legacy" and .cost_basis == "estimated" and .idx == $lastidx[.source]));
+      def marks($es; $open): (if est($es) then "≈" else "" end)
+        # An unpriced end a later settle covered is no longer missing spend.
+        + (if est($es) or $open or any($es[]; .output_partial == true
+             or (.delta == null and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))) then "≥" else "" end);
+      "  " + ("skill" | rpad(20)) + ("runs" | lpad(5)) + "  cost",
+      ( $order[] as $s
+        | [ $ends[] | select(.skill == $s) ] as $es
+        | ( [ $c[] | select(.skill == $s) | .key ] | unique | length ) as $runs
+        | ( [ $es[].delta | select(type == "number") ] | add // 0 ) as $cost
+        # The agents that spent something in this skill runs only; an agent
+        # carried over from an earlier run with nothing new is not listed.
+        | ( [ $es[].agent_deltas // {} | to_entries[] | select(spent) ] | group_by(.key) ) as $cubs
+        | "  " + ($s | rpad(20)) + ($runs | lpad(5)) + "  " + marks($es; $openstages | index([$s]) != null) + ($cost | money),
+          # Broken down whenever sub-agents ran in it: validate on its own, or
+          # implement when validate ran nested inside it (its sub-agents then
+          # spend inside the implement run).
+          ( if any($cubs[]; .[0].key != "orchestrator") then
+              ( $cubs[]
+                | ( [ .[].value.cost_usd | select(. != null) ] ) as $ds
+                | "      " + (.[0].key | rpad(21)) + "  "
+                  + (if ($ds | length) == 0 then "unpriced"
+                     else (if any(.[]; .value.output_partial == true) then "≥" else "" end) + ($ds | add | money) end)
+                  + "  models " + ([ .[].value.models // [] | .[] ] | unique | join(", ")) )
+            else empty end ) ),
+      ( ( [ $ends[].delta | select(type == "number") ] | add // 0 ) as $t
+        | "  " + ("total" | rpad(20)) + ([ $c[].key ] | unique | length | lpad(5)) + "  " + marks($ends; ($openstages | length) > 0) + ($t | money) ),
+      "  ≈ = estimated from the price table; ≥ = lower bound (an open run, an unpriced step, or incomplete sub-agent output)",
+      "  Note: this total covers only the spend of workflow-dev skill runs. Usage outside them (chat between skills, other work in the same session) is not recorded, so the real spend of the sessions can be higher."
+  ' "$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -1167,6 +1544,15 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
     echo '{"status":"unavailable","reason":"jq required"}'
     exit 0
   fi
+  # help, setup-models and usage are not part of a story, so they never record
+  # a checkpoint (inside another run, their spend is that run's). `reconcile`
+  # is the script's own stage name and is never a caller's (WD-0054).
+  case "${SNAPSHOT_STAGE:-}" in
+    help|setup-models|usage|reconcile)
+      printf 'usage: stage %s is not part of a story; checkpoint NOT recorded\n' "$SNAPSHOT_STAGE" >&2
+      echo '{"status":"not-recorded"}'
+      exit 0 ;;
+  esac
   SNAP=""
   SNAP_TX=""
   SNAP_ERR=0
@@ -1198,11 +1584,17 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
   # A checkpoint that was not recorded exits non-zero (after still printing
   # the snapshot), so a caller can tell; the skills treat this as best-effort.
   SNAP_RC=0
-  ledger_record "$SNAPSHOT_STORY" "${SNAPSHOT_STAGE:-manual}" "$SNAP" || SNAP_RC=1
+  SNAP_KIND=end
+  [[ "$SNAPSHOT_START" -eq 0 ]] || SNAP_KIND=start
+  # This snapshot is live by definition; its own start, recorded now, is the
+  # newest entry of its session, so it reads as in progress.
+  SNAP_LIVE=$(live_sources "$SNAP_TX")
+  SNAP_LIVE=$(jq -nc --argjson a "${SNAP_LIVE:-{\}}" --arg s "$SNAP_TX" '$a + { ($s): true }' 2>/dev/null) || SNAP_LIVE='{}'
+  ledger_record "$SNAPSHOT_STORY" "${SNAPSHOT_STAGE:-manual}" "$SNAP" "$SNAP_KIND" "$SNAP_LIVE" || SNAP_RC=1
   # Best-effort: settle the story's other sessions, then refresh the API.
   # Neither changes this checkpoint's exit code.
-  reconcile_story "$SNAPSHOT_STORY" "$SNAP_TX"
-  write_index "$SNAPSHOT_STORY" || true
+  reconcile_story "$SNAPSHOT_STORY" "$SNAP_TX" "$SNAP_LIVE"
+  write_index "$SNAPSHOT_STORY" "$SNAP_TX" || true
   printf '%s\n' "$SNAP" | jq '{ source, harness, cost_usd } + (if .cost_basis then { cost_basis } else {} end)
     + (if .stale then { stale } else {} end) + { tokens, models, as_of }'
   exit "$SNAP_RC"
@@ -1213,8 +1605,9 @@ fi
 if [[ -n "$RECONCILE_STORY" ]]; then
   if ! have_jq; then echo "session-usage.sh --reconcile needs jq." >&2; exit 1; fi
   if ! valid_story_id "$RECONCILE_STORY"; then echo "usage: invalid story id" >&2; exit 1; fi
-  reconcile_story "$RECONCILE_STORY" ""
-  write_index "$RECONCILE_STORY" || true
+  RC_LIVE=$(live_sources "")
+  reconcile_story "$RECONCILE_STORY" "" "${RC_LIVE:-{\}}"
+  write_index "$RECONCILE_STORY" "" || true
   exit 0
 fi
 
@@ -1222,6 +1615,7 @@ fi
 # deleted session row or transcript cannot change the answer.
 if [[ -n "$STORY_ARG" ]]; then
   ledger_report "$STORY_ARG"
+  [[ "$STORY_FINAL" -eq 0 ]] || ledger_final_report "$STORY_ARG"
   exit 0
 fi
 

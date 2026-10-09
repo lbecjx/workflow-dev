@@ -36,6 +36,8 @@ Decomposes the current story's acceptance criteria into ordered task groups with
 
 ### Step 1: Read context
 
+0. Record this run's start (`references/run-cost.md` at the plugin root,
+   `--stage plan --start`).
 1. Read `.workflow-dev/context/[STORY-ID].md` — understand ACs, discoveries, decisions, scope
 2. Read `.workflow-dev/context/REPO.md` — understand conventions, prohibitions, infra
 3. Read `references/execution-principles.md` — internalize how tasks will be executed
@@ -269,11 +271,9 @@ If human approves, write the plan as a new section in the story.md file:
 
 Tell the human the plan is saved and suggest running `/workflow-dev:implement` to start on Task Group 1.
 
-Then record the plan checkpoint (WD-0037):
-`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage plan`,
-and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
-`PLUGIN_ROOT` resolves as elsewhere in this plugin (`${CLAUDE_PLUGIN_ROOT}` when
-set; a skill's shell calls don't get it, so `cd -P "<this skill's directory>/../.." && pwd -P`).
+Then, as this run's last step, record its end and show its line
+(`references/run-cost.md`, `--stage plan`): the approval and the two one-time
+questions above are part of the run.
 
 ## Principles
 

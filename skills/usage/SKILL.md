@@ -17,6 +17,8 @@ the Free Software Foundation, either version 3 of the License, or
 
 **Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
 
+**No cost checkpoint.** This skill is not part of a story, so it never records a start or an end, also when it runs inside another skill's run: its spend is that run's (`references/run-cost.md` at the plugin root).
+
 ## What this does
 
 Prints the active story's cost report, summed from its **durable ledger**
@@ -51,9 +53,7 @@ OpenCode before its support was removed still count, on a line of their own.
 
    `--reconcile` first: a session whose last checkpoint was an estimate may
    hold Claude Code's exact figure by now, and it is appended to the ledger as
-   a `reconcile` checkpoint (best-effort; it never blocks the report). If it
-   prints a `spend verified ✓` line, tell the human the story's spend is now
-   verified; the report's `verified:` line says whether it is.
+   a `reconcile` checkpoint (best-effort; it never blocks the report).
 
 3. Present the report as-is: the total, the tokens, the split by stage and by
    session, the **per-agent/role** breakdown (each cub's model included), the

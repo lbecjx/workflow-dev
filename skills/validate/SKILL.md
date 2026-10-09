@@ -45,6 +45,12 @@ Runs a structured quality gate over the current uncommitted changes, using paral
 
 ### Step 1: Discover project context
 
+First, record this run's start (`references/run-cost.md` at the plugin root,
+`--stage validate --start`) — unless `validate` was invoked by another
+workflow-dev skill whose steps are still running (`implement`), in which case
+this run is part of that one and records nothing (Step 8 says the same for the
+end).
+
 Determine the available verification commands. A fixed list of manifest files (`package.json` → npm scripts, `pyproject.toml` → pytest, and nothing else) misses any project that doesn't happen to match one of those exact shapes — a Python project using `pytest.ini`/`requirements-dev.txt` instead of `pyproject.toml`, a Ruby project, a monorepo with three stacks in different subfolders, a project whose test tool didn't exist when this list was last updated. This step is deliberately stack-agnostic instead: it reasons about what a project's own stack conventionally uses, rather than pattern-matching a short hardcoded list.
 
 1. Check `.workflow-dev/context/REPO.md` for documented test/lint/typecheck/build commands. If found and still accurate (spot-check against what's actually in the repo), skip straight to Step 2.
@@ -95,9 +101,9 @@ Two scopes, not one — which applies depends on why this is running:
 > - **Brief = content, not a command:** give each dimension the changed files'
 >   contents and the diff **inline**; never a `git diff` or a file read for it to run —
 >   a command is paid once per dimension (~10× the cache reads).
-> - **Cost is recorded — no run closes without it:** note the session total
->   **before** spawning anything, and state the run's cost after (Step 4). This
->   applies to a reduced run too — never silently skip it.
+> - **Cost is recorded — no run closes without it:** a start checkpoint first
+>   (Step 1), the end and its report last (Step 8). This applies to a reduced
+>   run too — never silently skip it.
 > - **Adversarial depth (Part 11):** real logic in the diff → suggest no-repro or
 >   complete **with a one-line reason** and **ask the human to choose**; don't run
 >   a depth silently. SKIP only when there's genuinely no logic. (Unattended, or
@@ -262,27 +268,8 @@ calls don't get that variable, so resolve it from where this skill lives —
 `cd -P "<this skill's directory>/../.." && pwd -P` (the `-P` resolves a
 symlinked checkout; a logical `..` would stop at the link).
 
-**Record the run's cost — every run, full or reduced.** After the report, run
-`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot <STORY-ID> --stage validate`
-and show the line it prints (this run's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
-It appends a checkpoint to the story's durable ledger
-(`.workflow-dev/context/.usage/<STORY-ID>.json`), so the cost survives even if
-the session is later deleted — a bare per-session number does not (WD-0037).
-For a reduced run with no sub-agents the delta is the orchestrator's own cost;
-say so rather than omitting it. The script is best-effort: an unresolvable
-source is reported `unavailable`, never a misleading zero; a cost estimated from
-the price table is marked `(estimated)` — show it as such.
-
-Then render the **run report** from the ledger with
-`"$PLUGIN_ROOT"/scripts/session-usage.sh --story <STORY-ID>`: the total, the
-per-agent/role breakdown with each cub's model, the configured role→model
-binding (one line per defined role, from the registry — never a fixed list),
-any **config-vs-observed** discrepancy (e.g. a configured role whose spend
-actually landed under the default agent), and the reminder that a role's model
-is changed with `/workflow-dev:setup-models`. The binding is read by
-`model-tiering-check.sh --role-models` (WD-0025's reader); this skill only
-renders it. The total is summed from the ledger, so it stays correct across
-sessions.
+The run's cost is recorded, and its report rendered, as this run's last step
+(Step 8), so the manual QA and the next-step offer of Step 7 are part of it.
 
 ### Step 5: Verdict
 
@@ -376,8 +363,9 @@ a QA finding is a new, separate signal for the human).
    story"** row (written once by `/workflow-dev:plan`'s Step 5). **Never ask it
    here.**
    - **"yes"** → run `../manual-qa/SKILL.md` now, against the running app, and
-     report its per-AC verdicts. Its timing follows the story's validation
-     mode: under "once, at the end" this is the single end-of-story pass; under
+     report its per-AC verdicts. It runs inside this `validate` run, so it
+     records no cost of its own (`references/run-cost.md`). Its timing
+     follows the story's validation mode: under "once, at the end" this is the single end-of-story pass; under
      "after every task group" it runs on each PASS. Do not re-ask whether to
      run — that was decided at plan time.
    - **"no", or no row (older story)** → skip manual QA; no notice needed.
@@ -411,6 +399,28 @@ a QA finding is a new, separate signal for the human).
    exception: `implement` already runs `summarize-changes` per task group (its
    own Step 5), so the summary is not left dangling, and the end-of-run report
    is `implement`'s job — not this skill's.
+
+### Step 8: Record the run's cost and show its report — every run
+
+Every run ends here, full or reduced, PASS or FAIL, after everything above.
+
+1. Record the run's end and show its line (`references/run-cost.md`,
+   `--stage validate`): this run's spend and the story's running total. For a
+   reduced run with no sub-agents the spend is the orchestrator's own; say so
+   rather than omitting it. A cost estimated from the price table is marked
+   `(estimated)`; show it as such. **Skip this when `validate` was invoked by
+   `implement`**: that run already contains this one's spend.
+2. Then render the **run report** from the ledger with
+   `"$PLUGIN_ROOT"/scripts/session-usage.sh --story <STORY-ID>` (also when
+   nested; it only reads): the total, the per-agent/role breakdown with each
+   cub's model, the configured role→model binding (one line per defined role,
+   from the registry — never a fixed list), any **config-vs-observed**
+   discrepancy (e.g. a configured role whose spend actually landed under the
+   default agent), and the reminder that a role's model is changed with
+   `/workflow-dev:setup-models`. The binding is read by
+   `model-tiering-check.sh --role-models` (WD-0025's reader); this skill only
+   renders it. The total is summed from the ledger, so it stays correct across
+   sessions, even after the session is deleted (WD-0037).
 
 ## Principles
 

@@ -282,8 +282,8 @@ assert_contains 'unavailable' "$LED_NONE" "no ledger and no source → unavailab
 
 # --- 6l2: a ledger recorded before OpenCode support was removed (WD-0026) ---
 # Its OpenCode checkpoints (`harness: "opencode"`, a `ses_…` source) still count
-# in the total, are named on a line of their own, and — being exact rows of the
-# store they came from — keep a story verified across the upgrade.
+# in the total, are named on a line of their own, and a story made only of
+# them still has its total in the index.
 LEGACY_FILE="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-LEG.json"
 cat > "$LEGACY_FILE" <<'JSON'
 {"story":"WD-LEG","checkpoints":[
@@ -299,10 +299,10 @@ assert_contains 'legacy OpenCode (recorded before OpenCode support was removed):
 assert_contains 'input 21' "$LEG" "legacy OpenCode token deltas still count"
 LEG_ONLY="$LEDGER_PROJ/.workflow-dev/context/.usage/WD-LEGV.json"
 jq '.story = "WD-LEGV" | .checkpoints[].source = "ses_other"' "$LEGACY_FILE" > "$LEG_ONLY"
-( cd "$LEDGER_PROJ" && bash "$SCRIPT" --story WD-LEGV >/dev/null )
-[[ "$(jq -r '.stories["WD-LEGV"].verified' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json")" == "true" ]] \
-  && ok "a story made only of legacy OpenCode checkpoints stays verified" \
-  || no "a story made only of legacy OpenCode checkpoints stays verified (got: $(jq -c '.stories["WD-LEGV"]' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json"))"
+( cd "$LEDGER_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-LEGV >/dev/null 2>&1 )
+[[ "$(jq -r '.stories["WD-LEGV"].total_usd' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json")" == "4.75" ]] \
+  && ok "a story made only of legacy OpenCode checkpoints keeps its total in the index" \
+  || no "a story made only of legacy OpenCode checkpoints keeps its total in the index (got: $(jq -c '.stories["WD-LEGV"]' "$LEDGER_PROJ/.workflow-dev/context/.usage/.index.json"))"
 
 # --- 6m: --story renders the per-role breakdown and the configured binding --
 # Cubes come from what actually ran (never a fixed list); the binding line
@@ -857,7 +857,7 @@ assert_contains 'total: $5.2 ' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-R
 
 # The dashboard API: .usage/.index.json, one summary per story.
 IDX="$EST_PROJ/.workflow-dev/context/.usage/.index.json"
-[[ "$(jq -r '.schema' "$IDX" 2>/dev/null)" == "workflow-dev.usage/1" ]] && ok "the index carries its schema version" || no "the index carries its schema version"
+[[ "$(jq -r '.schema' "$IDX" 2>/dev/null)" == "workflow-dev.usage/2" ]] && ok "the index carries its schema version" || no "the index carries its schema version"
 [[ "$(jq -r '.stories["WD-RC"].total_usd' "$IDX")" == "5.2" && "$(jq -r '.stories["WD-RC"].sessions' "$IDX")" == "2" ]] \
   && ok "the index total matches --story" || no "the index total matches --story (got $(jq -c '.stories["WD-RC"] | [.total_usd, .sessions]' "$IDX"))"
 [[ "$(jq -r '.stories["WD-RC"].lower_bound' "$IDX")" == "true" && "$(jq -r '.stories["WD-RC"].estimated' "$IDX")" == "true" ]] \
@@ -903,47 +903,24 @@ sleep 3
 if kill -0 "$RCPID" 2>/dev/null; then kill "$RCPID" 2>/dev/null; no "--reconcile with no value exits instead of looping"
 else wait "$RCPID"; [[ $? -eq 2 ]] && ok "--reconcile with no value exits 2" || no "--reconcile with no value exits 2"; fi
 
-# verified: every session's latest reading is the exact figure → the story's
-# spend is verified, announced once, served by the index for a dashboard check.
+# Schema /2 (WD-0054): `verified` and `verified_reason` are gone from the index,
+# and no checkpoint announces `spend verified` any more. An exact reading still
+# clears `lower_bound`, and a sub-agent writing after the cost-state still
+# marks the reading pending.
 VF="$TMP/vf.jsonl"
 use_line vf1 claude-opus-5-5 1000000 0 0 0 standard 01 > "$VF"
-VF1=$(snap_est WD-VF "$VF")
-case "$VF1" in *"spend verified"*) no "an estimated story is not announced as verified" ;; *) ok "an estimated story is not announced as verified" ;; esac
-[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "false" ]] && ok "the index serves verified false for an estimate" || no "the index serves verified false for an estimate"
+snap_est WD-VF "$VF" >/dev/null
 printf '%s\n' '{"type":"cost-state","totalCostUSD":4.1,"modelUsage":{"claude-opus-5-5":{"costUSD":4.1}}}' >> "$VF"
 VF2=$(snap_est WD-VF "$VF")
-assert_contains 'usage WD-VF · spend verified ✓ $4.1' "$VF2" "the checkpoint that makes a story exact announces it as verified"
-[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "true" && "$(jq -r '.stories["WD-VF"].lower_bound' "$IDX")" == "false" ]] \
-  && ok "the index serves verified true (and no lower bound)" || no "the index serves verified true (and no lower bound)"
-assert_contains 'verified: yes ✓' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-VF )" "--story says the spend is verified"
-VF3=$(cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-VF 2>&1)
-case "$VF3" in *"spend verified"*) no "verified is announced once, not on every write" ;; *) ok "verified is announced once, not on every write" ;; esac
-assert_contains 'verified: no' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-RC )" "--story says a story with an estimated session is not verified"
-
-# verified is strict: (C2) an estimate left in an earlier segment, (C3) a
-# session shared with another story, (N2) a sub-agent still writing after the
-# cost-state — none of these is verified.
-VS="$TMP/vs.jsonl"
-{ use_line s1 claude-opus-5-5 10 0 0 0 standard 01
-  printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'
-  use_line s2 claude-opus-5-5 50000 0 0 0 standard 05; } > "$VS"
-snap_est WD-VS "$VS" >/dev/null                                             # estimate, segment 1
-{ use_line s2 claude-opus-5-5 10 0 0 0 standard 06
-  printf '%s\n' '{"type":"cost-state","totalCostUSD":3,"modelUsage":{"claude-opus-5-5":{"costUSD":3}}}'; } >> "$VS"
-VS_OUT=$(snap_est WD-VS "$VS")                                              # tokens fell: segment 2, exact
-[[ "$(jq -r '.stories["WD-VS"].verified_reason' "$IDX")" == "earlier-estimate" ]] \
-  && ok "an estimate left in an earlier segment blocks verified" || no "an estimate left in an earlier segment blocks verified (got $(jq -r '.stories["WD-VS"].verified_reason' "$IDX"))"
-case "$VS_OUT" in *"spend verified"*) no "no verified notice with an earlier estimate" ;; *) ok "no verified notice with an earlier estimate" ;; esac
-
-VH="$TMP/vh.jsonl"
-{ use_line h1 claude-opus-5-5 10 0 0 0 standard 01
-  printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'; } > "$VH"
-snap_est WD-VHA "$VH" >/dev/null
-printf '%s\n' '{"type":"cost-state","totalCostUSD":6,"modelUsage":{"claude-opus-5-5":{"costUSD":6}}}' >> "$VH"
-VH_OUT=$(snap_est WD-VHB "$VH")
-[[ "$(jq -r '.stories["WD-VHA"].verified_reason' "$IDX")" == "shared-session" && "$(jq -r '.stories["WD-VHB"].verified' "$IDX")" == "false" ]] \
-  && ok "a session shared by two stories verifies neither" || no "a session shared by two stories verifies neither"
-assert_contains 'shared with another story' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-VHB )" "--story explains why a shared session is not verified"
+assert_absent 'spend verified' "$VF2" "a checkpoint that turns exact announces nothing"
+[[ "$(jq -r '.schema' "$IDX")" == "workflow-dev.usage/2" ]] && ok "the index schema is workflow-dev.usage/2" || no "the index schema is workflow-dev.usage/2 (got $(jq -r '.schema' "$IDX"))"
+[[ "$(jq -r '[.stories[] | has("verified") or has("verified_reason")] | any' "$IDX")" == "false" ]] \
+  && ok "the index has no verified or verified_reason field" || no "the index has no verified or verified_reason field"
+[[ "$(jq -r '.stories["WD-VF"].lower_bound' "$IDX")" == "false" && "$(jq -r '.stories["WD-VF"].estimated' "$IDX")" == "false" ]] \
+  && ok "an exact latest reading is neither estimated nor a lower bound" || no "an exact latest reading is neither estimated nor a lower bound"
+assert_absent 'verified' "$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-VF )" "--story prints no verified line"
+VF3=$(cd "$EST_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-RC 2>&1)
+assert_absent 'spend verified' "$VF3" "--reconcile announces nothing"
 
 VP="$TMP/vp.jsonl"
 mkdir -p "$TMP/vp/subagents"
@@ -953,23 +930,9 @@ printf '%s\n' '{"agentType":"wd-operator","toolUseId":"tu_p"}' > "$TMP/vp/subage
   printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"content":[{"type":"tool_use","id":"tu_p","name":"Agent","input":{"subagent_type":"wd-operator"}}]}}'
   printf '%s\n' '{"type":"cost-state","totalCostUSD":2,"modelUsage":{"claude-opus-5-5":{"costUSD":2}}}'; } > "$VP"
 snap_est WD-VP "$VP" >/dev/null
-[[ "$(jq -r '.checkpoints[-1].pending_sidechain' "$EST_PROJ/.workflow-dev/context/.usage/WD-VP.json")" == "true" \
-   && "$(jq -r '.stories["WD-VP"].verified' "$IDX")" == "false" ]] \
-  && ok "a sub-agent writing after the cost-state marks the reading pending, not verified" \
-  || no "a sub-agent writing after the cost-state marks the reading pending, not verified"
-
-# (C4) With no readable previous index, the rebuild is a silent baseline; and
-# only the story this run touched is ever announced.
-VQ="$TMP/vq.jsonl"
-{ use_line q1 claude-opus-5-5 10 0 0 0 standard 01
-  printf '%s\n' '{"type":"cost-state","totalCostUSD":1,"modelUsage":{"claude-opus-5-5":{"costUSD":1}}}'; } > "$VQ"
-rm -f "$IDX"
-VQ_OUT=$(snap_est WD-VQ "$VQ")
-case "$VQ_OUT" in *"spend verified"*) no "a missing previous index announces nothing (baseline)" ;; *) ok "a missing previous index announces nothing (baseline)" ;; esac
-[[ "$(jq -r '.stories["WD-VF"].verified' "$IDX")" == "true" ]] && ok "the baseline still serves verified" || no "the baseline still serves verified"
-jq '.stories["WD-VF"].verified = false' "$IDX" > "$IDX.t" && mv "$IDX.t" "$IDX"   # pretend WD-VF was not verified before
-VQ2=$(snap_est WD-VQ "$VQ")
-case "$VQ2" in *"WD-VF"*) no "a story this run did not touch is never announced" ;; *) ok "a story this run did not touch is never announced" ;; esac
+[[ "$(jq -r '.checkpoints[-1].pending_sidechain' "$EST_PROJ/.workflow-dev/context/.usage/WD-VP.json")" == "true" ]] \
+  && ok "a sub-agent writing after the cost-state marks the reading pending" \
+  || no "a sub-agent writing after the cost-state marks the reading pending"
 
 # The table reproduces real Claude Code charges: modelUsage from a real
 # cost-state (WD-0043's session; Claude Code writes 1-hour cache entries).
@@ -982,6 +945,415 @@ OFF=$(jq -r --argjson mu "$REAL_MU" '
           + .value.cacheReadInputTokens * $r.cache_read + .value.cacheCreationInputTokens * $r.cache_write_1h) / 1000000) as $est
       | select((($est - .value.costUSD) | fabs) > (.value.costUSD * 0.01)) | .key ] | join(",")' "$HERE/model-prices.json")
 [[ -z "$OFF" ]] && ok "the price table reproduces real cost-state charges within 1%" || no "the price table reproduces real cost-state charges within 1% (off: $OFF)"
+
+# --- 6o: a story costs only its skill runs — start/end checkpoints (WD-0054) -
+# Each skill records a start (`--start`, delta 0) and an end; the end measures
+# from its start, so whatever the session did between runs belongs to no story.
+RUN_PROJ="$TMP/runproj"
+mkdir -p "$RUN_PROJ/.workflow-dev/context"
+RUN_USAGE="$RUN_PROJ/.workflow-dev/context/.usage"
+RUN_IDX="$RUN_USAGE/.index.json"
+# run_snap STORY STAGE TRANSCRIPT [start] — prints the checkpoint line (stderr).
+run_snap() {
+  ( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 \
+      bash "$SCRIPT" --snapshot "$1" --stage "$2" "$3" ${4:+--start} 2>&1 >/dev/null )
+}
+run_story() { ( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID bash "$SCRIPT" --story "$1" ); }
+rj() { jq -r "$2" "$RUN_USAGE/$1.json"; }
+
+# The story's own example, in one session S: A init (1→2) and validate
+# (3→10), then B init (11→13). B is +2, never the session's whole 13.
+RS="$TMP/run-s.jsonl"
+tx "$RS" 1 10 1;  RA0=$(run_snap WD-RA init "$RS" start)
+tx "$RS" 2 20 1;  run_snap WD-RA init "$RS" >/dev/null
+tx "$RS" 3 30 1;  run_snap WD-RA validate "$RS" start >/dev/null
+tx "$RS" 10 100 1; run_snap WD-RA validate "$RS" >/dev/null
+tx "$RS" 11 110 1; run_snap WD-RB init "$RS" start >/dev/null
+tx "$RS" 13 130 1; RB1=$(run_snap WD-RB init "$RS")
+[[ "$(rj WD-RA '.checkpoints[0] | [.kind, .delta, (.token_delta | [.[]] | add), ([.agent_deltas[] | .cost_usd] | add)] | @csv')" == '"start",0,0,0' ]] \
+  && ok "a start records delta 0 for cost, tokens and every agent" || no "a start records delta 0 for cost, tokens and every agent (got $(rj WD-RA '.checkpoints[0] | [.kind, .delta, .token_delta, .agent_deltas] | tojson'))"
+assert_contains 'run started' "$RA0" "a start prints its own checkpoint line"
+[[ "$(rj WD-RA '[.checkpoints[].delta] | @csv')" == '0,1,0,7' ]] \
+  && ok "an end measures from its own start" || no "an end measures from its own start (got $(rj WD-RA '[.checkpoints[].delta] | @csv'))"
+[[ "$(rj WD-RB '[.checkpoints[].delta] | add')" == "2" ]] \
+  && ok "story B in the same session costs +2, not the session total" || no "story B in the same session costs +2 (got $(rj WD-RB '[.checkpoints[].delta] | add'))"
+assert_contains 'story total $2.0000 over 1 checkpoint(s)' "$RB1" "the checkpoint line counts ends only"
+[[ "$(rj WD-RB '.checkpoints[-1].token_delta.input')" == "20" ]] \
+  && ok "the token delta of an end is measured from its start" || no "the token delta of an end is measured from its start"
+[[ "$(jq -r '.stories["WD-RA"].total_usd' "$RUN_IDX")" == "8" ]] \
+  && ok "chat between runs (10→11) is not counted, and B does not touch A" || no "chat between runs is not counted (A got $(jq -r '.stories["WD-RA"].total_usd' "$RUN_IDX"))"
+[[ "$(rj WD-RA '[.checkpoints[].run] | @csv')" == '1,1,2,2' ]] \
+  && ok "a start opens a run and its end closes the same run" || no "a start opens a run and its end closes the same run (got $(rj WD-RA '[.checkpoints[].run] | @csv'))"
+[[ "$(jq -r '.stories["WD-RA"] | [.checkpoints, .open_runs, .lower_bound] | @csv' "$RUN_IDX")" == '2,0,false' ]] \
+  && ok "the index counts ends only, with no open run" || no "the index counts ends only, with no open run (got $(jq -c '.stories["WD-RA"]' "$RUN_IDX"))"
+
+# A start is not work: a new start for A changes neither its last stage nor
+# when it last recorded; the run is still in progress (fresh, last entry).
+A_AT=$(rj WD-RA '.checkpoints[-1].recorded_at')
+tx "$RS" 14 140 1; run_snap WD-RA plan "$RS" start >/dev/null
+[[ "$(jq -r '.stories["WD-RA"] | [.last_stage, .last_recorded_at] | @csv' "$RUN_IDX")" == "\"validate\",\"$A_AT\"" ]] \
+  && ok "a start never becomes last_stage or moves last_recorded_at" || no "a start never becomes last_stage (got $(jq -c '.stories["WD-RA"]' "$RUN_IDX"))"
+[[ "$(jq -r '.stories["WD-RA"].open_runs' "$RUN_IDX")" == "0" ]] \
+  && ok "a run still in progress is not a gap" || no "a run still in progress is not a gap"
+RA_STORY=$(run_story WD-RA)
+assert_contains 'measures: only the spend of workflow-dev skill runs' "$RA_STORY" "--story states the measurement rule"
+assert_contains 'in progress: 1 run(s)' "$RA_STORY" "--story names a run in progress"
+assert_absent '    plan:' "$RA_STORY" "--story shows no start as a step with spend"
+LB_ONLY="$TMP/run-only.jsonl"
+tx "$LB_ONLY" 5 10 1; run_snap WD-RONLY plan "$LB_ONLY" start >/dev/null
+[[ "$(jq -r '.stories["WD-RONLY"].last_stage' "$RUN_IDX")" == "null" && "$(jq -r '.last_story' "$RUN_IDX")" != "WD-RONLY" ]] \
+  && ok "a story with only a start is never last_story" || no "a story with only a start is never last_story (got $(jq -c '{last_story, s: .stories["WD-RONLY"]}' "$RUN_IDX"))"
+
+# The session then goes quiet: the open start of A is a gap. Reconcile leaves
+# a session whose last entry is a start alone.
+touch -t 202001010000 "$RS"
+RA_N=$(rj WD-RA '.checkpoints | length')
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-RA >/dev/null 2>&1 )
+[[ "$(rj WD-RA '.checkpoints | length')" == "$RA_N" && "$(rj WD-RA '.checkpoints[-1].kind')" == "start" ]] \
+  && ok "reconcile never corrects or closes a start" || no "reconcile never corrects or closes a start"
+[[ "$(jq -r '.stories["WD-RA"] | [.open_runs, .lower_bound] | @csv' "$RUN_IDX")" == '1,true' ]] \
+  && ok "a start with no end in a quiet session is an open run (≥)" || no "a start with no end in a quiet session is an open run (got $(jq -c '.stories["WD-RA"]' "$RUN_IDX"))"
+RA_STORY=$(run_story WD-RA)
+assert_contains 'open runs: 1' "$RA_STORY" "--story names the open run"
+assert_contains 'total: ≥$8' "$RA_STORY" "--story marks the total as a lower bound"
+
+# The same session opens another run of the same story: the first start,
+# with no end, is a gap; the end measures from the second start.
+RS2="$TMP/run-s2.jsonl"
+tx "$RS2" 1 10 1; run_snap WD-RC2 plan "$RS2" start >/dev/null
+tx "$RS2" 2 20 1; RC2_LINE=$(run_snap WD-RC2 plan "$RS2" start)
+assert_contains '1 open run(s): the total is a lower bound (≥)' "$RC2_LINE" "the checkpoint line names a superseded start as an open run"
+tx "$RS2" 3 30 1; run_snap WD-RC2 plan "$RS2" >/dev/null
+[[ "$(rj WD-RC2 '[.checkpoints[].delta] | @csv')" == '0,0,1' && "$(jq -r '.stories["WD-RC2"] | [.open_runs, .lower_bound] | @csv' "$RUN_IDX")" == '1,true' ]] \
+  && ok "a start superseded by another start stays a gap" || no "a start superseded by another start stays a gap (got $(rj WD-RC2 '[.checkpoints[].delta] | @csv') $(jq -c '.stories["WD-RC2"]' "$RUN_IDX"))"
+
+# Idempotency: an identical start twice is one entry; a start right after an
+# end with nothing spent in between has the same marker and is still recorded.
+RS3="$TMP/run-s3.jsonl"
+tx "$RS3" 1 10 1; run_snap WD-RD plan "$RS3" start >/dev/null; run_snap WD-RD plan "$RS3" start >/dev/null
+[[ "$(rj WD-RD '.checkpoints | length')" == "1" ]] && ok "an identical start twice is one entry" || no "an identical start twice is one entry"
+tx "$RS3" 2 20 1; run_snap WD-RD plan "$RS3" >/dev/null; run_snap WD-RD plan "$RS3" start >/dev/null
+[[ "$(rj WD-RD '[.checkpoints[].kind] | @csv')" == '"start","end","start"' ]] \
+  && ok "a start right after an end with the same marker is recorded" || no "a start right after an end with the same marker is recorded (got $(rj WD-RD '[.checkpoints[].kind] | @csv'))"
+
+# Legacy mode: an end with no start measures from the previous checkpoint of
+# the session, exactly as before.
+RS4="$TMP/run-s4.jsonl"
+tx "$RS4" 1 10 1; run_snap WD-RE plan "$RS4" >/dev/null
+tx "$RS4" 3 30 1; run_snap WD-RE validate "$RS4" >/dev/null
+[[ "$(rj WD-RE '[.checkpoints[].delta] | @csv')" == '1,2' && "$(rj WD-RE '[.checkpoints[].run] | @csv')" == '1,2' ]] \
+  && ok "an end with no start behaves as before (legacy mode)" || no "an end with no start behaves as before (got $(rj WD-RE '[.checkpoints[] | [.delta, .run]] | tojson'))"
+
+# Nested: the inner skill (validate → manual-qa) records nothing, so the outer
+# run counts the whole spend once. implement records one end per task group in
+# one run: the second end continues the run that opened with a start.
+RS5="$TMP/run-s5.jsonl"
+tx "$RS5" 5 10 1; run_snap WD-RF validate "$RS5" start >/dev/null
+tx "$RS5" 9 40 1; run_snap WD-RF validate "$RS5" >/dev/null
+[[ "$(jq -r '.stories["WD-RF"].total_usd' "$RUN_IDX")" == "4" ]] && ok "a nested skill that records nothing is counted once, inside the outer run" || no "a nested skill is counted once"
+tx "$RS5" 10 50 1; run_snap WD-RF implement "$RS5" start >/dev/null
+tx "$RS5" 12 60 1; run_snap WD-RF implement "$RS5" >/dev/null
+tx "$RS5" 15 70 1; run_snap WD-RF implement "$RS5" >/dev/null
+[[ "$(rj WD-RF '[.checkpoints[-3:][].run] | unique | length')" == "1" && "$(jq -r '.stories["WD-RF"].total_usd' "$RUN_IDX")" == "9" ]] \
+  && ok "implement task-group ends continue one run" || no "implement task-group ends continue one run (got $(rj WD-RF '[.checkpoints[] | [.stage, .kind, .run, .delta]] | tojson'))"
+
+# An unpriced start: the end that closes it has an unknown delta, never one
+# measured from an older priced checkpoint (that would count the chat).
+RS6="$TMP/run-s6.jsonl"
+tx "$RS6" 1 5 1;  run_snap WD-RG init "$RS6" >/dev/null
+tx "$RS6" - 10 1; run_snap WD-RG plan "$RS6" start >/dev/null
+tx "$RS6" 3 20 1; run_snap WD-RG plan "$RS6" >/dev/null
+[[ "$(rj WD-RG '.checkpoints[-1].delta')" == "null" && "$(jq -r '.stories["WD-RG"].total_usd' "$RUN_IDX")" == "1" ]] \
+  && ok "an end after an unpriced start is unpriced, not measured from older spend" || no "an end after an unpriced start is unpriced (got $(rj WD-RG '[.checkpoints[].delta] | @csv'))"
+
+# Input boundaries of --start and the excluded stages.
+( cd "$RUN_PROJ" && bash "$SCRIPT" --start >/dev/null 2>&1 ); [[ $? -eq 2 ]] \
+  && ok "--start without --snapshot exits 2" || no "--start without --snapshot exits 2"
+for st in help setup-models usage reconcile; do
+  OUT=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-RX --stage "$st" "$RS6" --start 2>/dev/null )
+  [[ "$OUT" == *'"not-recorded"'* && ! -f "$RUN_USAGE/WD-RX.json" ]] \
+    && ok "stage $st records nothing" || no "stage $st records nothing"
+done
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot "../escape" --stage plan "$RS6" --start >/dev/null 2>&1 ); RC=$?
+[[ $RC -ne 0 && ! -e "$RUN_PROJ/.workflow-dev/context/escape.json" ]] && ok "--start refuses an invalid story id" || no "--start refuses an invalid story id"
+printf '{bad' > "$RUN_USAGE/WD-RZ.json"
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-RZ --stage plan "$RS6" --start >/dev/null 2>&1 ); RC=$?
+[[ $RC -ne 0 && "$(cat "$RUN_USAGE/WD-RZ.json")" == '{bad' ]] && ok "--start on a corrupt ledger is refused and the file kept" || no "--start on a corrupt ledger is refused and the file kept"
+rm -f "$RUN_USAGE/WD-RZ.json"
+
+# --- 6p: the closing cost report (`--story <ID> --final`, WD-0054) ----------
+# One row per skill with its runs and cost, sub-agents only under validate,
+# the marks, and the note on what is not measured. `--story` alone unchanged.
+FIN_TX="$TMP/fin.jsonl"
+fin_agent() { # FILE COST INPUT — a main-thread reading plus one wd-judge call with its side-chain
+  # The side-chain is written before the cost-state (earlier timestamp), so the
+  # reading is exact, not pending; its output is real, not a placeholder.
+  mkdir -p "$TMP/fin/subagents"
+  printf '{"type":"assistant","timestamp":"2026-10-08T00:00:00Z","message":{"id":"j%s","model":"claude-haiku-4-5","usage":{"input_tokens":%s,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$3" "$3" > "$TMP/fin/subagents/agent-afj.jsonl"
+  printf '%s\n' '{"agentType":"wd-judge","toolUseId":"tu_fj"}' > "$TMP/fin/subagents/agent-afj.meta.json"
+  { printf '{"type":"assistant","timestamp":"2026-10-08T00:00:01Z","message":{"id":"r","model":"m","usage":{"input_tokens":%s,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$3"
+    printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"id":"r2","model":"m","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"tu_fj","name":"Agent","input":{"subagent_type":"wd-judge"}}]}}'
+    printf '{"type":"cost-state","totalCostUSD":%s,"modelUsage":{"m":{"costUSD":%s}}}\n' "$2" "$2"; } > "$1"
+}
+tx "$FIN_TX" 1 10 1;  run_snap WD-FIN init "$FIN_TX" start >/dev/null
+tx "$FIN_TX" 2 20 1;  run_snap WD-FIN init "$FIN_TX" >/dev/null
+tx "$FIN_TX" 3 30 1;  run_snap WD-FIN implement "$FIN_TX" start >/dev/null
+tx "$FIN_TX" 4 40 1;  run_snap WD-FIN implement "$FIN_TX" >/dev/null
+tx "$FIN_TX" 6 50 1;  run_snap WD-FIN implement "$FIN_TX" >/dev/null
+fin_agent "$FIN_TX" 7 60;  run_snap WD-FIN validate "$FIN_TX" start >/dev/null
+fin_agent "$FIN_TX" 10 70; run_snap WD-FIN validate "$FIN_TX" >/dev/null
+FIN_PLAIN=$(run_story WD-FIN)
+FIN=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID bash "$SCRIPT" --story WD-FIN --final )
+[[ "${FIN:0:${#FIN_PLAIN}}" == "$FIN_PLAIN" ]] && ok "--final prints the --story report first, unchanged" || no "--final prints the --story report first, unchanged"
+assert_absent 'Closing cost report' "$FIN_PLAIN" "--story alone has no closing report"
+FIN_TAIL="${FIN:${#FIN_PLAIN}}"
+row() { printf '%s\n' "$FIN_TAIL" | grep -E "^  $1 " | tr -s ' '; }
+[[ "$(row init)" == ' init 1 $1' ]] && ok "one row per skill, with its runs and cost" || no "one row per skill (got '$(row init)')"
+[[ "$(row implement)" == ' implement 1 $3' ]] && ok "implement task-group ends in one invocation are one run" || no "implement task-group ends are one run (got '$(row implement)')"
+[[ "$(row validate)" == ' validate 1 $3' ]] && ok "the validate row carries its cost" || no "the validate row carries its cost (got '$(row validate)')"
+assert_contains '      wd-judge' "$FIN_TAIL" "the validate row is broken down by the sub-agents that ran"
+assert_contains 'models claude-haiku-4-5' "$FIN_TAIL" "each validate sub-agent names its model"
+[[ "$(printf '%s\n' "$FIN_TAIL" | grep -c '^      ')" == "$(printf '%s\n' "$FIN_TAIL" | sed -n '/^  validate /,/^  [a-z]/p' | grep -c '^      ')" ]] \
+  && ok "only the validate row has sub-agent rows" || no "only the validate row has sub-agent rows"
+[[ "$(row total)" == ' total 3 $7' ]] && ok "the total row sums every run" || no "the total row sums every run (got '$(row total)')"
+assert_contains 'Note: this total covers only the spend of workflow-dev skill runs' "$FIN_TAIL" "the report ends with what is not measured"
+tx "$FIN_TX" 11 80 1; run_snap WD-FIN save "$FIN_TX" start >/dev/null
+touch -t 202001010000 "$FIN_TX"
+FIN2=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID bash "$SCRIPT" --story WD-FIN --final )
+assert_contains '  save                    1  ≥$0' "$FIN2" "a skill with an open run is marked ≥"
+case "$(printf '%s\n' "$FIN2" | grep -E '^  total ')" in *'≥$7'*) ok "an open run marks the total ≥" ;; *) no "an open run marks the total ≥" ;; esac
+( cd "$RUN_PROJ" && bash "$SCRIPT" --final >/dev/null 2>&1 ); [[ $? -eq 2 ]] && ok "--final without --story exits 2" || no "--final without --story exits 2"
+assert_contains 'no checkpoints recorded' "$( cd "$RUN_PROJ" && bash "$SCRIPT" --story WD-NOFIN --final )" "--final with no ledger says so"
+EST_FIN=$( cd "$EST_PROJ" && bash "$SCRIPT" --story WD-RC --final )
+assert_contains '≈' "$(printf '%s\n' "$EST_FIN" | sed -n '/Closing cost report/,$p' | grep -E '^  total ')" "an estimated story is marked ≈ in the closing report"
+
+# --- 6q: what the story-end adversarial pass broke, pinned (WD-0054) --------
+# Q_* helpers append to one transcript: q_msg adds a priced opus message,
+# q_cs a cost-state (the exact figure), so a reading is exact only right
+# after q_cs. OPUS_IN is the table input rate, read from the table itself.
+OPUS_IN=$(jq -r '.models["claude-opus-5-5"].input' "$HERE/model-prices.json")
+q_new() { Q_TX="$TMP/q-$1.jsonl"; : > "$Q_TX"; Q_N=0; }
+q_msg() { Q_N=$((Q_N + 1)); printf '{"type":"assistant","timestamp":"2026-10-08T00:%02d:00Z","message":{"id":"q%s","model":"claude-opus-5-5","usage":{"input_tokens":%s,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$Q_N" "$Q_N" "$1" >> "$Q_TX"; }
+q_cs() { printf '{"type":"cost-state","totalCostUSD":%s,"modelUsage":{"claude-opus-5-5":{"costUSD":%s}}}\n' "$1" "$1" >> "$Q_TX"; }
+qi() { jq -r ".stories[\"$1\"] | $2" "$RUN_IDX"; }
+
+# F1: an estimated start, an exact end. The run is priced at both ends from
+# the table (the 200k tokens between them), never exact minus estimate.
+q_new f1; q_msg 10; q_cs 1.0; q_msg 1000000
+run_snap WD-QF1 plan "$Q_TX" start >/dev/null
+q_msg 200000; q_cs 9.0
+run_snap WD-QF1 plan "$Q_TX" >/dev/null
+Q_WANT=$(awk -v r="$OPUS_IN" 'BEGIN{printf "%.4f", 200000 * r / 1000000}')
+[[ "$(rj WD-QF1 '.checkpoints[-1].delta * 10000 | round / 10000 | tostring')" == "$(awk -v w="$Q_WANT" 'BEGIN{print w + 0}')" && "$(rj WD-QF1 '.checkpoints[-1].delta_basis')" == "priced" ]] \
+  && ok "an estimated start makes the run priced from the table at both ends" || no "an estimated start makes the run priced at both ends (got $(rj WD-QF1 '.checkpoints[-1] | [.delta, .delta_basis] | tojson'), want $Q_WANT)"
+[[ "$(qi WD-QF1 '[.estimated, .lower_bound] | @csv')" == 'true,true' ]] \
+  && ok "a run priced from the table is marked estimated and a lower bound" || no "a priced run is marked estimated (got $(qi WD-QF1 '[.estimated, .lower_bound] | @csv'))"
+
+# F2: story B run nested inside story A run, one session. B is taken out of A,
+# measured with the same yardstick (the table), so A keeps exactly its own
+# spend. 250k opus input tokens = 250000 * OPUS_IN / 1e6 dollars ($Q_U).
+Q_U=$(awk -v r="$OPUS_IN" 'BEGIN{print 250000 * r / 1000000}')
+q_new f2; q_msg 10; q_cs 1; run_snap WD-QA init "$Q_TX" start >/dev/null
+q_msg 250000; q_cs 2; run_snap WD-QB resume "$Q_TX" start >/dev/null
+q_msg 250000; q_cs 3; run_snap WD-QB resume "$Q_TX" >/dev/null
+q_msg 250000; q_cs 4; run_snap WD-QA init "$Q_TX" >/dev/null
+[[ "$(qi WD-QA .total_usd)" == "$(awk -v u="$Q_U" 'BEGIN{print 2 * u}')" && "$(qi WD-QB .total_usd)" == "1" && "$(rj WD-QA '.checkpoints[-1].nested_usd')" == "$Q_U" ]] \
+  && ok "a run of another story nested inside a run is counted once" || no "a nested run of another story is counted once (A $(qi WD-QA .total_usd), B $(qi WD-QB .total_usd), nested $(rj WD-QA '.checkpoints[-1].nested_usd'))"
+# The same with B exact and A priced at its start (the case that went below
+# zero when an exact nested figure was taken out of a priced run).
+q_new f2m; q_msg 250000; run_snap WD-QAM implement "$Q_TX" start >/dev/null
+q_msg 250000; q_cs 3; run_snap WD-QBM plan "$Q_TX" start >/dev/null
+q_msg 250000; q_cs 5.5; run_snap WD-QBM plan "$Q_TX" >/dev/null
+q_msg 10; run_snap WD-QAM implement "$Q_TX" >/dev/null
+awk -v t="$(qi WD-QAM .total_usd)" 'BEGIN{exit !(t >= 0)}' \
+  && ok "a nested exact run never makes a priced run negative" || no "a nested exact run never makes a priced run negative (got $(qi WD-QAM .total_usd))"
+
+# A run of one story waiting on the human while another story skill runs in
+# the same live session is still in progress, not a gap: the two cannot be
+# told apart until the session goes quiet.
+q_new f6; q_msg 10; q_cs 1; run_snap WD-QG6 init "$Q_TX" start >/dev/null
+q_msg 10; q_cs 2; run_snap WD-QH6 init "$Q_TX" start >/dev/null
+[[ "$(qi WD-QG6 .open_runs)" == "0" ]] && ok "an outer run stays in progress while another story run is open" || no "an outer run stays in progress while another story runs (got $(qi WD-QG6 .open_runs))"
+q_msg 10; q_cs 3; run_snap WD-QH6 init "$Q_TX" >/dev/null
+touch -t 202001010000 "$Q_TX"
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QG6 >/dev/null 2>&1 )
+[[ "$(qi WD-QG6 .open_runs)" == "1" ]] && ok "once the session is quiet, the run left open is a gap" || no "once the session is quiet, the open run is a gap (got $(qi WD-QG6 .open_runs))"
+
+# F7 + J2: an exact start, an estimated end, then the exact figure lands:
+# reconcile settles the run exactly, inside the same run; the next end of the
+# same implement invocation continues it. A run whose start was an estimate
+# is never settled.
+q_new f7; q_msg 10; q_cs 1; run_snap WD-QF7 implement "$Q_TX" start >/dev/null
+q_msg 100000; run_snap WD-QF7 implement "$Q_TX" >/dev/null
+q_cs 2.5
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QF7 >/dev/null 2>&1 )
+q_msg 10; q_cs 3; run_snap WD-QF7 implement "$Q_TX" >/dev/null
+[[ "$(rj WD-QF7 '[.checkpoints[].run] | unique | length')" == "1" && "$(rj WD-QF7 '[.checkpoints[].stage] | @csv')" == '"implement","implement","reconcile","implement"' ]] \
+  && ok "a reconcile in the middle of a run stays in that run" || no "a reconcile mid-run stays in the run (got $(rj WD-QF7 '[.checkpoints[] | [.stage, .run]] | tojson'))"
+[[ "$(qi WD-QF7 '[.total_usd, .estimated] | @csv')" == '2,false' ]] \
+  && ok "an exact reconcile settles a run that started exact" || no "an exact reconcile settles the run (got $(qi WD-QF7 '[.total_usd, .estimated] | @csv'))"
+q_new j2; q_msg 10; q_cs 1; q_msg 100000; run_snap WD-QJ2 plan "$Q_TX" start >/dev/null
+q_msg 100000; run_snap WD-QJ2 plan "$Q_TX" >/dev/null
+q_cs 7
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QJ2 >/dev/null 2>&1 )
+[[ "$(rj WD-QJ2 '[.checkpoints[] | select(.stage == "reconcile")] | length')" == "0" && "$(qi WD-QJ2 .estimated)" == "true" ]] \
+  && ok "a run that started from an estimate is never settled, and stays estimated" || no "a run started from an estimate stays estimated (got $(qi WD-QJ2 .estimated))"
+
+# U: an unpriced start, an unpriced end, then a priced end in the same run.
+# The run never reaches back past its start: its cost stays unknown (≥).
+RSU="$TMP/run-u.jsonl"
+tx "$RSU" 1 5 1;  run_snap WD-QU plan "$RSU" >/dev/null
+tx "$RSU" - 10 1; run_snap WD-QU implement "$RSU" start >/dev/null
+tx "$RSU" - 15 1; run_snap WD-QU implement "$RSU" >/dev/null
+tx "$RSU" 5 20 1; run_snap WD-QU implement "$RSU" >/dev/null
+[[ "$(rj WD-QU '[.checkpoints[].delta] | @csv')" == '1,0,,' && "$(qi WD-QU '[.total_usd, .lower_bound] | @csv')" == '1,true' ]] \
+  && ok "a run with no price at its start never counts the chat before it" || no "a run with no price at its start never counts earlier chat (got $(rj WD-QU '[.checkpoints[].delta] | @csv') $(qi WD-QU '[.total_usd, .lower_bound] | @csv'))"
+
+# R2: a settle covers the run entries before it, never an end after it.
+q_new r2; q_msg 10; q_cs 1; run_snap WD-QR2 implement "$Q_TX" start >/dev/null
+q_msg 100000; run_snap WD-QR2 implement "$Q_TX" >/dev/null
+q_cs 2.5
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QR2 >/dev/null 2>&1 )
+q_msg 100000; run_snap WD-QR2 implement "$Q_TX" >/dev/null
+[[ "$(qi WD-QR2 .estimated)" == "true" ]] && ok "an end priced after a settle is still an estimate" || no "an end priced after a settle is still an estimate"
+# R4: one message of a model with no price early in a session does not make
+# every later priced run unknown, once its tokens stop moving.
+q_new r4
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:00Z","message":{"id":"mx","model":"mystery-1","usage":{"input_tokens":50,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' >> "$Q_TX"
+q_cs 3; q_msg 10; run_snap WD-QR4 implement "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QR4 implement "$Q_TX" >/dev/null
+[[ "$(rj WD-QR4 '.checkpoints[-1].delta')" == "$Q_U" ]] && ok "an unpriced model with no new tokens costs nothing in a later run" || no "an unpriced model does not poison later runs (got $(rj WD-QR4 '.checkpoints[-1].delta'))"
+# The checkpoint line marks a priced run as an estimate, even with an exact end.
+q_new mk; q_msg 10; q_cs 1; q_msg 250000; run_snap WD-QMK plan "$Q_TX" start >/dev/null
+q_msg 250000; q_cs 9; QMK=$(run_snap WD-QMK plan "$Q_TX")
+assert_contains '(estimated)' "$QMK" "the checkpoint line marks a priced run as an estimate"
+( cd "$RUN_PROJ" && bash "$SCRIPT" --snapshot WD-QT --stage plan --transcript --start >/dev/null 2>&1 ); [[ $? -eq 2 ]] \
+  && ok "--transcript followed by a flag exits 2" || no "--transcript followed by a flag exits 2"
+
+# N1: three stories nested A ⊃ B ⊃ C: only the outermost nested run is taken
+# out of A, so C is not subtracted twice.
+q_new n1; q_msg 250000; q_cs 1; run_snap WD-QN1A implement "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QN1B validate "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QN1C plan "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QN1C plan "$Q_TX" >/dev/null
+q_msg 250000; run_snap WD-QN1B validate "$Q_TX" >/dev/null
+q_msg 250000; run_snap WD-QN1A implement "$Q_TX" >/dev/null
+[[ "$(qi WD-QN1A .total_usd)" == "$(awk -v u="$Q_U" 'BEGIN{print 2 * u}')" && "$(qi WD-QN1B .total_usd)" == "$(awk -v u="$Q_U" 'BEGIN{print 2 * u}')" && "$(qi WD-QN1C .total_usd)" == "$Q_U" ]] \
+  && ok "a doubly nested run is taken out once" || no "a doubly nested run is taken out once (A $(qi WD-QN1A .total_usd) B $(qi WD-QN1B .total_usd) C $(qi WD-QN1C .total_usd))"
+
+# N2: every reading exact, a nested run, and spend the transcript cannot see
+# (a model only in the cost-state): the run stays exact.
+q_csm() { printf '{"type":"cost-state","totalCostUSD":%s,"modelUsage":{"claude-opus-5-5":{"costUSD":%s},"claude-haiku-4-5":{"costUSD":%s}}}\n' "$1" "$2" "$3" >> "$Q_TX"; }
+q_new n2; q_msg 250000; q_csm 1.5 1 0.5; run_snap WD-QN2A plan "$Q_TX" start >/dev/null
+q_msg 250000; q_csm 3 2 1; run_snap WD-QN2B plan "$Q_TX" start >/dev/null
+q_msg 250000; q_csm 4.5 3 1.5; run_snap WD-QN2B plan "$Q_TX" >/dev/null
+q_msg 250000; q_csm 6 4 2; run_snap WD-QN2A plan "$Q_TX" >/dev/null
+[[ "$(qi WD-QN2A '[.total_usd, .estimated] | @csv')" == '3,false' && "$(rj WD-QN2A '.checkpoints[-1].delta_basis')" == "exact" ]] \
+  && ok "a run exact at every reading, nested ones included, stays exact" || no "an all-exact nested run stays exact (got $(qi WD-QN2A '[.total_usd, .estimated] | @csv'))"
+
+# N3: a priced run counts fast mode and the 5-minute cache-write rate the way
+# the snapshot does: the run equals the change in the orchestrator figure.
+q_new n3
+printf '{"type":"assistant","timestamp":"2026-10-08T00:01:00Z","message":{"id":"f1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' >> "$Q_TX"
+q_cs 1; run_snap WD-QN3 plan "$Q_TX" start >/dev/null
+printf '{"type":"assistant","timestamp":"2026-10-08T00:02:00Z","message":{"id":"f2","model":"claude-opus-5-5","usage":{"input_tokens":250000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":100000,"cache_creation":{"ephemeral_5m_input_tokens":100000,"ephemeral_1h_input_tokens":0},"speed":"fast"}}}\n' >> "$Q_TX"
+run_snap WD-QN3 plan "$Q_TX" >/dev/null
+[[ "$(rj WD-QN3 '.checkpoints[-1] | (.delta - .agent_deltas.orchestrator.cost_usd) | fabs < 0.0001')" == "true" ]] \
+  && ok "a priced run counts fast mode and the cache-write TTL like the snapshot" || no "a priced run counts fast mode and the TTL (got $(rj WD-QN3 '.checkpoints[-1] | [.delta, .agent_deltas.orchestrator.cost_usd] | @csv'))"
+
+# N4 + N5: an exact start, an unpriced end, then the exact figure settles it:
+# the settled total is not a lower bound. A nested estimate refuses the settle
+# quietly, with a message that names the cause.
+q_new n4; q_msg 10; q_cs 1; run_snap WD-QN4 implement "$Q_TX" start >/dev/null
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:05:00Z","message":{"id":"mz","model":"mystery-1","usage":{"input_tokens":50,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' >> "$Q_TX"
+run_snap WD-QN4 implement "$Q_TX" >/dev/null
+q_cs 2.5
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QN4 >/dev/null 2>&1 )
+[[ "$(qi WD-QN4 '[.total_usd, .lower_bound] | @csv')" == '1.5,false' ]] \
+  && ok "a settled run is exact, not a lower bound" || no "a settled run is not a lower bound (got $(qi WD-QN4 '[.total_usd, .lower_bound] | @csv'))"
+q_new n5; q_msg 10; q_cs 1; run_snap WD-QN5A implement "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QN5B plan "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QN5B plan "$Q_TX" >/dev/null
+q_msg 10; run_snap WD-QN5A implement "$Q_TX" >/dev/null
+q_cs 4
+QN5=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QN5A 2>&1 )
+[[ -z "$QN5" && "$(rj WD-QN5A '[.checkpoints[] | select(.stage == "reconcile")] | length')" == "0" ]] \
+  && ok "a run that cannot be settled exactly is left quietly as an estimate" || no "an unsettleable run is left quietly (got: $QN5)"
+
+# One unpriced message (fast mode on a model with no fast rate) before a run
+# does not leave that run unknown: the run's own messages are priced.
+q_new r71
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:01Z","message":{"id":"h0","model":"claude-haiku-4-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"speed":"fast"}}}' >> "$Q_TX"
+q_cs 3; run_snap WD-QR71 implement "$Q_TX" start >/dev/null
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:05Z","message":{"id":"h1","model":"claude-haiku-4-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}' >> "$Q_TX"
+run_snap WD-QR71 implement "$Q_TX" >/dev/null
+Q_H=$(jq -r '.models["claude-haiku-4-5"].input' "$HERE/model-prices.json")
+[[ "$(rj WD-QR71 '.checkpoints[-1].delta')" == "$Q_H" ]] && ok "an unpriced message before a run does not leave the run unknown" || no "an unpriced message before a run does not leave it unknown (got $(rj WD-QR71 '.checkpoints[-1].delta'), want $Q_H)"
+# Two nested runs over the same interval in the same second: one is taken out.
+q_new r74; q_msg 10; q_cs 1; run_snap WD-QR74A implement "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QR74B plan "$Q_TX" start >/dev/null; run_snap WD-QR74C plan "$Q_TX" start >/dev/null
+q_msg 250000; run_snap WD-QR74C plan "$Q_TX" >/dev/null; run_snap WD-QR74B plan "$Q_TX" >/dev/null
+q_msg 250000; run_snap WD-QR74A implement "$Q_TX" >/dev/null
+[[ "$(rj WD-QR74A '.checkpoints[-1].nested_usd * 10000 | round / 10000')" == "$Q_U" ]] && ok "two nested runs over one interval are taken out once" || no "two nested runs over one interval are taken out once (got $(rj WD-QR74A '.checkpoints[-1].nested_usd'))"
+
+# A fast-mode message on a model with no fast rate, inside a run: unknown,
+# never priced at the standard rate.
+q_new p91; q_msg 250000; q_cs 1; run_snap WD-QP91 plan "$Q_TX" start >/dev/null
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:09:00Z","message":{"id":"hf","model":"claude-haiku-4-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"speed":"fast"}}}' >> "$Q_TX"
+run_snap WD-QP91 plan "$Q_TX" >/dev/null 2>&1
+[[ "$(rj WD-QP91 '.checkpoints[-1].delta')" == "null" ]] && ok "an unpriced message inside a run leaves the run unknown" || no "an unpriced message inside a run leaves it unknown (got $(rj WD-QP91 '.checkpoints[-1].delta'))"
+
+# F3: a pre-WD-0054 end (no kind, no run) reconciled later is shown under its
+# own skill in the closing report, not as a "reconcile" row.
+q_new f3; q_msg 10; q_cs 1; q_msg 100000
+run_snap WD-QF3 validate "$Q_TX" >/dev/null
+jq '.checkpoints |= map(del(.kind, .run, .delta_basis))' "$RUN_USAGE/WD-QF3.json" > "$RUN_USAGE/WD-QF3.t" && mv "$RUN_USAGE/WD-QF3.t" "$RUN_USAGE/WD-QF3.json"
+q_cs 2
+( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --reconcile WD-QF3 >/dev/null 2>&1 )
+QF3=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID bash "$SCRIPT" --story WD-QF3 --final | sed -n '/Closing cost report/,$p' )
+[[ "$(rj WD-QF3 '[.checkpoints[].stage] | @csv')" == '"validate","reconcile"' && "$QF3" != *"  reconcile "* && "$(printf '%s\n' "$QF3" | grep -E '^  total ' | tr -s ' ')" == ' total 1 $2' ]] \
+  && ok "a reconcile of a legacy end counts under its skill, with no extra run" || no "a reconcile of a legacy end counts under its skill (got: $(printf '%s' "$QF3" | tr '\n' '|'))"
+
+# F4 + F5: validate nested in implement — its sub-agents are listed under the
+# implement row; an agent with no new spend in a run is not listed.
+fin_main() { # FILE COST INPUT — rewrite only the main thread, keep the side-chain
+  { printf '{"type":"assistant","timestamp":"2026-10-08T00:00:01Z","message":{"id":"r","model":"m","usage":{"input_tokens":%s,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$3"
+    printf '%s\n' '{"type":"assistant","timestamp":"2026-10-08T00:00:02Z","message":{"id":"r2","model":"m","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"tu_fj","name":"Agent","input":{"subagent_type":"wd-judge"}}]}}'
+    printf '{"type":"cost-state","totalCostUSD":%s,"modelUsage":{"m":{"costUSD":%s}}}\n' "$2" "$2"; } > "$1"
+}
+rm -rf "$TMP/fin"; FIN4="$TMP/fin.jsonl"
+fin_agent "$FIN4" 1 10;  run_snap WD-QF4 implement "$FIN4" start >/dev/null
+fin_agent "$FIN4" 3 20;  run_snap WD-QF4 implement "$FIN4" >/dev/null
+fin_main "$FIN4" 4 30;   run_snap WD-QF4 save "$FIN4" start >/dev/null
+fin_main "$FIN4" 5 40;   run_snap WD-QF4 save "$FIN4" >/dev/null
+QF4=$( cd "$RUN_PROJ" && env -u CLAUDE_CODE_SESSION_ID bash "$SCRIPT" --story WD-QF4 --final | sed -n '/Closing cost report/,$p' )
+[[ "$(printf '%s\n' "$QF4" | sed -n '/^  implement /,/^  [a-z]/p' | grep -c '^      wd-judge')" == "1" ]] \
+  && ok "sub-agents that spent inside an implement run are listed under it" || no "sub-agents inside an implement run are listed (got: $(printf '%s' "$QF4" | tr '\n' '|'))"
+[[ "$(printf '%s\n' "$QF4" | sed -n '/^  save /,/^  total /p' | grep -c '^      ')" == "0" ]] \
+  && ok "an agent with no new spend in a run is not listed" || no "an agent with no new spend is not listed (got: $(printf '%s' "$QF4" | tr '\n' '|'))"
+
+# F8: a flag where a value belongs is refused, never taken as the value; a
+# missing value exits instead of looping.
+( cd "$RUN_PROJ" && bash "$SCRIPT" --snapshot --start --stage plan "$RSU" >/dev/null 2>&1 ); RC=$?
+[[ $RC -eq 2 && ! -e "$RUN_USAGE/--start.json" ]] && ok "--snapshot followed by a flag exits 2 and writes no ledger" || no "--snapshot followed by a flag exits 2 (rc $RC)"
+( cd "$RUN_PROJ" && bash "$SCRIPT" --snapshot WD-QX --stage --start "$RSU" >/dev/null 2>&1 ); RC=$?
+[[ $RC -eq 2 && ! -e "$RUN_USAGE/WD-QX.json" ]] && ok "--stage followed by a flag exits 2" || no "--stage followed by a flag exits 2 (rc $RC)"
+( cd "$RUN_PROJ" && bash "$SCRIPT" --story >/dev/null 2>&1 ) & QPID=$!
+sleep 3
+if kill -0 "$QPID" 2>/dev/null; then kill "$QPID" 2>/dev/null; no "--story with no value exits instead of looping"
+else wait "$QPID"; [[ $? -eq 2 ]] && ok "--story with no value exits 2" || no "--story with no value exits 2"; fi
+( cd "$RUN_PROJ" && bash "$SCRIPT" --story -x >/dev/null 2>&1 ); true
+[[ "$( cd "$RUN_PROJ" && bash "$SCRIPT" --snapshot -x --stage plan "$RSU" 2>/dev/null; echo "rc=$?" )" == *"rc=1"* && ! -e "$RUN_USAGE/-x.json" ]] \
+  && ok "a story id that starts with a dash is refused" || no "a story id that starts with a dash is refused"
+
+# J1: a ledger source that is not an absolute path is never handed to find,
+# whatever its name; such a start simply counts as not live.
+J1D="$TMP/j1"; mkdir -p "$J1D/.workflow-dev/context/.usage"; : > "$J1D/-delete"; : > "$J1D/keep"
+printf '%s\n' '{"story":"WD-QJ1","checkpoints":[{"source":"-delete","harness":"claude","kind":"start","run":1,"stage":"plan","cost_usd":1,"delta":0,"tokens":{"input":1,"output":0,"reasoning":0,"cache_read":0,"cache_write":0},"recorded_at":"2026-10-08T00:00:00Z"}]}' > "$J1D/.workflow-dev/context/.usage/WD-QJ1.json"
+tx "$TMP/j1-tx.jsonl" 1 5 1
+( cd "$J1D" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" --snapshot WD-QJ1B --stage plan "$TMP/j1-tx.jsonl" >/dev/null 2>&1 )
+[[ -f "$J1D/keep" && -f "$J1D/-delete" && "$(jq -r '.stories["WD-QJ1"].open_runs' "$J1D/.workflow-dev/context/.usage/.index.json")" == "1" ]] \
+  && ok "a ledger source that is not an absolute path is never probed" || no "a non-absolute ledger source is never probed"
 
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before

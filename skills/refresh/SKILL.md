@@ -46,6 +46,9 @@ From the story file, extract: story ID, epic ID (if any), Confluence links (if a
 
 From REPO.md, extract: recorded stack versions, last-update timestamp, listed key files.
 
+Then record this run's start (`references/run-cost.md` at the plugin root,
+`--stage refresh --start`).
+
 ### Step 2: Check each source for drift
 
 **Jira story**
@@ -126,6 +129,10 @@ Options: update everything / let me choose / don't update.
 ### Step 5: Execute
 
 Apply the confirmed changes to the corresponding file(s) and bump the timestamp on each one modified.
+
+Then record this run's end and show its line (`references/run-cost.md`,
+`--stage refresh`). It is the run's last step, also when the human chose not
+to update anything.
 
 ## Severity levels
 
