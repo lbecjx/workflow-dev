@@ -206,13 +206,22 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    - **Never the fast tier**: it makes more subtle errors when it implements,
      and each one costs another `validate` round.
 
-   Skip the notice when the session already runs at the recommended tier. A
-   session above it still sees the notice: the intermediate tier is where the
-   saving is. Otherwise write at most 3 lines, per
-   `references/user-language.md`: name the model this session runs on, name the
-   recommended tier (a tier, never a model), and say the human can switch the
-   session's model with the harness's model-switching capability — name the
-   capability, not a command (`references/harness-tools.md`).
+   **Map the tier to models yourself, at runtime.** A tier is a class, and it
+   can hold more than one model: the top tier is the provider's flagship
+   class **and every model above it**, not only the single most capable one —
+   a newer model ranking above the flagship does not push the flagship out of
+   the top tier. Infer which models fall in each tier from what you know of the
+   models on offer — this file never lists them, since the list changes with
+   every release. When you are unsure whether a model is top tier, count it in.
+
+   Skip the notice when the session's model is one of the models you inferred
+   for the recommended tier. A session above it still sees the notice: the
+   intermediate tier is where the saving is. Otherwise write at most 3 lines,
+   per `references/user-language.md`: name the model this session runs on, name
+   the recommended tier and the models you inferred for it, and say the human
+   can switch the session's model with the harness's model-switching
+   capability — name the capability, not a command
+   (`references/harness-tools.md`).
 
 ### Phase 7: Ask the human
 

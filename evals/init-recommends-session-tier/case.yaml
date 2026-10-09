@@ -5,9 +5,10 @@ description: >
   default model chosen for the repo (`tiering: default`), none of the planning
   and validating roles is bound, so the recommended tier for the session's
   model is the top tier. The notice is information only: init must not ask
-  about it, must speak in tiers rather than model names, and stays within three
-  lines. A session already on the top tier skips the notice, so the grader
-  accepts either outcome as long as the run says which one happened.
+  about it, names the models it counts in the recommended tier, and stays within
+  three lines. A session whose model is one of the top-tier models skips the
+  notice, so the grader accepts either outcome as long as the run says which
+  one happened.
 
   The intermediate-tier branch needs all three roles bound to a top-tier model,
   which means real files under ~/.claude/agents/ — evals run as the user with no
