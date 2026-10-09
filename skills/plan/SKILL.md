@@ -271,6 +271,10 @@ If human approves, write the plan as a new section in the story.md file:
 
 Tell the human the plan is saved and suggest running `/workflow-dev:implement` to start on Task Group 1.
 
+In autonomous mode, don't suggest: run `/workflow-dev:implement` in the same
+turn, right after this run's end checkpoint below (`references/autonomous-mode.md`
+at the plugin root, "Chaining").
+
 Then, as this run's last step, record its end and show its line
 (`references/run-cost.md`, `--stage plan`): the approval and the two one-time
 questions above are part of the run.

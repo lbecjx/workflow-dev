@@ -22,6 +22,7 @@ The workflow is human-piloted by default and stays that way — see [What this i
 
 Autonomous mode removes the per-step confirmations, not the guardrails:
 
+- **It asks only once, and only what blocks.** At the end of `init`, before going autonomous, it tells you it is checking for questions that could block the run, infers what it can, and asks only what it cannot settle (an ambiguous acceptance criterion, say), or tells you there is nothing to ask. From then on it asks nothing.
 - **Decisions are inferred, recorded, and reported.** Each decision point the human would normally answer is resolved with an explicit rule, written to the story's Decisions table, and surfaced in an end-of-run report. Nothing is silently skipped.
 - **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never bypasses the AI/agent attribution block — the one rule with no bypass, autonomous or not.
 - **The quality gate is load-bearing.** A blocking finding stops the run; it is never downgraded to a warning so the run can continue.
