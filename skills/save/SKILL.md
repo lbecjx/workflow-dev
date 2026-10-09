@@ -54,6 +54,13 @@ Look for `.workflow-dev/context/` in the current project:
 
 Neither found → tell the human there's no active context yet and suggest running `/workflow-dev:init` first.
 
+Found → record this run's start (`references/run-cost.md` at the plugin root,
+`--stage save --start`) — unless another workflow-dev skill's run is still
+open in this conversation: it invoked this save (`implement` saves after every
+task group in autonomous mode), or a hook asked for it mid-run (the save after a
+compaction). Then this save is part of that run and records nothing, here or at
+Step 7.
+
 ### Step 2: Read the current context files
 
 Load both so you know what's already recorded — this is what keeps you from duplicating an entry.
@@ -166,12 +173,13 @@ Marked [STORY-ID] as saved through line 1234 (2026-01-01 at 5:00 PM) — future 
 
 This has actually happened, wrong, in a real session: the confirmation shown to the human used a shorter line Claude wrote itself instead of relaying the script's output, sourcing the raw UTC `dateTime` from `.compaction-state/[STORY-ID].json` and displaying it as if it were already local — several hours off from the real local time. Never read that JSON file's `dateTime` field yourself for this purpose, no matter how tempting it is to write a shorter or differently-styled summary line — that field exists in UTC specifically for `save-mark-saved.sh` to convert, not for direct display, and the script's own sentence above is what belongs in the confirmation, unedited.
 
-Then record the save checkpoint (WD-0037):
-`"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage save`,
-and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
-`save` is the safety net — it runs on compaction and on session close — so this
-is the checkpoint that most often survives a session that is later deleted.
-`PLUGIN_ROOT` resolves exactly as `save-mark-saved.sh` above does.
+### Step 7: Record the run's end
+
+Always, whether or not Step 6 ran, as this run's last step: record its end and
+show its line (`references/run-cost.md`, `--stage save`), unless it is nested
+(Step 1). `save` is the safety net — it runs on compaction and on session close
+— so this is the checkpoint that most often survives a session that is later
+deleted.
 
 ## Classification rules
 

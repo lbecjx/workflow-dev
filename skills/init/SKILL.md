@@ -70,6 +70,14 @@ If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.
 6. Skip epic lookup unless the file names one that resolves in Jira.
 7. Follow Phase 2 for any explicit Confluence links the file contains.
 
+### Open the run's cost (once the STORY-ID is known)
+
+Record this run's start: `references/run-cost.md` (at the plugin root), with
+`--stage init --start`. It comes here, after Phase 0 and Phase 1 / 1-alt, rather
+than as the very first step: the STORY-ID is only known once the story is read,
+and a first `init` in a project must not create `.workflow-dev/context/.usage/`
+before Phase 0 has settled whether `.workflow-dev/` is gitignored.
+
 ### Phase 2: Extract from Confluence (only if links exist)
 
 1. Read the linked TDD — pull the relevant sections, not the whole document.
@@ -104,7 +112,8 @@ no skill, and answers `not-ours`, making this step a silent no-op. Then:
 - `ok` → continue silently.
 - `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline
   (`/workflow-dev:setup-models`) — main agent, interactive, never a sub-agent —
-  then continue where you left off.
+  then continue where you left off. It runs inside this `init` run, so it
+  records no cost of its own (`references/run-cost.md`).
 - `opted-out` → skip silently (a default model was chosen for this repo or this story).
 - `no-harness` / `no-registry` → say that tiering couldn't be set up and that
   everything runs on the default model, then proceed.
@@ -156,15 +165,9 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
 4. Link to REPO.md at the top instead of duplicating repo-level facts.
 5. Map exemplar files to the ACs they inform.
 6. Mark anything unresolved with ⬜ and a note on what's missing.
-7. **Record the story's base cost checkpoint** (WD-0037). Run
-   `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage init`
-   and show the line it prints — this step's spend and the story's running
-   total; when it also prints a `spend verified ✓` line, tell the human the
-   story's spend is now verified. It appends to the story's durable ledger
-   (`.workflow-dev/context/.usage/[STORY-ID].json`), so the cost outlives the
-   session that produced it. Best-effort: an unresolvable source is reported
-   `unavailable`, never a zero. Resolve `PLUGIN_ROOT` as `references/workflow.md`
-   Step 6 does (`${CLAUDE_PLUGIN_ROOT}` when set, else the `cd -P` fallback).
+7. The run's cost is **not** recorded here: Phase 7's questions and answers
+   are part of this run, so the end checkpoint comes after them ("Close the
+   run's cost", below).
 
 8. **Resolve the run mode** (WD-0039). Skip this step when the story's
    Decisions already carries an `Autonomous mode: on|off` row, or when the human
@@ -236,6 +239,13 @@ ask: resolve each ⬜ by the infer + record + report rule in
 into the context files, and carry every ⬜ into the end-of-run report. Never
 invent an acceptance criterion to close a ⬜ — if one is genuinely ambiguous,
 record it as deferred and let the report surface it.
+
+### Close the run's cost
+
+The last step of `init`, once the story file holds the human's answers (or the
+inferred ones): record the run's end and show its line, per
+`references/run-cost.md` (`--stage init`). The ledger outlives the session that
+produced it.
 
 ## After init
 

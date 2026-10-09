@@ -53,6 +53,12 @@ unreviewed.
 
 ### Step 1: Determine what's needed
 
+Record this run's start (`references/run-cost.md` at the plugin root,
+`--stage summarize-changes --start`) — unless another workflow-dev skill invoked
+this one and its steps are still running (`implement` Step 5, `validate`
+Step 7); then this run is part of that one and records nothing, here or at
+Step 5.
+
 Autonomous mode (`Autonomous mode: on` in the story's Decisions —
 `references/autonomous-mode.md` at the plugin root) changes nothing about what
 this skill does: it still drafts, still runs the independent Part 12 review
@@ -139,13 +145,21 @@ label, not only a `#n`. `post-pr-url-check.sh` reminds for this after a
 successful command (WD-0024), but the reminder only reaches the agent;
 relaying it to the human is still this step's job.
 
-Before handing back, show the story's **final accumulated cost** (WD-0037): run
-`"$PLUGIN_ROOT"/scripts/session-usage.sh --story [STORY-ID]` and present its
-report — the total by stage and by session, the per-agent/role breakdown, the
-configured role→model binding, and the reminder that roles change via
-`/workflow-dev:setup-models`. This is the story's closing cost, totalled from
-its durable ledger, so it is correct even after the sessions that produced it
-are gone. `PLUGIN_ROOT` resolves as `git-message-mark-reviewed.sh` above does.
+Before handing back, record this run's end and show its line
+(`references/run-cost.md`, `--stage summarize-changes`; skipped when nested), so
+the closing report below includes this run. Then show the story's **final
+accumulated cost** (WD-0037, WD-0054): run
+`"$PLUGIN_ROOT"/scripts/session-usage.sh --story [STORY-ID] --final` and present
+its output in full. First comes the usual report: the total by stage and by
+session, the per-agent/role breakdown, the configured role→model binding, and
+the reminder that roles change via `/workflow-dev:setup-models`. Then the
+**closing cost report**: one row per skill (runs, cost, `≈`/`≥`), each row
+whose runs had sub-agents (`validate`, or `implement` when validate ran inside
+it) split by sub-agent with each one's model, the total, and the
+note that spend outside skill runs (chat between skills, other work in the
+session) is not recorded. This is the story's closing cost, totalled from its
+durable ledger, so it is correct even after the sessions that produced it are
+gone. `PLUGIN_ROOT` resolves as `git-message-mark-reviewed.sh` above does.
 
 ## Principles
 

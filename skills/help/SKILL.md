@@ -19,6 +19,8 @@ Detects current project state and suggests the next step. Shows available skills
 
 **Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
 
+**No cost checkpoint.** This skill is not part of a story, so it never records a start or an end, also when it runs inside another skill's run: its spend is that run's (`references/run-cost.md` at the plugin root).
+
 ## Execution
 
 ### Step 1: Detect project state

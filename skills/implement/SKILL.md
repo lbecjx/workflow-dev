@@ -41,6 +41,11 @@ Executes the next task group from the story's plan section: loads every executio
 
 0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root). Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path.
 
+0b. **Record this run's start** — once per invocation, however many task groups
+   it then runs (`references/run-cost.md` at the plugin root,
+   `--stage implement --start`). The `validate`, `save` and `summarize-changes`
+   runs this skill invokes are nested in it and record nothing of their own.
+
 1. Read `.workflow-dev/context/[STORY-ID].md` — find the Plan section, identify next task group (first with status "Not Started" or "In Progress")
 2. Read `.workflow-dev/context/REPO.md` — project conventions, prohibitions, good practices
 3. Read `references/coding-standards.md` — universal engineering rules
@@ -194,19 +199,19 @@ it — never downgrade a blocking finding to a warning so the run can keep going
 
 After successful validation:
 - Mark task group as "Done" in Plan Progress table (this one update happens here, directly — it's the literal record of what this skill just did)
-- Record this task group's cost checkpoint (WD-0037): run
-  `"$PLUGIN_ROOT"/scripts/session-usage.sh --snapshot [STORY-ID] --stage implement`
-  and show the line it prints (this step's spend and the story's running total); when it also prints a `spend verified ✓` line, tell the human the story's spend is now verified.
-  It appends to the story's durable ledger; best-effort, `unavailable` rather
-  than a zero when no source resolves. `PLUGIN_ROOT` resolves as `validate`'s
-  Step 4 notes.
 - Suggest running `/workflow-dev:save` to persist estimated progress, discoveries, and anything else from this task group into the story's Working Memory section — don't duplicate that logic here inline; `save` already owns reviewing the conversation and classifying what goes where
   - **In autonomous mode, run `/workflow-dev:save` after every task group**
     instead of suggesting it (`references/autonomous-mode.md`). Nothing else
     persists the run's progress, decisions, and discoveries while nobody is
     watching, so a crash or compaction mid-run must not lose them. `save` already
     applies without asking in that mode (its Step 4); list what each save wrote
-    in the end-of-run report.
+    in the end-of-run report. That `save` is nested in this run, so it records
+    no cost of its own.
+- Then record this task group's cost checkpoint: an end checkpoint of this run
+  (`references/run-cost.md`, `--stage implement`), shown with its line. It
+  comes after the save so the save's spend lands on this task group's line. The
+  next task group's end continues the same run, so each line is that group's
+  spend.
 
 ## Principles
 

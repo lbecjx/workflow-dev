@@ -55,6 +55,9 @@ Options:
 
 **Only one story file exists:** skip the question and load it directly.
 
+Once the story is chosen, record this run's start (`references/run-cost.md` at
+the plugin root, `--stage resume --start`).
+
 ### Step 3: Read the context files
 
 **Always** use the file-reading tool explicitly on both files — even if they seem to
@@ -89,6 +92,9 @@ Continue?
 ```
 
 Call out uncommitted changes or a behind-base branch if either applies.
+
+Right before presenting it, record this run's end (`references/run-cost.md`,
+`--stage resume`) and add its line to the summary: it is the run's last step.
 
 The **Mode** line reads the story's Decisions for an `Autonomous mode: on` row
 (`references/autonomous-mode.md` at the plugin root). The row persists across

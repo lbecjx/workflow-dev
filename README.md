@@ -27,7 +27,29 @@ Autonomous mode removes the per-step confirmations, not the guardrails:
 - **The quality gate is load-bearing.** A blocking finding stops the run; it is never downgraded to a warning so the run can continue.
 - **It drafts, it never opens the PR.** The commit message and PR text are drafted and marked reviewed, then handed to you in the report. `git commit` and `gh pr create` remain your call.
 
-At the end it reports what it did, every decision it made for you (with the inferred reason), what it deferred, and the story's cost from the durable ledger. Full rules in [`references/autonomous-mode.md`](./references/autonomous-mode.md).
+At the end it reports what it did, every decision it made for you (with the inferred reason), what it deferred, and the story's closing cost report (see [Story cost](#story-cost)). Full rules in [`references/autonomous-mode.md`](./references/autonomous-mode.md).
+
+## Story cost
+
+workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usage/<STORY-ID>.json`), so a story's cost survives across sessions and after a session's transcript is deleted.
+
+- **What is measured.** Only the spend of workflow-dev skill runs made for the story. Each story skill (`init`, `plan`, `implement`, `validate`, `save`, `resume`, `refresh`, `manual-qa`, `summarize-changes`) records a checkpoint when it starts and another when it finishes; a run costs end minus start. Chat between skills is not counted, even when it is about the story, and neither is another story worked on in the same session. A skill run inside another (`validate` → `manual-qa`) is part of the outer run, and a skill of another story run in the middle of one is taken out of it, so nothing is counted twice. A run is exact only when Claude Code's exact figure is there at both ends; otherwise it is priced from the table. `help`, `setup-models` and `usage` record nothing.
+- **The marks.** `≈` means the figure is estimated from a price table, because Claude Code only writes its exact cost now and then. `≥` means the real cost is at least the figure: an estimate (they run low), a step with no price, a sub-agent whose output was logged incomplete, or an **open run**, a skill that started and never recorded its end. Its spend is lost and never guessed.
+- **During the work.** Each checkpoint prints the run's spend and the story's running total. `/workflow-dev:usage` prints the story's report at any time: total, tokens, by stage, by session, by agent/role with each one's model, and the configured role→model binding.
+- **At the close.** `summarize-changes` ends with a **closing cost report**: one row per skill (runs, cost, `≈`/`≥`), each row whose runs had sub-agents (`validate`, or `implement` when validate ran inside it) split by sub-agent with its model, the total, and a note that usage outside skill runs is not recorded, so the real spend of the sessions can be higher:
+
+  ```
+  Closing cost report: PROJ-123
+    skill                runs  cost
+    init                    1  $1.2031
+    implement               1  ≈$18.8618
+    validate                1  ≈≥$23.4937
+        orchestrator           $18.4199  models claude-opus-5-5
+        wd-adversary           ≥$3.9758  models claude-opus-5-5
+        wd-operator            ≥$0.5354  models claude-haiku-4-5-20251001
+    total                   3  ≈≥$43.5586
+  ```
+- **For dashboards.** `.workflow-dev/context/.usage/.index.json` is a read-only summary of every story's cost that a status line can read without the plugin (`schema: "workflow-dev.usage/2"`: `total_usd`, `estimated`, `lower_bound`, `open_runs`, …). Contract in [`references/usage-api.md`](./references/usage-api.md).
 
 ## Skills
 
@@ -43,7 +65,7 @@ At the end it reports what it did, every decision it made for you (with the infe
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
 | `/workflow-dev:setup-models` | Binds each agent role to a model Claude Code offers, so mechanical sub-agent work runs on a fast model and judgment work on a strong one (one-time setup) |
-| `/workflow-dev:usage` | Shows the active story's total cost and tokens, totalled from its durable ledger across sessions |
+| `/workflow-dev:usage` | Shows the active story's cost (its skill runs only) and tokens, totalled from its durable ledger across sessions |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
 ## Hooks

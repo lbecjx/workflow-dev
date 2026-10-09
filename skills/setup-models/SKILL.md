@@ -26,6 +26,8 @@ adding a role happens there, never here.
 
 **Text shown to the user follows `references/user-language.md` (at the plugin root, not this skill's own `references/`)** — its language, wording, and length.
 
+**No cost checkpoint.** This skill is not part of a story, so it never records a start or an end, also when it runs inside another skill's run: its spend is that run's (`references/run-cost.md` at the plugin root).
+
 ## What it writes
 
 One file per role, `~/.claude/agents/<role>.md`, with the frontmatter `name`,

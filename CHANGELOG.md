@@ -14,6 +14,26 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.36.0
+
+- A story's cost is now only the spend of its workflow-dev skill runs. Every
+  story skill records a start and an end checkpoint, and a run costs end minus
+  start, so chat between skills and other stories in the same session are no
+  longer counted, and a run of one story inside another's is counted once. A
+  run is exact when both ends are Claude Code's exact figure, otherwise priced
+  from the table. `session-usage.sh --snapshot … --start` records a start.
+- A start that never gets its end is an open run: the total is marked `≥` and
+  the index reports `open_runs`. Ledgers written before keep their old deltas.
+- `summarize-changes` ends with a closing cost report
+  (`session-usage.sh --story <ID> --final`): one row per skill, rows with
+  sub-agent spend split by sub-agent, and a note on what is not measured.
+- **Breaking for dashboards:** `.usage/.index.json` is now
+  `workflow-dev.usage/2`. `verified` and `verified_reason` are removed (and the
+  `spend verified ✓` notice with them); `open_runs` is added.
+- The rule every skill follows is in `references/run-cost.md`.
+- `session-usage.sh` exits with an error on a missing flag value instead of
+  waiting forever.
+
 ## 1.35.0
 
 - New agent role **`wd-architect`** (class `judge`): `init`'s research

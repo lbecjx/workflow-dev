@@ -164,8 +164,10 @@ can audit, containing:
    reason, pulled from the Decisions table entries the run recorded.
 3. **What it deferred** — any validation deferred to the story-end pass, any
    finding left for the human, any ambiguity it stopped on.
-4. **The cost** — `session-usage.sh --story [STORY-ID]`, the durable ledger's
-   total by stage and by agent/role, reusing WD-0037's checkpoint mechanism.
+4. **The cost** — `session-usage.sh --story [STORY-ID] --final`, the durable
+   ledger's total by stage and by agent/role, then the closing table by skill
+   (with `validate`'s sub-agents) and its note that only skill runs are
+   counted, reusing WD-0037's checkpoint mechanism.
 
 ## The PR boundary
 

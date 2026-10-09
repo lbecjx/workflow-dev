@@ -61,6 +61,11 @@ tools actually available.
 
 ### Step 1: Gather the targets
 
+When `validate` invoked this skill (its PASS path), this run is part of the
+`validate` run and records no cost. Run on its own, record this run's start
+once the story is known (`references/run-cost.md` at the plugin root,
+`--stage manual-qa --start`) and its end at Step 6.
+
 1. Read the active story's Acceptance Criteria from
    `.workflow-dev/context/[STORY-ID].md` (the caller may name the story;
    otherwise use the active one). If there is no story context, ask which ACs
@@ -122,7 +127,9 @@ evidence — evidence or it didn't happen.
 
 Then **return control to the caller's next step** (on validate's PASS path,
 that is validate's closing — the offer to draft the commit message/PR). Do not
-commit, and do not offer the commit yourself; `validate` owns that.
+commit, and do not offer the commit yourself; `validate` owns that. Run on its
+own, record this run's end and show its line as the last step
+(`references/run-cost.md`, `--stage manual-qa`).
 
 ## Principles
 
