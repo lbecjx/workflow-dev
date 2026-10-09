@@ -108,6 +108,9 @@ Everything else — a validation-mode choice, a manual-QA choice, a
 no-repro-vs-complete depth — is an ordinary decision point and follows
 "infer + record + report".
 
+`init`'s session-model tier notice (WD-0050) is not a decision point: it asks
+nothing and records nothing, so autonomous mode shows it as is.
+
 ## The quality gate is load-bearing
 
 In autonomous mode the quality gate is the *only* barrier left between the agent

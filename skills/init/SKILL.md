@@ -131,7 +131,7 @@ Check whether `.workflow-dev/context/REPO.md` already exists.
 9. Read test patterns: runner, style, fixtures, helpers.
 10. Skim the last 10–20 commits.
 
-Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a genuinely complex stack — see `references/workflow.md`).
+Then draft Role, Good Practices, and Prohibitions (delegate to subagents under the `wd-architect` role for a genuinely complex stack — see `references/workflow.md`).
 
 **REPO.md sections:**
 1. What this is — system context, priorities, code tone
@@ -182,6 +182,46 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents for a g
 
    Never infer autonomous mode from silence: no answer means step by step. Ask
    once per story; later skills read the row and do not re-ask.
+
+9. **Recommend a tier for the session's model** (WD-0050). The session's model
+   is the orchestrator: it talks with the human, implements each task group, and
+   resolves the decision points. Show this notice only when this run created the
+   story file in step 1 — that makes it once per story. It is information, not a
+   question: never ask, never wait, and record nothing. Autonomous mode shows it
+   too.
+
+   Pick the recommended tier:
+   - **Intermediate** when `wd-architect`, `wd-judge`, and `wd-adversary` are
+     each bound to a top-tier model **and** the story touches none of the
+     top-tier criteria below. Read the binding with
+     `"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --role-models`
+     (`role<TAB>state<TAB>model`); a role counts only when its state is `bound`.
+     You judge each bound model's tier — the plugin never names one. The heavy
+     reasoning (planning, validating) then runs in those roles.
+   - **Top tier** when any of those three roles is not bound to a top-tier
+     model, or when the story touches writes, concurrency, or a security
+     surface — the criteria `../validate/references/rules.md` §11.0 ("Deciding
+     whether to run this, and at what depth") uses to raise the adversarial
+     depth. When both bullets could apply, this one wins.
+   - **Never the fast tier**: it makes more subtle errors when it implements,
+     and each one costs another `validate` round.
+
+   **Map the tier to models yourself, at runtime.** A tier is a class, and it
+   can hold more than one model: the top tier is the provider's flagship
+   class **and every model above it**, not only the single most capable one —
+   a newer model ranking above the flagship does not push the flagship out of
+   the top tier. Infer which models fall in each tier from what you know of the
+   models on offer — this file never lists them, since the list changes with
+   every release. When you are unsure whether a model is top tier, count it in.
+
+   Skip the notice when the session's model is one of the models you inferred
+   for the recommended tier. A session above it still sees the notice: the
+   intermediate tier is where the saving is. Otherwise write at most 3 lines,
+   per `references/user-language.md`: name the model this session runs on, name
+   the recommended tier and the models you inferred for it, and say the human
+   can switch the session's model with the harness's model-switching
+   capability — name the capability, not a command
+   (`references/harness-tools.md`).
 
 ### Phase 7: Ask the human
 

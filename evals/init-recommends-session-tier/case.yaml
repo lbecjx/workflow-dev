@@ -1,0 +1,19 @@
+schema_version: "1.1"
+name: init-recommends-session-tier
+description: >
+  Guard for the session-model tier notice init gained in WD-0050. With a
+  default model chosen for the repo (`tiering: default`), none of the planning
+  and validating roles is bound, so the recommended tier for the session's
+  model is the top tier. The notice is information only: init must not ask
+  about it, names the models it counts in the recommended tier, and stays within
+  three lines. A session whose model is one of the top-tier models skips the
+  notice, so the grader accepts either outcome as long as the run says which
+  one happened.
+
+  The intermediate-tier branch needs all three roles bound to a top-tier model,
+  which means real files under ~/.claude/agents/ — evals run as the user with no
+  HOME isolation, so that branch is left to the skill prose, the same limit
+  init-checks-before-research documents.
+tags: [model-tiering, init, regression]
+context:
+  scaffold_script: fixture.sh

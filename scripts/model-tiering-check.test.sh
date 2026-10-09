@@ -364,6 +364,26 @@ done
 [[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" ]] \
   && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
 
+# --- WD-0050: the `wd-architect` role ---------------------------------------
+# A role is registered by its `roles.md` heading alone, so these pin the
+# registry entry itself and what a pre-architect install looks like.
+grep -qE '^\| `wd-architect` \| `judge` \|' "$ROLES" \
+  && ok "roles.md registers wd-architect with class judge" \
+  || no "roles.md registers wd-architect with class judge"
+has "wd-architect	" "$(RR)" "--role-models lists wd-architect"
+
+# An install generated before the role existed: every older role carries a
+# hash that predates the registry, and wd-architect has no file at all.
+rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
+for r in $(grep '^### ' "$ROLES" | sed -nE 's/^### `([^`]+)`.*/\1/p'); do
+  [[ "$r" == "wd-architect" ]] && continue
+  printf -- '---\nname: %s\nmodel: whatever\n---\n<!-- workflow-dev:roles-hash deadbeef -->\n' "$r" \
+    > "$HOME_DIR/.claude/agents/$r.md"
+done
+OUT="$(hook --status "$INIT")"
+[[ "$OUT" == "incomplete" ]] && ok "a pre-architect install reads incomplete" \
+  || no "a pre-architect install reads incomplete (got: $OUT)"
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

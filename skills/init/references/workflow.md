@@ -294,7 +294,7 @@ Be specific. 5–8 prohibitions per category, no more."
 
 #### Running it
 
-1. Launch the three subagents in parallel, each under the **`wd-judge`** role
+1. Launch the three subagents in parallel, each under the **`wd-architect`** role
    (`../setup-models/references/roles.md`) — name the role as the sub-agent's
    type, never a model. Whether the roles are *bound* is Step 6's verdict, made
    once and already answered; don't re-derive it here. What remains this step's
@@ -344,6 +344,7 @@ This choice is an execution optimization the agent makes on its own — it doesn
 4. Link REPO.md at the top: `> Repo context: [REPO.md](./REPO.md)`.
 5. Don't duplicate anything REPO.md already covers.
 6. Mark unresolved items with ⬜.
+7. On a newly created story file, show the session-model tier notice — `../SKILL.md` Phase 6 step 9 owns its rules.
 
 Whether this whole `.workflow-dev/` tree is tracked or gitignored was already settled in Step 0 — nothing further to decide here.
 
