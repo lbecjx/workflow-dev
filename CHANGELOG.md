@@ -14,6 +14,11 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.38.0
+
+- Autonomous runs keep the Mac awake with `caffeinate -i` (screen still locks),
+  started and closed without asking by `scripts/autonomous-keep-awake.sh`.
+
 ## 1.37.0
 
 - Autonomous runs ask only once, at the end of `init`, and only what blocks the
