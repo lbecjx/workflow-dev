@@ -52,6 +52,13 @@ SECTION, behaves differently in autonomous mode (`references/autonomous-mode.md`
 - The human's message that starts this `init` says how to run ("ve autónomo" /
   "run this autonomously", or "paso a paso" / "step by step") → use that. It
   wins over a stored row; Phase 6 step 8 then rewrites the row to match.
+  Starting the story with `/workflow-dev:init-auto` is the human saying "run
+  this autonomously". One exception: when the message says autonomous and the
+  story's stored row is `Autonomous mode: off`, never overwrite it silently.
+  Say that this story is set to step by step, then ask the run-mode question
+  below once. Its recommended answer stays step by step, and no answer keeps
+  `off`: the human turned the mode off on purpose, and this start alone does
+  not undo that.
 - Otherwise, the story already has a context file (`.workflow-dev/context/[STORY-ID].md`,
   with the ID taken from the input as Phase 1 / 1-alt would) whose Decisions
   carry an `Autonomous mode: on|off` row → use it. A stored row wins over
@@ -69,7 +76,7 @@ SECTION, behaves differently in autonomous mode (`references/autonomous-mode.md`
   it out of the option text (Phase 6 step 8).
 
 Never infer autonomous mode from silence: no answer means step by step. Ask once
-per story; later skills read the row and do not re-ask. The story file does not
+per story; later skills read the row and do not re-ask. The story file may not
 exist yet, so keep the answer and write it in Phase 6 step 8.
 
 ### Phase 0: Resolve the context-tracking preference

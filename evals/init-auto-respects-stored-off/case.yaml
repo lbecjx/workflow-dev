@@ -1,0 +1,21 @@
+schema_version: "1.1"
+name: init-auto-respects-stored-off
+description: >
+  Guard for WD-0056, acceptance criterion 5. The story's context file already
+  carries `Autonomous mode: off` (the human turned the mode off on purpose).
+  Starting it with /workflow-dev:init-auto must not switch it on silently:
+  init says the story is set to step by step and asks the run mode once, and
+  with no answer the row stays `off`.
+
+  The prompt tells the run that no answer will come, so the run asks once,
+  takes it as unanswered and finishes with the row still `off`; any write of
+  `Autonomous mode: on` is the silent override this case guards against.
+tags: [autonomous-mode, init, init-auto, regression]
+context:
+  scaffold_script: fixture.sh
+---
+max_turns: 30
+timeout_seconds: 900
+# `allowed_tools` are Claude Code tool names — the vocabulary the `claude plugin
+# eval` runner expects; see ../../references/harness-tools.md.
+allowed_tools: [Read, Write, Edit, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]

@@ -1,0 +1,20 @@
+schema_version: "1.1"
+name: init-auto-starts-autonomous
+description: >
+  Guard for WD-0056. /workflow-dev:init-auto is a thin wrapper: it must invoke
+  init with the story path unchanged, and init must take that start as the
+  human saying "run this autonomously" — record `Autonomous mode: on` and ask
+  no run-mode question.
+
+  Same fixture shape as init-autonomous-no-questions (existing REPO.md, a
+  default model chosen for the repo, one unambiguous criterion), so the run
+  has nothing to ask for reasons this case is not about.
+tags: [autonomous-mode, init, init-auto, regression]
+context:
+  scaffold_script: fixture.sh
+---
+max_turns: 40
+timeout_seconds: 1200
+# `allowed_tools` are Claude Code tool names — the vocabulary the `claude plugin
+# eval` runner expects; see ../../references/harness-tools.md.
+allowed_tools: [Read, Write, Edit, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]

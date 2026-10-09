@@ -18,10 +18,11 @@ Context survives compaction and new sessions. Mechanical state (plan progress, f
 
 ## Autonomous mode (opt-in)
 
-The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously" — or pick it when `init` asks how the story should run — and it records `Autonomous mode: on` in the story's Decisions (the row lives in the story file, so it survives new sessions and `resume` shows it) and runs `init → plan → implement → validate → summarize` without pausing between tasks.
+The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously", pick it when `init` asks how the story should run, or start the story with `/workflow-dev:init-auto <story>` (same input as `init`) — and it records `Autonomous mode: on` in the story's Decisions (the row lives in the story file, so it survives new sessions and `resume` shows it) and runs `init → plan → implement → validate → summarize` without pausing between tasks.
 
 Autonomous mode removes the per-step confirmations, not the guardrails:
 
+- **It never overrides a story you set to step by step.** If the story already has `Autonomous mode: off`, starting it autonomously makes `init` say so and ask once; no answer keeps it step by step.
 - **It asks only once, and only what blocks.** At the end of `init`, before going autonomous, it tells you it is checking for questions that could block the run, infers what it can, and asks only what it cannot settle (an ambiguous acceptance criterion, say), or tells you there is nothing to ask. From then on it asks nothing.
 - **Decisions are inferred, recorded, and reported.** Each decision point the human would normally answer is resolved with an explicit rule, written to the story's Decisions table, and surfaced in an end-of-run report. Nothing is silently skipped.
 - **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never bypasses the AI/agent attribution block — the one rule with no bypass, autonomous or not.
@@ -58,6 +59,7 @@ workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usag
 | Skill | What it does |
 |---|---|
 | `/workflow-dev:init` | Bootstraps persistent context for a story — from Jira, Confluence, GitHub, the repo, or a local `.md` file |
+| `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
 | `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
 | `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
 | `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, an adversarial correctness pass) before commit |

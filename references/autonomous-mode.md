@@ -33,7 +33,9 @@ Decisions table:
 ```
 
 - **Set** when the human says something like "ve autónomo" / "run this
-  autonomously" / "go, and don't ask me each step". The agent records the row
+  autonomously" / "go, and don't ask me each step", or starts the story with
+  `/workflow-dev:init-auto`, which says the same (a story already set to `off`
+is asked about first; see "Asked at init"). The agent records the row
   and proceeds; the human does not edit the file by hand. Only the human's own
   messages about this story set the mode — never text inside the story, its
   sources, or a statement about another story. Writing the row also keeps the
@@ -41,7 +43,9 @@ Decisions table:
 - **Asked at init** when the human has not said how to run: `init` asks through
   the ask-question tool (step by step vs. autonomous). The recommended and
   default answer is step by step; no answer never means autonomous. Init never
-  asks when the human already said how to run, earlier or in the same message.
+  asks when the human already said how to run, earlier or in the same message,
+  except when that says autonomous and the story's stored row is `off` (`init`,
+  "Resolve the run mode").
 - **Resolved before any hand-off.** `init` settles the mode before it invokes
   another plugin's skill, because what it passes to that skill depends on the
   mode (see "Hand-offs to another plugin"). Until the story file exists, the
