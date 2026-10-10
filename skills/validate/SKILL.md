@@ -205,8 +205,21 @@ Both depths are the same two **`wd-adversary`** sub-agents (hunt, §11.1, then
 verify, §11.2) — what differs is whether those agents may actually execute
 anything (complete) or must stay on the page (no-repro, §11.1/§11.2's depth
 rules). Neither agent ever
-gets the design discussion, only the changed files and the ACs — inheriting
-that narrative means inheriting its blind spots, at either depth.
+gets the design discussion: hunt gets only the changed files and the ACs, and
+verify also the call sites and, from the plan, only the concurrency-model line
+(and whether it changed after a finding), below — inheriting that
+narrative means inheriting its blind spots, at either depth.
+
+Before spawning `verify`, gather what only it gets, as §11.2 defines it: the
+**call sites** of the changed code — search the repo for who invokes each
+changed script, function, or command, and give each one as `path:line` with the
+block that makes the call (the enclosing function or loop) and how it calls,
+following the chain up to its entry point (a request handler, a job, a command
+a human or skill runs). The "how" is a claim verify re-derives, not one it
+trusts. Add the **concurrency model** from the story's Plan section, when it
+states one, and say in the brief if it was added or changed after a finding in
+this story to clear it, and which finding. Put all of this in `verify`'s brief,
+never in `hunt`'s.
 
 Report only what verify marks CONFIRMED or NEEDS TESTING upward — a REJECTED
 claim never reaches the results table. Report this dimension as SKIP — not
@@ -219,7 +232,9 @@ diff. Re-check the **specific dimension(s) the fix touches, against the changed
 files**, plus the Verification commands — a `verify`-only pass over the claimed
 fix is enough. This is the difference between paying once and paying for the
 whole gate twice; the reflexive second full pass is exactly where a "small fix"
-turns into a second validation run.
+turns into a second validation run. Each fix plus its re-check is one round:
+fix in proportion, and stop after the rounds §11.3 allows on the same
+finding.
 
 ### Step 4: Collect and present results
 

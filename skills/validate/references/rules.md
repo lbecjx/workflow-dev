@@ -344,16 +344,21 @@ validate call — a normal single-diff scope, whether from a story in
 no-repro exactly as above.
 
 Both depths run two independent sub-agents (hunt then verify), never with any
-memory of each other or of how the change was designed — no-repro and complete differ
+memory of each other or of how the change was designed (verify gets one line of
+it, the plan's concurrency model) — no-repro and complete differ
 in what those two agents are allowed to do (§11.1, §11.2), not in how many of
-them run:
+them run. Only verify also gets how the changed code is really called: its call
+sites and the plan's concurrency model (§11.2). Hunt never does, so it stays
+blind:
 
 ### 11.1 Hunt
 
 Given only: the list of changed files, their current full contents, and the
 acceptance criteria being validated against — nothing about the plan, the
 design discussion, or why the approach was chosen. Inheriting that narrative
-means inheriting its blind spots.
+means inheriting its blind spots. Hunt also never gets the call sites or the
+plan's concurrency model: it attacks every trigger it can build, and judging
+which ones a real caller can produce is verify's job (§11.2).
 
 Instructions to give this agent, close to verbatim:
 - Do not report "this looks correct." Your only job is to find the specific
@@ -406,18 +411,51 @@ Runs at both depths — no-repro gets a real verify pass too, not none; it's jus
 verify held to the same no-execution rule as a no-repro hunt (see below). A
 second, independent agent — given the hunt's raw findings, the same changed
 files, and the same acceptance criteria hunt received, but nothing about how
-the hunt agent reasoned its way there.
+the hunt agent reasoned its way there. Verify also gets two things hunt never
+does:
+
+- **The call sites** of the changed code: every place in the repo that invokes
+  it, and how — once, in sequence, or possibly in parallel on the same key
+  (two requests or two sessions with the same id or row, a loop that does not
+  wait). Runs on different keys do not race on one another's state. The chain
+  is followed up to its entry point (a request handler, a job, a command a
+  human or skill runs): code called once per request or per session runs in
+  parallel when those do. A skill or doc that tells an agent to run a script is
+  a call site too.
+- **The plan's concurrency model**, when the story's Plan states one
+  (`plan/SKILL.md`, Step 6): what the plan assumes about who calls the code and
+  how, e.g. "one sequential caller".
 
 The same **scope ceiling and stop rule** apply (§11.1): verify works from the
-brief, and returns a claim as NEEDS TESTING rather than exploring outward to
-settle it.
+brief, and the call sites are part of it. It returns a claim as NEEDS TESTING
+rather than exploring outward to settle it.
 
 For each claimed finding, re-derive it from the actual code without trusting
 the hunt agent's framing: does the claimed trigger really reach the claimed
-line, with the claimed effect — and is that effect actually inconsistent with
-the ACs, not just surprising? A hunt agent can misread what the spec actually
-requires; tracing the trigger correctly doesn't make the "bug" real if the
-behavior it found is what the ACs call for.
+line, with the claimed effect — can a real caller produce that trigger — and
+is that effect actually inconsistent with the ACs, not just surprising? A hunt
+agent can misread what the spec actually requires; tracing the trigger
+correctly doesn't make the "bug" real if the behavior it found is what the ACs
+call for.
+
+- **Reachability from real callers.** A trigger counts only if one of the call
+  sites, used the way it is used, can produce it. A race between concurrent
+  calls is unreachable when no caller runs the code in parallel. When there are
+  no call sites or they cannot settle it (an unknown or external caller, a
+  public API), judge against the plan's concurrency model; with neither, the
+  trigger stays reachable. A model added or changed after the finding, to
+  clear it, does not count (§11.3). A model that says nothing about the
+  trigger (bad input under a model about callers) leaves it reachable. A
+  trigger an AC names outright is always reachable.
+- **Don't invent requirements.** Judge against what the ACs say, not against a
+  stronger guarantee they could have asked for. "Only one per session" does not
+  mean "safe under concurrent calls" unless an AC, the plan's concurrency
+  model, or a call site that runs the code in parallel says so. Reachability
+  decides first: a race a real caller can trigger breaks an "only one" AC.
+- **Artificial triggers.** A trigger that reproduces only with injected delays,
+  forced scheduling, or a patched copy of the code is at most NEEDS TESTING,
+  never CONFIRMED. CONFIRMED needs the unmodified code under conditions a real
+  caller can create.
 
 Same depth rule as hunt (§11.1), told explicitly, not inferred:
 - **no-repro:** static only — re-derive by reading, never by running. Most false
@@ -443,10 +481,13 @@ Three outcomes per finding:
   live execution, at no-repro depth, for a genuinely timing/order-dependent claim
   that reading alone can't fully resolve — rare at complete depth, where
   execution is already on the table, but not impossible for something that's
-  hard to reproduce reliably even running it, like a narrow race window).
+  hard to reproduce reliably even running it, like a narrow race window). A
+  trigger reproduced only artificially (injected delays, forced scheduling)
+  lands here at most.
 - **REJECTED** — couldn't reproduce, the trigger doesn't actually reach the
-  code, the case is already handled elsewhere, or the behavior matches what
-  the ACs actually require.
+  code, no real caller can produce the trigger (e.g. a race between concurrent
+  calls when every caller runs the code once, in sequence), the case is already
+  handled elsewhere, or the behavior matches what the ACs actually require.
 
 **A claim about how something behaves *when it runs* is never CONFIRMED at
 `no-repro`.** `no-repro` reads; it does not run. So when a claim's truth depends
@@ -475,6 +516,41 @@ high-signal instead of a pile of speculative maybes.
   this depth doesn't do — most often live execution at no-repro depth, for a
   timing/order-dependent claim reading alone can't fully settle. A judgment
   call for the human, not a verified bug — the human reads it and decides.
+
+### 11.3 Fixing a finding
+
+This section owns how a finding from `validate` gets fixed, this dimension's
+first of all; `implement`, `validate`'s re-check, and autonomous mode point
+here.
+
+- **Fix in proportion.** Prefer, in this order: narrow or simplify the design
+  so the trigger cannot happen; state the assumption (in the plan's
+  concurrency model, a comment, or the ACs' reading) when the finding is
+  outside it (a model stated after a finding needs the approval in the last
+  bullet); and only then add new machinery (a lock, a guard, a retry). Every
+  piece of new machinery is new code for the next hunt to attack.
+- **At most 2 rounds per finding.** A round is one fix and its re-check. The
+  same finding means the same trigger reaching the same wrong behavior; a
+  different trigger in the same file or function is a new finding. If the
+  same finding (or a new one in the code that fix added or changed) still
+  stands after the second round, stop fixing it. With the human present, escalate it: show the
+  finding, both attempts, and ask how to go on; if the human chooses to leave
+  it, record it in the story as capped. In autonomous mode, record it
+  as a known limitation in the story and go on (`references/autonomous-mode.md`
+  at the plugin root, "The quality gate is load-bearing"). Either way the
+  verdict stays what it is: the cap stops the fixing, it never turns a FAIL
+  into a PASS.
+- **The cap carries across passes.** A finding the story file already records
+  as a known limitation, or as capped, counts as capped in every later
+  `validate` pass, including passes over other task groups. It is not fixed
+  again; the pass only reports it again.
+- **A model written to clear a finding does not clear it.** A concurrency
+  model (or another stated assumption) added or changed *after* a finding, in
+  order to clear that finding, does not make it REJECTED on its own. With the
+  human present, escalate: show the finding and the model change, and ask for
+  approval. In autonomous mode, keep the finding as a known limitation, marked
+  "cleared by a model change, needs human review" (see
+  `references/autonomous-mode.md`, "The quality gate is load-bearing").
 
 ---
 

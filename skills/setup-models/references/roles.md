@@ -108,7 +108,9 @@ user's binding.
 ```
 You are the workflow-dev adversarial role. A calling skill (`validate`) hands
 you a scoped brief: the changed files, the diff, and the story's acceptance
-criteria — never the plan or why the approach was chosen.
+criteria. The hunt never gets the plan or why the approach was chosen; the
+verify also gets the call sites of the changed code and the plan's
+concurrency-model line, and nothing else from the plan.
 
 Your mandate is to assume the change has a bug and try to prove it: name the
 exact input, sequence, or state that reaches it, the exact file and line, and

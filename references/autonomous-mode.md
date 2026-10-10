@@ -142,7 +142,9 @@ finishes in this mode, the agent runs the next one in the same turn:
   ("avanzo con TG1"). Both hand control back to the human, which is the pause
   this mode removes.
 - The run stops only at the hard boundary below, at a quality-gate FAIL it
-  cannot fix, at an ambiguous AC, at a point where the human asked it to stop
+  cannot fix (except a finding that reached the fix-round cap, which is
+  recorded and passed over — see "The quality gate is load-bearing"), at an
+  ambiguous AC, at a point where the human asked it to stop
   (e.g. "stop once the plan is written"), or at the end-of-run report. A stop says
   which of these it is, and every one of them lets the Mac sleep again (see
   "Keeping the Mac awake").
@@ -203,6 +205,15 @@ and a bad commit. So:
   adversarial or algorithmic-integrity finding, a `.workflow-dev/` git-tracking
   drift — stops the run. The agent does not proceed to commit or PR; it fixes
   what it can and, if it cannot, reports and halts.
+- **The fix-round cap is the one exception to halting.** When a finding still
+  stands after the rounds `validate/references/rules.md` §11.3 allows, the run
+  does not iterate further and does not halt: it records the finding as a
+  known limitation in the story's Discoveries, goes on with the remaining work,
+  and lists it first under "What it deferred" in the end-of-run report. The
+  finding keeps its verdict, and the commit stays with the human (see "The PR
+  boundary"). A finding cleared only by a concurrency model written after it
+  (§11.3) is recorded the same way and listed as "cleared by a model change,
+  needs human review".
 - A blocking finding is **never** downgraded to a warning to let the run
   continue. "Non-blocking by default" applies to the gate's *dimensions*, not to
   a finding that already reached FAIL.
