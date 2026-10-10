@@ -52,6 +52,7 @@ Next: /workflow-dev:implement to continue Task Group 3,
 
 Available skills:
   /workflow-dev:init              — Start a new story (extracts from Jira/Confluence/GitHub/repo/local .md)
+  /workflow-dev:init-auto         — Start a new story in autonomous mode (same input as init)
   /workflow-dev:plan              — Decompose a story into task groups
   /workflow-dev:implement         — Execute the next task group under the quality rules
   /workflow-dev:validate          — Run the quality gate on uncommitted changes
@@ -124,6 +125,7 @@ One way to produce such files without hand-writing them is the separate **`local
 | Situation | Skill |
 |-----------|-------|
 | Starting a new story | `/workflow-dev:init` |
+| Starting a story to run end-to-end without approving each step | `/workflow-dev:init-auto` |
 | Story is complex, needs structure | `/workflow-dev:plan` |
 | Ready to code | `/workflow-dev:implement` (or direct it manually) |
 | Done coding, want a quality check | `/workflow-dev:validate` |

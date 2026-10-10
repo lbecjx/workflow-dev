@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.39.0
+
+- New `/workflow-dev:init-auto <story>`: starts a story with `init` in
+  autonomous mode, with the same input as `init`.
+- A story already set to `Autonomous mode: off` is never switched on
+  silently: `init` says so and asks once.
+
 ## 1.38.0
 
 - Autonomous runs keep the Mac awake with `caffeinate -i` (screen still locks),

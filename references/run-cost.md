@@ -61,6 +61,8 @@ runs; never drop it. Both calls are best-effort: a non-zero exit, or
 - **Not a story skill.** `help`, `setup-models` and `usage` never record, also
   inside another run: their spend belongs to that run. The script refuses those
   stage names anyway.
+- **A wrapper.** `init-auto` records nothing: the `init` it invokes records the
+  run.
 
 ## Why a start is never skipped
 
