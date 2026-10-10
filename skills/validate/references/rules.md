@@ -127,11 +127,62 @@ Run whatever the project provides — discovered per SKILL.md's Step 1 (a stack-
 | Type check | Static types are consistent | FAIL |
 | Lint | Style and lint rules pass | WARN |
 | Format | Code is formatted per project standard | WARN |
-| Tests | All tests pass, no regressions | FAIL |
+| Tests | All tests pass, no regressions (a judge-only eval failure excepted, §6.1) | FAIL |
 
 **If a command is not available** (can't be discovered), note it as "skipped" — don't fail.
 
 **Pre-existing failures:** If a command fails on code NOT in the changed files, note it but don't block. Only NEW failures in changed code block.
+
+### 6.1 Plugin evals (`claude plugin eval`)
+
+This section applies only when the run includes `claude plugin eval` — a plugin
+repo whose diff touches its `evals/` suite. It owns the rule for every path that
+runs the suite: the full set's Verification dimension, the reduced set, and the
+batched story-end pass.
+
+**Pick the judge first, then run.** Only `llm` graders use a judge; a
+`tool_used` grader needs none. Left to itself, `claude plugin eval` judges `llm`
+graders with its own built-in default, and that default flipped the same eval
+from FAIL 3/3 to PASS 3/3 on identical output (WD-0057). So the command always
+carries `--judge-model`, and the judge is the model the human chose for
+judgment:
+
+1. **You, the orchestrator, resolve it** — before you brief the `wd-operator`
+   that runs the command, or before you run it yourself on the reduced set.
+   Choosing the judge is not mechanical work; the operator only runs the
+   command it is handed, flag included.
+2. **Read the `wd-judge` binding** through the one reader the roles have:
+   `"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --role-models`, the
+   `wd-judge` line (`role<TAB>state<TAB>model`; `PLUGIN_ROOT` resolved as
+   `validate/SKILL.md` Step 4 says). It already applies the
+   roles-hash freshness check, so never read the agent file yourself.
+   State `bound` with a model other than `inherit` → pass that model as
+   written, in single quotes: `--judge-model '<model>'`.
+3. **Otherwise use your own model** — the main session's, which you know from
+   your own context. That covers a state other than `bound` (no agent file, no
+   `model:`, stale roles, a default model chosen for the repo or story), a
+   binding of `inherit` (which means the session's model), and a value the
+   command rejects. Say so in the report, naming the case that applied.
+4. **Never drop the flag.** No case falls back to the command's built-in
+   judge.
+5. **Keep the report local.** Add `--no-publish`: the command otherwise
+   publishes its HTML report (transcripts and grader reasoning) online, and a
+   quality gate must not upload anything as a side effect.
+
+No skill or rule names a model here: the model always comes from the
+`wd-judge` binding or from the session.
+
+**A new or changed eval runs once per pass.** Run it, read the verdict, and
+report it. Do not retune a grader, reword a prompt, or rerun the case to make it
+pass — iterating on graders is how evals turned into the work instead of the
+check.
+
+**A judge-only failure is reported, not chased.** A failure is judge-only when
+the grader's own reasoning contradicts the output it judged (the output does
+what the grader says is missing), or when the verdict flips between runs on the
+same output. Report it as judge-only and quote the grader's reasoning; it does
+not make Verification FAIL and is not a finding to fix (§11.3). A failure where the output really falls short is
+an ordinary Tests FAIL.
 
 ---
 
@@ -540,6 +591,8 @@ here.
   at the plugin root, "The quality gate is load-bearing"). Either way the
   verdict stays what it is: the cap stops the fixing, it never turns a FAIL
   into a PASS.
+- **A judge-only eval failure is not a finding.** It opens no fix round and
+  uses none of the cap: it is reported as judge-only and left there (§6.1).
 - **The cap carries across passes.** A finding the story file already records
   as a known limitation, or as capped, counts as capped in every later
   `validate` pass, including passes over other task groups. It is not fixed

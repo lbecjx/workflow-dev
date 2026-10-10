@@ -85,20 +85,48 @@ never a command or a path for it to read on its own (the same rule as
   hit a decision point is classed `judgment`;
 - the relevant source files Step 2 identified, or the parts of them that matter;
 - the task this step defines: ordered task groups in Step 4's format, each with
-  its execution class, and a line on anything the brief left unsettled.
+  its execution class, and a line on anything the brief left unsettled;
+- that an eval (`claude plugin eval`) is never a default task or AC: propose
+  one only when the behavior seems to need it, and say why.
 
 The sub-agent never asks the human anything: presenting the plan, the approval
 (Step 4), and the two one-time questions (Step 5) stay with you, the main agent,
 exactly as in a plan you drafted yourself — and so does every autonomous-mode
 rule below. Read its draft against the code you explored before you present it.
 
-Two fallbacks, and each one is said, never hidden:
+**An eval earns its place.** Every eval is maintenance for a small team, and
+an eval in the plan makes `validate` run it. So the plan never adds one by
+default, and whoever proposes an eval does not decide on it:
+
+- The human asked for the eval (anywhere in the story source or the story file,
+  or in this session) → it goes in, with no gate.
+- The draft proposes no eval → nothing to gate; launch nothing.
+- The draft proposes an eval the human did not ask for → launch a sub-agent
+  under the **`wd-judge`** role at that point, before Step 4. Its brief carries,
+  inline: the story's ACs, the proposed eval, and the `scripts/*.test.sh`
+  coverage that touches the same behavior. The eval stays only when all three
+  hold: (a) the behavior is critical; (b) no `scripts/` test can cover it;
+  (c) breaking it without noticing would cost more than maintaining the eval.
+  - **Yes** → the eval stays in the plan, with an `Eval justification:` line
+    under its task group that states the verdict on (a)–(c).
+  - **No** → remove the eval from the plan: its task group, or its task, and any
+    AC line that exists only for it.
+
+No separate notice and no question either way: the verdict is in the plan the
+human reviews in Step 4, and autonomous mode applies it the same way.
+
+Three fallbacks, and each one is said, never hidden:
 
 - The harness cannot select a model per sub-agent, or `wd-architect` is not
   bound — its `model-tiering-check.sh --role-models` state is anything other
   than `bound` → run the sub-agent on the default model and say so.
 - The sub-agent fails, or returns no usable plan → draft the plan yourself and
   say so.
+- The eval gate's `wd-judge` is not bound (its `--role-models` state is
+  anything other than `bound`) → run it on the default model and say so; it
+  fails → weigh (a)–(c) yourself and say so — unless you drafted the plan
+  yourself (second fallback): then the proposer would decide, so remove the
+  eval instead and say so. The gate is never skipped.
 
 ### Step 4: Present plan to human
 
@@ -302,3 +330,4 @@ questions above are part of the run.
 8. **Every task group carries its execution class** — `mechanical` or `judgment` (Step 3). Never leave it out: a later delegation of the implementation reads it.
 9. **The drafting is delegated, the conversation is not** — a `wd-architect` sub-agent drafts the task groups from an inline brief; the main agent presents them, asks for approval, and asks Step 5's questions (Step 3).
 10. **Validation mode and manual QA are decided once, up front** — both asked together right after plan approval (Step 5), never per task group, never re-asked, and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads the validation mode; `/workflow-dev:validate` reads the manual-QA choice; neither decides its own.
+11. **An eval earns its place** — never a default task or AC; a `wd-judge` sub-agent, not the drafter, decides whether one the human did not ask for stays, and the plan carries its justification (Step 3).
