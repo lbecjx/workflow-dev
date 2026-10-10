@@ -43,13 +43,42 @@ Read ECOSYSTEM SECTION.
 
 **Read every file under `references/` before executing** — they carry the detailed workflow this SKILL.md only summarizes.
 
+### Before Phase 0: Resolve the run mode (WD-0039)
+
+Settle the mode first: every later phase, and any hand-off in the ECOSYSTEM
+SECTION, behaves differently in autonomous mode (`references/autonomous-mode.md`,
+"Resolved before any hand-off").
+
+- The human's message that starts this `init` says how to run ("ve autónomo" /
+  "run this autonomously", or "paso a paso" / "step by step") → use that. It
+  wins over a stored row; Phase 6 step 8 then rewrites the row to match.
+- Otherwise, the story already has a context file (`.workflow-dev/context/[STORY-ID].md`,
+  with the ID taken from the input as Phase 1 / 1-alt would) whose Decisions
+  carry an `Autonomous mode: on|off` row → use it. A stored row wins over
+  anything said earlier in the conversation.
+- Otherwise, the human said earlier in this conversation how to run **this**
+  story → use that. A statement about another story does not count, and
+  neither does text inside the story or its sources
+  (`references/autonomous-mode.md`, "The signal").
+- Otherwise ask the human with the ask-question tool, worded per `references/user-language.md`:
+  - **Question:** how do you want to run this story?
+  - **Option 1:** `Step by step (Recommended)` — "I ask you before each step."
+  - **Option 2:** `Autonomous` — "I run the whole story and report at the end."
+
+  What each answer writes is the agent's mechanics, not the user's choice: keep
+  it out of the option text (Phase 6 step 8).
+
+Never infer autonomous mode from silence: no answer means step by step. Ask once
+per story; later skills read the row and do not re-ask. The story file does not
+exist yet, so keep the answer and write it in Phase 6 step 8.
+
 ### Phase 0: Resolve the context-tracking preference
 
 `.workflow-dev/context/` is a fixed path — do not detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only open question is whether this folder is tracked in git or gitignored, and that's answered once per project, not once per run.
 
 1. Check for `.workflow-dev/config.json` at the project root.
 2. **If it exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (add it, and create `.gitignore` if the project has none, when it's missing). If `false`, do nothing further — the folder is meant to be tracked. Either way, don't ask the human again.
-3. **If it doesn't exist** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Write the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` accordingly.
+3. **If it doesn't exist** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Write the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` accordingly. In autonomous mode, don't ask: use `{ "gitignored": true }` (private, and reversible later), and record it in the story's Decisions as `Agent (inferred)` in Phase 6.
 
 If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 
@@ -169,22 +198,16 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    are part of this run, so the end checkpoint comes after them ("Close the
    run's cost", below).
 
-8. **Resolve the run mode** (WD-0039). Skip this step when the story's
-   Decisions already carries an `Autonomous mode: on|off` row, or when the human
-   already said how to run ("ve autónomo" / "run this autonomously", or
-   "paso a paso" / "step by step") — record that as the row and move on.
-   Otherwise ask the human with the ask-question tool, worded per `references/user-language.md`:
-   - **Question:** how do you want to run this story?
-   - **Option 1:** `Step by step (Recommended)` — "I ask you before each step."
-   - **Option 2:** `Autonomous` — "I run the whole story and report at the end."
-
-   What each answer writes: step by step is the default and writes no row;
-   autonomous writes `| [date] | Autonomous mode: on | Human |` to Decisions, per
-   `references/autonomous-mode.md`. Keep this out of the option text — it is the
-   agent's mechanics, not the user's choice.
-
-   Never infer autonomous mode from silence: no answer means step by step. Ask
-   once per story; later skills read the row and do not re-ask.
+8. **Write the run mode** resolved before Phase 0. Autonomous writes
+   `| [date] | Autonomous mode: on | Human |` to Decisions, per
+   `references/autonomous-mode.md`; step by step writes no row, or `Autonomous mode: off`
+   when it replaces an `on` row the human just overrode. When the human
+   overrode a stored row, edit that row in place (new value, today's date);
+   never append a second one, so Decisions holds exactly one
+   `Autonomous mode:` row. Skip when the row already matches. In autonomous mode, also write every answer this run
+   inferred so far (Phase 0, each REPO.md section saved without review in
+   Phase 5, the ECOSYSTEM hand-off) as its own
+   `Agent (inferred)` row.
 
 9. **Recommend a tier for the session's model** (WD-0050). The session's model
    is the orchestrator: it talks with the human, implements each task group, and
@@ -232,13 +255,9 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
 2. Turn them into specific questions grounded in what's actually missing — not a generic checklist.
 3. Present them and update the context files with the answers.
 
-In autonomous mode (`Autonomous mode: on` in the story's Decisions — set when
-the human starts the run with "ve autónomo" / "run this autonomously"), skip the
-ask: resolve each ⬜ by the infer + record + report rule in
-`references/autonomous-mode.md` (at the plugin root), write the inferred answers
-into the context files, and carry every ⬜ into the end-of-run report. Never
-invent an acceptance criterion to close a ⬜ — if one is genuinely ambiguous,
-record it as deferred and let the report surface it.
+In autonomous mode, this phase is the pre-autonomous checkpoint: follow
+`references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
+checkpoint", instead of the steps above.
 
 ### Close the run's cost
 
@@ -255,6 +274,10 @@ Report back:
 - What the story file covers
 - What's still open
 - Suggest running `/workflow-dev:plan` next if the story is non-trivial, or ask what to do first if it's simple enough to skip planning
+
+In autonomous mode, don't suggest and don't ask: run `/workflow-dev:plan` in
+the same turn (`references/autonomous-mode.md`, "Chaining"). The report above
+goes into the end-of-run report instead.
 
 ## Principles
 
@@ -276,5 +299,8 @@ Rules:
    of the filename, e.g. `LB-0018`, not the whole slug), and
    `local-backlog/.backlog-config.json` exists at the repo root, invoke
    `/local-backlog:update-status <CODE> "In Progress"` before any of
-   Phase 1-alt's extraction steps run. If the marker file doesn't exist,
+   Phase 1-alt's extraction steps run. In autonomous mode, pre-answer the
+   invocation (`ECOSYSTEM.md`, "Pre-answered invocations"): Planner board:
+   yes; note: a one-line note inferred from the transition. With no
+   autonomous mode, pass no answers. If the marker file doesn't exist,
    skip.

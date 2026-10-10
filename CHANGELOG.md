@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.37.0
+
+- Autonomous runs ask only once, at the end of `init`, and only what blocks the
+  run; `init` never asks the run mode when you already said how to run.
+- Each step of an autonomous run runs the next one instead of suggesting it.
+- Hand-offs to another plugin are pre-answered (`ECOSYSTEM.md` 0.1.0), so the
+  backlog skill does not ask again what was already answered.
+
 ## 1.36.0
 
 - A story's cost is now only the spend of its workflow-dev skill runs. Every

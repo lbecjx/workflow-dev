@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: init-autonomous-no-questions
+description: >
+  Guard for WD-0044. When the human asks for an autonomous run in the same
+  message as /workflow-dev:init, init must not ask the run mode, must hand
+  the backlog status change off pre-answered (so the backlog skill has
+  nothing left to ask), and must go on to plan instead of suggesting it.
+
+  The fixture story has one unambiguous acceptance criterion, so the
+  pre-autonomous checkpoint (references/autonomous-mode.md) has no blocking
+  question to ask: init must say it checked, ask nothing, and go autonomous.
+
+  The pre-answered hand-off is asserted on the Skill call itself, not on the
+  run's silence: a run that skipped the hand-off would be just as quiet. "No
+  questions" is asserted twice: on the tool calls (the ask-question tool is
+  called zero times) and on the run's own report. The ask-question count covers
+  the backlog skill too, so this case fails while that skill still asks a
+  question the invocation already answered.
+
+  Limitation: `claude plugin eval` only loads plugins from inside this repo, so
+  the backlog plugin is present only when the eval session has it installed.
+  Without it, init has no skill to hand off to and handoff-pre-answered fails
+  for that reason alone; read that grader's result together with the run's
+  final message.
+tags: [autonomous-mode, init, ecosystem, regression]
+context:
+  scaffold_script: fixture.sh

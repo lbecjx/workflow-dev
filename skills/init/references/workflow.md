@@ -41,7 +41,7 @@ Context splits into two files:
 
 1. Check for `.workflow-dev/config.json` at the project root.
 2. **Exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (create `.gitignore` if the project has none, add the line if it's missing). If `false`, leave `.gitignore` untouched — the folder is meant to be tracked. Don't ask again either way.
-3. **Doesn't exist** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Persist the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` to match.
+3. **Doesn't exist** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Persist the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` to match. In autonomous mode, don't ask: use `{ "gitignored": true }` and record it as an inferred decision (`../SKILL.md` Phase 0).
 
 If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 
@@ -319,6 +319,11 @@ Approve as-is, edit (tell me what to change), or rewrite it yourself and I'll sa
 5. The human decides per section, independently.
 6. Save each approved version into REPO.md.
 
+In autonomous mode (`references/autonomous-mode.md` at the plugin root), skip
+points 4 and 5: save each drafted section as-is, record one `Agent (inferred)`
+row per section in the story's Decisions, and list the sections in the
+end-of-run report so the human can review them there.
+
 #### Subagents vs. doing it inline
 
 **Use three parallel subagents when:**
@@ -356,6 +361,10 @@ Review everything marked ⬜ across both files and turn it into specific questio
 
 Update the files with the answers.
 
+In autonomous mode, this step is the pre-autonomous checkpoint: follow
+`references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
+checkpoint".
+
 ### Step 11: Confirm
 
 Report back:
@@ -363,6 +372,8 @@ Report back:
 - A summary of what was found
 - Any pending questions
 - That you're ready to work — ask what to do first
+
+In autonomous mode, don't ask: run `/workflow-dev:plan` next, in the same turn (`references/autonomous-mode.md` at the plugin root, "Chaining").
 
 ## Keeping it alive after init
 
