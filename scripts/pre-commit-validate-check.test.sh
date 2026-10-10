@@ -40,7 +40,11 @@ fi
 
 PROJ="$TMP/proj"
 export TMPDIR="$TMP/tmpdir"
-mkdir -p "$PROJ" "$TMPDIR"
+# The dialog text follows the tester's Claude Code `language` setting
+# (hook-language.sh), so a throwaway HOME keeps every case below on the English
+# default; section 11 sets a language on purpose.
+export HOME="$TMP/home"
+mkdir -p "$PROJ" "$TMPDIR" "$HOME"
 
 ( cd "$PROJ" \
   && git init -q . \
@@ -244,6 +248,70 @@ case "$RACE_OUT" in
   *"group- or world-writable"*) ok "…and names why" ;;
   *) no "…and names why (got: $RACE_OUT)" ;;
 esac
+
+# --- 11: the dialog speaks the conversation's language ------------------------
+# The decision never changes with the language; only the words do. English is
+# what every section above already pinned (no transcript, empty HOME).
+SPANISH_TRANSCRIPT="$TMP/es.jsonl"
+jq -cn '{type:"user",message:{role:"user",content:"¿Puedes revisar el plan y decirme qué falta?"}}' > "$SPANISH_TRANSCRIPT"
+with_transcript() { printf '%s' "$1" | jq -c --arg p "$2" '. + {transcript_path: $p}'; }
+ES_COMMIT="$(with_transcript "$COMMIT" "$SPANISH_TRANSCRIPT")"
+rm -f "$MARKER"; chmod 700 "$MARKER_DIR"
+
+JSON_OUT="$(hook "$ES_COMMIT")"
+case "$JSON_OUT" in
+  *'"permissionDecision":"ask"'*"No hay un registro de /workflow-dev:validate"*) ok "Spanish conversation → the validate ask is in Spanish" ;;
+  *) no "Spanish conversation → the validate ask is in Spanish (got: $JSON_OUT)" ;;
+esac
+printf '%s' "$JSON_OUT" | jq -e . >/dev/null 2>&1 && ok "…and is valid JSON" || no "…and is valid JSON"
+
+printf '{"diffHash":"%s","status":"deferred","at":"2026-09-29T00:00:00Z"}' "$(current_hash)" > "$MARKER"
+JSON_OUT="$(hook "$ES_COMMIT")"
+case "$JSON_OUT" in
+  *'"permissionDecision":"allow"'*"Validación diferida"*) ok "Spanish conversation → the deferred allow is in Spanish" ;;
+  *) no "Spanish conversation → the deferred allow is in Spanish (got: $JSON_OUT)" ;;
+esac
+JSON_OUT="$(hook "$COMMIT")"
+case "$JSON_OUT" in
+  *'"permissionDecision":"allow"'*"Validation deferred for this task group"*) ok "no language anywhere → the deferred allow stays English" ;;
+  *) no "no language anywhere → the deferred allow stays English (got: $JSON_OUT)" ;;
+esac
+rm -f "$MARKER"
+
+# The untrusted-directory note joins the ask in the same language.
+chmod 777 "$MARKER_DIR"
+case "$(hook "$ES_COMMIT")" in
+  *"No se puede confiar en el directorio de marcadores"*"group- or world-writable"*) ok "Spanish ask → the trust note is Spanish, its detail stays as is" ;;
+  *) no "Spanish ask → the trust note is Spanish (got: $(hook "$ES_COMMIT"))" ;;
+esac
+chmod 700 "$MARKER_DIR"
+
+# Claude Code's language setting answers when the conversation cannot.
+mkdir -p "$HOME/.claude"
+printf '{"language":"spanish"}' > "$HOME/.claude/settings.json"
+case "$(hook "$COMMIT")" in
+  *'"permissionDecision":"ask"'*"No hay un registro"*) ok "language setting spanish, no transcript → Spanish" ;;
+  *) no "language setting spanish, no transcript → Spanish (got: $(hook "$COMMIT"))" ;;
+esac
+printf '{"language":"esperanto"}' > "$HOME/.claude/settings.json"
+case "$(hook "$COMMIT")" in
+  *'"permissionDecision":"ask"'*"No matching /workflow-dev:validate record"*) ok "a language with no text → English, same decision" ;;
+  *) no "a language with no text → English (got: $(hook "$COMMIT"))" ;;
+esac
+printf '{"language":' > "$HOME/.claude/settings.json"
+case "$(hook "$(with_transcript "$COMMIT" "$TMP/missing.jsonl")")" in
+  *'"permissionDecision":"ask"'*"No matching /workflow-dev:validate record"*) ok "missing transcript + malformed setting → English, same decision" ;;
+  *) no "missing transcript + malformed setting → English (got: $(hook "$COMMIT"))" ;;
+esac
+rm -f "$HOME/.claude/settings.json"
+
+# init records the conversation's language in config.json; it is the last source.
+printf '{"gitignored":true,"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+case "$(hook "$COMMIT")" in
+  *'"permissionDecision":"ask"'*"No hay un registro"*) ok "config.json language es, nothing else → Spanish" ;;
+  *) no "config.json language es, nothing else → Spanish (got: $(hook "$COMMIT"))" ;;
+esac
+rm -f "$PROJ/.workflow-dev/config.json"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

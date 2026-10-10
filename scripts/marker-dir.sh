@@ -141,10 +141,21 @@ marker_dir_reason() {
 # and `"` and `\` are dropped explicitly. Without the control-character sweep a
 # tab in `TMPDIR` produced invalid JSON (found by this change's own adversarial
 # pass). `LC_ALL=C` keeps the class byte-wise on a UTF-8 locale.
+#
+# $2 is an optional translated wrapper: the commit hooks pass
+# `hook_msg <code> trust_note` from hook-language.sh, which owns every
+# translation. It is a printf format with one %s and nothing else, always one of
+# that table's fixed strings — never text read from anywhere. Without it, the
+# English wrapper; this file must not depend on hook-language.sh, because the
+# marker writers source this one alone. The reason itself stays English — it
+# names a path and a mode, a technical detail more than a sentence — and is the
+# part sanitized here.
 marker_trust_note() {
-  local reason="$1"
+  local reason="$1" wrapper="${2:-}"
   [[ -n "$reason" ]] || return 0
-  printf ' (The marker directory cannot be trusted: %s.)' \
+  [[ -n "$wrapper" ]] || wrapper=' (The marker directory cannot be trusted: %s.)'
+  # shellcheck disable=SC2059 # the format is a fixed string from hook_msg or the default above
+  printf "$wrapper" \
     "$(printf '%s' "$reason" | LC_ALL=C tr -d '[:cntrl:]"\\')"
 }
 

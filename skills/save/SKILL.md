@@ -113,6 +113,7 @@ Scan everything discussed since the "Last updated" timestamp and classify each i
 | Something that failed or didn't work | Working Memory > Failed Attempts |
 | Something explicitly forbidden for this story | Working Memory > Do Not |
 | An AC completed | Progress |
+| `validate`'s "Proposed Progress changes" (AC Coverage, COVERED ACs only — never a PARTIAL) | Progress |
 | An AC started | Progress |
 | Files created/modified/deleted | Files Touched |
 | A clarification to the AC or story | Base Context > Story |

@@ -14,7 +14,7 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## 1.42.0
+## 1.45.0
 
 - workflow-dev speaks a short line, once per event, only when it needs you or
   finished something for you to review; it stays silent otherwise, in CI and in
@@ -24,6 +24,36 @@ All notable changes to this plugin are documented here. Format loosely follows
   Code settings `env`; the README shows how to drop generic alerts.
 - The first story on a machine asks once which output plays the alerts (such
   as the built-in speakers) and how loud, and keeps the answer for every repo.
+
+## 1.44.0
+
+- The commit and PR hooks write their permission dialogs in the conversation's
+  language: English, Spanish, French, Portuguese, German, Italian, Chinese,
+  Japanese, Korean or Russian. They read it from the user's recent messages,
+  then Claude Code's `language` setting, then `"language"` in
+  `.workflow-dev/config.json`, which `init` now records. Any other language
+  gets English, and the language never changes a decision.
+
+## 1.43.0
+
+- The story cost now includes the plugin evals `validate` runs. Their cases
+  spend in child processes outside the session, so `validate` records each
+  result file (`session-usage.sh --record-suite`) inside the skill run it ran
+  in, judge cost included.
+- `--story` and the closing report show that spend on its own line under its
+  stage, and `.usage/.index.json` adds it to the total (new field `suite_usd`).
+- An eval that left no result adds no amount and marks the total `≥`. A result
+  is never counted twice.
+
+## 1.42.0
+
+- `validate` checks acceptance-criteria coverage (Part 14). A `wd-judge`
+  sub-agent, given only the ACs and the changed files, gives each AC the change
+  claims a verdict with `file:line` evidence. A confirmed NOT COVERED fails the
+  gate and PARTIAL warns. It runs in the reduced set too, and proposes Progress
+  updates without editing the story; `save` applies them.
+- `implement` marks the task group In Progress in every mode, so `validate`
+  knows which ACs the change claims.
 
 ## 1.41.0
 

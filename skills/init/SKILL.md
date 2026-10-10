@@ -86,6 +86,13 @@ exist yet, so keep the answer and write it in Phase 6 step 8.
 1. Check for `.workflow-dev/config.json` at the project root.
 2. **If it exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (add it, and create `.gitignore` if the project has none, when it's missing). If `false`, do nothing further — the folder is meant to be tracked. Either way, don't ask the human again.
 3. **If it doesn't exist** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Write the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` accordingly. In autonomous mode, don't ask: use `{ "gitignored": true }` (private, and reversible later), and record it in the story's Decisions as `Agent (inferred)` in Phase 6.
+4. **Every run:** set `"language"` in `.workflow-dev/config.json` to the ISO
+   639-1 code of the conversation's language (`es`, `en`, …), inferred the way
+   `references/user-language.md` says, and keep the file's other keys. Never ask
+   and never record it: it only follows the conversation. The commit hooks read
+   it to word their permission dialogs when neither the conversation nor
+   Claude Code's `language` setting can tell them (`hooks/README.md` at the
+   plugin root).
 
 If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 

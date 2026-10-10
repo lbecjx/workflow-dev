@@ -328,7 +328,12 @@ can audit, containing:
    includes the answers passed to another plugin's skill in a pre-answered
    invocation, and the run mode itself.
 3. **What it deferred** — any validation deferred to the story-end pass, any
-   finding left for the human, any ambiguity it stopped on.
+   finding left for the human, any ambiguity it stopped on. This includes
+   every `validate`'s AC Coverage result in the run (`validate/references/rules.md`
+   Part 14): each AC's verdict, every PARTIAL and NOT VERIFIABLE STATICALLY with
+   its reason, and the proposed Progress changes. (An AC confirmed NOT COVERED
+   is a FAIL: it stopped the run, or, capped under §11.3, it is listed first as a
+   known limitation — "The quality gate is load-bearing".)
 4. **The cost** — `session-usage.sh --story [STORY-ID] --final`, the durable
    ledger's total by stage and by agent/role, then the closing table by skill
    (with `validate`'s sub-agents) and its note that only skill runs are
