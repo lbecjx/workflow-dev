@@ -168,9 +168,33 @@ judgment:
 5. **Keep the report local.** Add `--no-publish`: the command otherwise
    publishes its HTML report (transcripts and grader reasoning) online, and a
    quality gate must not upload anything as a side effect.
+6. **Give the result a fresh directory.** Add `--output-dir <dir>`, with
+   `<dir>` made new for this run (`mktemp -d`). The result is then
+   `<dir>/aggregate-result.json`, one path per run. The story cost needs that
+   path (below), and a reused one would make a second run look like the first.
 
 No skill or rule names a model here: the model always comes from the
 `wd-judge` binding or from the session.
+
+**Record the eval's spend in the story cost.** The eval's cases run in child
+`claude` processes, outside the session transcript, so the story ledger never
+sees their spend unless it is recorded. Right after the command exits —
+whether it passed, failed or aborted — you, the orchestrator, run:
+
+```sh
+"$PLUGIN_ROOT"/scripts/session-usage.sh --record-suite [STORY-ID] <dir>/aggregate-result.json
+```
+
+- **Before the run's end checkpoint.** The spend joins the skill run in
+  progress (`validate`, or `implement` when validate runs inside it), never a
+  stage of its own. Once that run has recorded its end, the call is refused.
+- **Also when no file was written.** Pass the path anyway: the ledger then
+  says the result is missing, and the story total becomes a lower bound
+  (`≥`). The amount is never estimated.
+- **Once per run is enough.** A result already recorded is not added again.
+- When a `wd-operator` ran the command, it returns `<dir>` in its report; the
+  operator never records it. No active story → record nothing
+  (`references/run-cost.md` at the plugin root).
 
 **A new or changed eval runs once per pass.** Run it, read the verdict, and
 report it. Do not retune a grader, reword a prompt, or rerun the case to make it

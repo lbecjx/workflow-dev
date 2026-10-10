@@ -64,6 +64,14 @@ runs; never drop it. Both calls are best-effort: a non-zero exit, or
 - **A wrapper.** `init-auto` records nothing: the `init` it invokes records the
   run.
 
+## Spend outside the transcript
+
+A plugin eval (`claude plugin eval`) runs its cases in child processes, so the
+two checkpoints above never see what they cost. Its result file holds the
+figure: record it inside the run in progress with `--record-suite`, before that
+run's end. It has no start or end of its own and is never a stage of its own.
+How and when: `skills/validate/references/rules.md` §6.1.
+
 ## Why a start is never skipped
 
 Without its start, an end is measured from the session's previous checkpoint,

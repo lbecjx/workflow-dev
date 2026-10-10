@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.43.0
+
+- The story cost now includes the plugin evals `validate` runs. Their cases
+  spend in child processes outside the session, so `validate` records each
+  result file (`session-usage.sh --record-suite`) inside the skill run it ran
+  in, judge cost included.
+- `--story` and the closing report show that spend on its own line under its
+  stage, and `.usage/.index.json` adds it to the total (new field `suite_usd`).
+- An eval that left no result adds no amount and marks the total `≥`. A result
+  is never counted twice.
+
 ## 1.42.0
 
 - `validate` checks acceptance-criteria coverage (Part 14). A `wd-judge`

@@ -19,7 +19,7 @@ no shell, and no path to the installed plugin.
 `<git toplevel>/.workflow-dev/context/.usage/.index.json`
 
 `scripts/session-usage.sh` rebuilds it from the story ledgers after every
-checkpoint (`--snapshot`) and every `--reconcile`. The write is atomic (temp
+checkpoint (`--snapshot`), every `--reconcile` and every `--record-suite`. The write is atomic (temp
 file, then rename), so a reader never sees half a file.
 
 ## What a story costs
@@ -41,6 +41,12 @@ in the last 15 minutes) is in progress, not open. An end with no start before it
 as it was then. A run of another story nested inside a run of the same session
 is taken out of the outer run, so it is counted once.
 
+A plugin eval (`claude plugin eval`) that `validate` runs spends in child
+processes, outside the session. Its result file is recorded inside the skill
+run it ran in (`session-usage.sh --record-suite`), at the file's `costUsd`,
+which already holds the judge's spend. So the story total includes it. An eval that
+left no readable result adds no amount and makes the total a lower bound.
+
 **Detection:** the file exists only in a project that uses workflow-dev and has
 recorded at least one checkpoint. No file means nothing to show — a reader
 skips its workflow-dev segment silently, never an error.
@@ -61,6 +67,7 @@ skips its workflow-dev segment silently, never an error.
       "checkpoints": 9,
       "unpriced_checkpoints": 5,
       "sessions": 1,
+      "suite_usd": 4.0946,
       "last_stage": "validate",
       "last_recorded_at": "2026-10-08T08:04:13Z",
       "tokens": { "input": 722, "output": 214915, "reasoning": 0, "cache_read": 54676871, "cache_write": 1310202 },
@@ -80,9 +87,10 @@ skips its workflow-dev segment silently, never an error.
 | `last_story` | The story with the most recent checkpoint — the one most likely in progress. `null` when there is none. |
 | `total_usd` | The story's cost across every session, in USD, rounded to 4 decimals. The sum of the ledger's deltas. |
 | `estimated` | Part of the total is an estimate, not Claude Code's exact figure. A run is exact only when its start and its end are both exact figures and no other story ran inside it; otherwise it is priced from the price table at both ends, model by model, from the tokens spent between them. An exact figure that lands later settles a run only if the run started exact and the session did no new work after its end; otherwise the estimate stays. For ledgers from before 1.36.0: some session's latest reading is an estimate. |
-| `lower_bound` | The real cost is at least `total_usd`: an estimate (they run low — calls Claude Code makes outside the transcript), a session with no price yet, a sub-agent whose logged output is incomplete, or an open run (`open_runs` > 0). Show it as `≥`. |
+| `lower_bound` | The real cost is at least `total_usd`: an estimate (they run low — calls Claude Code makes outside the transcript), a session with no price yet, a sub-agent whose logged output is incomplete, an open run (`open_runs` > 0), or a plugin eval that left no readable result. Show it as `≥`. |
 | `open_runs` | How many skill runs started and never recorded their end (see "What a story costs"). Their spend is missing from `total_usd`. A run in progress is not counted: its start is the story latest checkpoint for a session written in the last 15 minutes (another story working in that session meanwhile does not end it, since a run waiting on the human looks the same). Like the rest of the file, it is computed when the index is written, so a run that dies stays counted as in progress until the next checkpoint in the project. Added in `/2`. |
-| `checkpoints`, `unpriced_checkpoints`, `sessions` | Ledger counts. The two checkpoint counts are of **ends** only; a start is bookkeeping. |
+| `checkpoints`, `unpriced_checkpoints`, `sessions` | Ledger counts. The two checkpoint counts are of **ends** only; a start is bookkeeping. A recorded plugin eval result is none of the three. |
+| `suite_usd` | The part of `total_usd` spent by plugin evals (`claude plugin eval`), judge included. `0` when none ran. Added in 1.43.0, within `/2`. |
 | `last_stage`, `last_recorded_at` | The latest workflow checkpoint's stage (`init`, `plan`, `implement`, `validate`, `save`, …) and time. A `reconcile` entry and a start are bookkeeping and never show here, nor make a story `last_story`; a story with only a start has `null` here. |
 | `tokens` | Token totals across the story. |
 | `by_agent` | Per role (`orchestrator`, `wd-judge`, …): `cost_usd` (`null` when no reading was priced) and `lower_bound` (`true` once any of its readings had incomplete logged output). Roles are always priced from the price table, never from Claude Code's exact figure, which has no per-role split — so they need not add up to `total_usd`. |

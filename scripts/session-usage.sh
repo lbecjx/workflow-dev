@@ -69,6 +69,16 @@
 #     transcript now holds an exact cost-state (`--snapshot` does this too, for
 #     the story's other sessions). Rebuilds `.usage/.index.json`, the
 #     machine-readable summary for dashboards (references/usage-api.md).
+#   --record-suite <STORY-ID> <result.json> [--transcript <path>] — add the
+#     spend of one `claude plugin eval` result (its `costUsd`, judge included)
+#     to the story skill run this session has in progress (its
+#     start, or an implement end), as an entry of its own. A result already
+#     recorded is not added again. A missing or unreadable result is recorded
+#     with no amount, which makes the story total a lower bound (≥), and is
+#     replaced once a readable one is recorded at the same path. Rebuilds the
+#     index. Exits 0 when recorded or already recorded (also after its run
+#     ended), 1 when a new result has no run in progress for this session or
+#     the ledger is unusable, 2 on bad usage.
 
 set -u
 
@@ -110,8 +120,16 @@ SNAPSHOT_START=0
 STORY_FINAL=0
 STORY_ARG=""
 RECONCILE_STORY=""
+SUITE_STORY=""
+SUITE_PATH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --record-suite)
+      if [[ $# -lt 3 || -z "$2" || "$2" == --* || -z "$3" || "$3" == --* ]]; then
+        echo "session-usage.sh: --record-suite needs <STORY-ID> <result.json>" >&2
+        exit 2
+      fi
+      SUITE_STORY="$2"; SUITE_PATH="$3"; shift 3 ;;
     --transcripts|--snapshot|--stage|--story)
       # A missing value (or a flag where the value belongs) is an error: with
       # `shift 2` and one argument left, the loop never ended, and a flag taken
@@ -155,6 +173,10 @@ if [[ "$SNAPSHOT_START" -eq 1 && -z "$SNAPSHOT_STORY" ]]; then
 fi
 if [[ "$STORY_FINAL" -eq 1 && -z "$STORY_ARG" ]]; then
   echo "session-usage.sh: --final needs --story <STORY-ID>" >&2
+  exit 2
+fi
+if [[ -n "$SUITE_STORY" && ( -n "$SNAPSHOT_STORY" || -n "$STORY_ARG" || -n "$RECONCILE_STORY" ) ]]; then
+  echo "session-usage.sh: --record-suite cannot be combined with --snapshot, --story or --reconcile" >&2
   exit 2
 fi
 
@@ -814,6 +836,30 @@ OPEN_RUNS_JQ='
       | $g[$i] ];
   def open_runs($live): open_starts($live) | length;'
 
+# Eval results (`--record-suite`): one entry per result file, under the run it
+# ran in. Its source is the result path, never a transcript, so it holds no
+# start and takes no part in open runs, duplicates or reconcile. A result first
+# recorded as missing and found later gets a second entry; only the latest entry
+# of each result counts, or the stale "no result" would keep the total a lower
+# bound forever. Input: a checkpoints array. No apostrophes: single-quoted.
+SUITE_JQ='
+  def is_suite: (.harness // "") == "plugin-eval";
+  def without_superseded:
+    . as $c
+    | ( [ to_entries[] | select(.value | is_suite) | { s: .value.source, i: .key } ]
+        | group_by(.s) | map(max_by(.i).i) ) as $keep
+    | [ to_entries[] | select((.value | is_suite | not) or (.key as $k | $keep | index([$k]) != null)) | .value ];
+  def suite_money: . * 10000 | round / 10000 | tostring | "$" + .;
+  def suite_summary:
+    . as $ev
+    | [ $ev[] | select(.cost_usd != null) ] as $ok
+    | ([ $ev[] | select(.cost_usd == null) ] | length) as $miss
+    | (if $miss > 0 then "≥" else "" end) + ([ $ok[].delta | numbers ] | add // 0 | suite_money)
+      + " (judge " + ([ $ok[].suite.judge_usd | numbers ] | add // 0 | suite_money) + " included)"
+      + " over \($ev | length) result(s)"
+      + (if $miss > 0 then ", \($miss) without a result" else "" end)
+      + (if any($ok[]; .suite.partial == true) then ", partial" else "" end);'
+
 # The sessions still being written, as a JSON object keyed by source (feeds
 # `open_runs`; the values are not used). A
 # session is live when it is the transcript of this call ($1, may be empty) or
@@ -858,6 +904,18 @@ valid_story_id() {
     ""|.*|-*|*/*) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+# Replace a story ledger with $2 atomically (temp file in the same directory,
+# then rename), so a reader never sees half a file.
+ledger_write() { # $1 story, $2 doc, $3 what is lost on failure (default: checkpoint)
+  local file="$USAGE_DIR/$1.json" tmp=""
+  if ! tmp=$(mktemp "$USAGE_DIR/.$1.XXXXXX") || ! printf '%s' "$2" | jq '.' > "$tmp" || ! mv "$tmp" "$file"; then
+    rm -f "$tmp" 2>/dev/null
+    printf 'usage: could not write the ledger at %s — %s NOT recorded\n' "$file" "${3:-checkpoint}" >&2
+    return 1
+  fi
+  chmod 600 "$file" 2>/dev/null
 }
 
 # Record one checkpoint and report the tramo/acumulado. Idempotent on
@@ -1093,7 +1151,9 @@ ledger_record() {
               ( nexact($nest) as $n
                 | if $n == null then { d: null, b: "unsettled-nested" }
                   else { d: ($e.cost_usd - $rstart.cost_usd - $n
-                             - ([ cps[] | select(.run == $rstart.run) | .delta | numbers ] | add // 0)),
+                             # An eval result of the run is not in the session
+                             # figure (child processes), so it is not taken out.
+                             - ([ cps[] | select(.run == $rstart.run and (.harness // "") != "plugin-eval") | .delta | numbers ] | add // 0)),
                          b: "exact", settles: true } end )
             elif $e.cost_usd == null then { d: null, b: "legacy" }
             elif $prevp == null then { d: $e.cost_usd, b: "legacy" }
@@ -1170,13 +1230,7 @@ ledger_record() {
     return 1
   fi
   if [[ "$action" == "appended" ]]; then
-    local tmp=""
-    if ! tmp=$(mktemp "$USAGE_DIR/.$story.XXXXXX") || ! printf '%s' "$doc" | jq '.' > "$tmp" || ! mv "$tmp" "$file"; then
-      rm -f "$tmp" 2>/dev/null
-      printf 'usage: could not write the ledger at %s — checkpoint NOT recorded\n' "$file" >&2
-      return 1
-    fi
-    chmod 600 "$file" 2>/dev/null
+    ledger_write "$story" "$doc" || return 1
   fi
 
   # Counts are of ends only: a start is bookkeeping, not a measured step.
@@ -1186,8 +1240,9 @@ ledger_record() {
   basis=$(printf '%s' "$result" | jq -r 'if .entry.delta_basis == "priced" then "estimated" else (.entry.cost_basis // "") end')
   estimated=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start" and (.cost_basis == "estimated" or .delta_basis == "priced"))] | length')
   total=$(printf '%s' "$doc" | jq -r '[.checkpoints[].delta | select(type=="number")] | add // 0')
-  nst=$(( $(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start")] | length') ))
-  unpriced=$(printf '%s' "$doc" | jq -r '[.checkpoints[] | select((.kind // "end") != "start" and .cost_usd == null)] | length')
+  # Eval results are not checkpoints of a session: `--story` shows them apart.
+  nst=$(( $(printf '%s' "$doc" | jq -r "$SUITE_JQ"'[.checkpoints[] | select((.kind // "end") != "start" and (is_suite | not))] | length') ))
+  unpriced=$(printf '%s' "$doc" | jq -r "$SUITE_JQ"'[.checkpoints[] | select((.kind // "end") != "start" and (is_suite | not) and .cost_usd == null)] | length')
   openr=$(printf '%s' "$doc" | jq -r --argjson live "$live" "$OPEN_RUNS_JQ"' .checkpoints // [] | open_runs($live)' 2>/dev/null)
   [[ "$openr" =~ ^[0-9]+$ ]] || openr=0
 
@@ -1256,6 +1311,154 @@ reconcile_story() { # $1 story, $2 source to skip (may be empty), $3 live source
   return 0
 }
 
+# Read one `claude plugin eval` result (`aggregate-result.json`, schema 1).
+# Its cases run in child `claude` processes, outside the session transcript,
+# so this file is the only record of their spend. The top-level `costUsd` is
+# the whole spend: each run `costUsd` is its agent plus its judge (measured: a
+# kept trace cost 0.0980792, the judge 0.03412, the run 0.1321992), so the
+# judge is shown as a part of it, never added to it. Anything else (no file, a
+# directory, bad JSON, another schema, no usable `costUsd`) is an unreadable
+# result with its reason: the amount is unknown, never guessed. A figure above
+# a sanity ceiling is not a cost any eval run produces, so it is unreadable too.
+read_suite_result() { # $1 path
+  local p="$1" out
+  if [[ ! -e "$p" ]]; then
+    jq -nc '{ readable: false, reason: "missing" }'; return 0
+  fi
+  if [[ ! -f "$p" || ! -r "$p" ]]; then
+    jq -nc '{ readable: false, reason: "unreadable" }'; return 0
+  fi
+  # Slurped, so a file holding two documents is malformed rather than read twice.
+  out=$(jq -sc '
+    # One million dollars: far above any eval run, far below the float edge.
+    def ceiling: 1000000;
+    if length != 1 or (.[0] | type) != "object" then { readable: false, reason: "malformed" }
+    else .[0]
+      | if .schemaVersion != 1 then { readable: false, reason: "unknown schemaVersion" }
+        elif (.costUsd | type) != "number" or .costUsd < 0 then { readable: false, reason: "no costUsd" }
+        elif .costUsd > ceiling then { readable: false, reason: "implausible costUsd" }
+        else ( [ (.cases // [])[]? | (.arms // {})[]? | .[]? | objects | .judgeCostUsd | numbers
+                 | select(. >= 0 and . <= ceiling) ] | add // 0 ) as $judge
+          # The judge is a part of costUsd, so it is never shown above it.
+          | { readable: true, cost_usd: .costUsd, judge_usd: ([ $judge, .costUsd ] | min),
+              partial: (.partial == true), started_at: (.startedAt // null) } end end' "$p" 2>/dev/null)
+  [[ -n "$out" ]] || out=$(jq -nc '{ readable: false, reason: "malformed" }')
+  printf '%s' "$out"
+}
+
+# The dedupe key of a result path: absolute and physical, so the same file
+# named two ways (a `..`, the macOS /var link, a symlink to it) is one result.
+# When its directory does not exist yet (the eval aborted before writing it),
+# the deepest existing ancestor is resolved and the rest is resolved by name:
+# the key must match the one the file gets once the directory appears, or a
+# result found later would be counted beside its "no result" entry instead of
+# replacing it. A symlink loop stops after a bounded number of hops and stays
+# a path of its own (an unreadable result), never an endless walk.
+suite_key() { # $1 path
+  local p="$1" dir base rest="" out seg target hops=0
+  [[ "$p" == /* ]] || p="$(pwd -P)/$p"
+  while [[ -L "$p" && $hops -lt 40 ]]; do
+    target=$(readlink -- "$p") || break
+    [[ "$target" == /* ]] || target="$(dirname -- "$p")/$target"
+    p="$target"; hops=$((hops + 1))
+  done
+  dir="$(dirname -- "$p")"; base="$(basename -- "$p")"
+  # A path that names a directory (`..`, `.`, `/`) is keyed as that directory.
+  case "$base" in .|..|/) dir="$p"; base="" ;; esac
+  while [[ ! -d "$dir" ]]; do
+    rest="/$(basename -- "$dir")$rest"
+    dir="$(dirname -- "$dir")"
+  done
+  # `cd -P`: a `..` after a symlinked directory is the parent of its target,
+  # as the kernel opens it, never the textual parent. A directory that cannot
+  # be entered keeps its written name rather than collapsing to the root.
+  out="$(CDPATH= cd -P -- "$dir" 2>/dev/null && pwd -P)" || out="$dir"
+  out="${out%/}"
+  rest="${rest#/}"
+  while [[ -n "$rest" ]]; do
+    seg="${rest%%/*}"
+    if [[ "$rest" == */* ]]; then rest="${rest#*/}"; else rest=""; fi
+    case "$seg" in
+      ""|.) ;;
+      ..) out="${out%/*}" ;;
+      *) out="$out/$seg" ;;
+    esac
+  done
+  if [[ -n "$base" ]]; then printf '%s/%s' "$out" "$base"; else printf '%s' "${out:-/}"; fi
+}
+
+# Add an eval result to the run it ran in: the run of this session latest entry
+# in the story ledger, when that run is still going (its start, or an implement
+# end, which the next task group continues). Anything else (no entry for the
+# session, a finished run) is refused: the spend would otherwise land on no run
+# or on the wrong one. A result already in the ledger is not added again, so a
+# second call or a later reconcile never counts it twice; a missing result is
+# recorded (the total becomes a lower bound) and is replaced once it is found.
+ledger_add_suite() { # $1 story, $2 result path (absolute), $3 transcript (absolute, may be empty)
+  local story="$1" path="$2" tx="$3" file="$USAGE_DIR/$1.json" existing result out action doc
+  if ! valid_story_id "$story"; then
+    printf 'usage: refusing an invalid story id %q (must be a bare name)\n' "$story" >&2
+    return 1
+  fi
+  if [[ ! -f "$file" ]]; then
+    printf 'usage: no checkpoints for %s — eval spend NOT recorded (run it inside a skill run)\n' "$story" >&2
+    return 1
+  fi
+  existing=$(cat "$file")
+  if ! printf '%s' "$existing" | jq -e . >/dev/null 2>&1; then
+    printf 'usage: %s is not valid JSON — refusing to overwrite it; eval spend NOT recorded\n' "$file" >&2
+    return 1
+  fi
+  if [[ -z "$tx" ]]; then
+    printf 'usage: no session transcript resolved — eval spend NOT recorded\n' >&2
+    return 1
+  fi
+  result=$(read_suite_result "$path")
+  out=$(jq -nc --argjson doc "$existing" --argjson r "$result" --arg src "$path" --arg tx "$tx" \
+      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+    ($doc.checkpoints // []) as $c
+    | ( [ $c[] | select(.source == $tx and .stage != "reconcile") ] | last ) as $p
+    | ( if $p == null then null
+        elif ($p.kind // "end") == "start" then $p
+        elif $p.stage == "implement" and $p.run != null
+             and any($c[]; .run == $p.run and .source == $tx and (.kind // "end") == "start") then $p
+        else null end ) as $host
+    | ( [ $c[] | select(.source == $src) ] | last ) as $last
+    # Already recorded wins over a finished run: a repeated call is told the
+    # spend is in, not that it was lost.
+    | if $last != null and ($last.cost_usd != null or ($r.readable | not)) then { action: "duplicate", entry: $last }
+      elif $host == null then { action: "no-run" }
+      else ( { source: $src, harness: "plugin-eval", kind: "end", stage: $host.stage, run: $host.run,
+               cost_usd: (if $r.readable then $r.cost_usd else null end), cost_basis: "plugin-eval",
+               delta: (if $r.readable then $r.cost_usd else null end),
+               delta_basis: (if $r.readable then "exact" else "missing" end),
+               suite: $r, recorded_at: $at } ) as $e
+        | { action: "appended", entry: $e, doc: ($doc + { checkpoints: ($c + [$e]) }) } end') || out=""
+  if [[ -z "$out" ]]; then
+    printf 'usage: could not compute the eval entry for %s — eval spend NOT recorded\n' "$story" >&2
+    return 1
+  fi
+  action=$(printf '%s' "$out" | jq -r '.action')
+  case "$action" in
+    no-run)
+      printf 'usage: no skill run in progress for this session in %s — eval spend NOT recorded (record it before the run end checkpoint)\n' "$story" >&2
+      return 1 ;;
+    duplicate)
+      printf 'usage %s · claude plugin eval · already recorded: %s\n' "$story" "$path" >&2
+      return 0 ;;
+  esac
+  doc=$(printf '%s' "$out" | jq -c '.doc')
+  ledger_write "$story" "$doc" "eval spend" || return 1
+  printf '%s' "$out" | jq -r --argjson doc "$doc" --arg story "$story" "$SUITE_JQ"'
+    def money: suite_money;
+    .entry as $e
+    | "usage \($story) · stage \($e.stage) · claude plugin eval "
+      + (if $e.suite.readable then ($e.cost_usd | money) + " (judge " + ($e.suite.judge_usd | money) + " included)"
+           + (if $e.suite.partial then ", partial" else "" end)
+         else "no result (" + $e.suite.reason + "): the story total is a lower bound (≥)" end)
+      + " · story total " + ([ $doc.checkpoints[].delta | numbers ] | add // 0 | money)' >&2
+}
+
 # The dashboard API (WD-0049): `.usage/.index.json`, rebuilt from every story
 # ledger after each write. One small JSON file a status line can read on every
 # refresh — no jq, no script, no plugin path needed. Its shape is a contract,
@@ -1284,11 +1487,11 @@ write_index() { # $1 story ids touched (unused since verified was removed), $2 t
   # Open runs come from the one shared definition (OPEN_RUNS_JQ). Starts are
   # bookkeeping: they are not counted as checkpoints, never set last_stage
   # or last_story, and are not a latest reading (WD-0054).
-  if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson live "$live" "$OPEN_RUNS_JQ"'
+  if printf '%s' "$docs" | jq -s --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson live "$live" "$OPEN_RUNS_JQ""$SUITE_JQ"'
       def r4: . * 10000 | round / 10000;
       . as $docs
       | ( $docs | map(
-            .checkpoints as $c
+            ( .checkpoints | without_superseded ) as $c
             | ( [ $c | to_entries[] | .value + { idx: .key } | select((.kind // "end") != "start") ] ) as $ends
             | ( $ends | group_by(.source) | map(last) ) as $latest
             | ( $c | open_runs($live) ) as $open
@@ -1308,11 +1511,13 @@ write_index() { # $1 story ids touched (unused since verified was removed), $2 t
                 estimated: $est,
                 lower_bound: ($est or $open > 0
                   or any($latest[]; .cost_usd == null or .output_partial == true)
-                  or any($ends[]; .delta == null and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))),
+                  # A settle covers session spend only: an eval with no result stays unknown.
+                  or any($ends[]; .delta == null and (is_suite or (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not)))),
                 open_runs: $open,
-                checkpoints: ($ends | length),
-                unpriced_checkpoints: ([ $ends[] | select(.cost_usd == null) ] | length),
-                sessions: ($c | map(.source) | unique | length),
+                checkpoints: ([ $ends[] | select(is_suite | not) ] | length),
+                unpriced_checkpoints: ([ $ends[] | select((is_suite | not) and .cost_usd == null) ] | length),
+                sessions: ([ $c[] | select(is_suite | not) | .source ] | unique | length),
+                suite_usd: ([ $ends[] | select(is_suite) | .delta | numbers ] | add // 0 | r4),
                 last_stage: $w.stage,
                 last_recorded_at: $w.recorded_at,
                 tokens: { input: ([ $c[].token_delta.input // 0 ] | add // 0),
@@ -1368,13 +1573,16 @@ ledger_report() {
   local live
   live=$(live_sources "")
   [[ -n "$live" ]] || live='{}'
-  jq -r --argjson live "$live" "$OPEN_RUNS_JQ"'
-    (.checkpoints // []) as $all
+  jq -r --argjson live "$live" "$OPEN_RUNS_JQ""$SUITE_JQ"'
+    (.checkpoints // [] | without_superseded) as $all
     | [ $all[] | select((.kind // "end") != "start") ] as $c
+    # Eval results are spend, not session checkpoints: in the total and under
+    # their stage, never in the checkpoint counts or the sessions.
+    | [ $c[] | select(is_suite | not) ] as $t
     | ( $all | open_runs($live) ) as $open
     | ( ($all | open_runs({})) - $open ) as $running
     | ( [ $c[].delta | select(type=="number") ] | add // 0 ) as $total
-    | "  total: \(if $open > 0 then "≥" else "" end)$\($total * 10000 | round / 10000)   checkpoints: \($c | length)   runs without price: \([ $c[] | select(.cost_usd == null) ] | length)   estimated: \([ $c[] | select(.cost_basis == "estimated" or .delta_basis == "priced") ] | length) (\([ $c[] | select(.stale == true) ] | length) after a stale cost-state, \([ $c[] | select(.output_partial == true) ] | length) lower bounds)",
+    | "  total: \(if $open > 0 or any($c[]; is_suite and .cost_usd == null) then "≥" else "" end)$\($total * 10000 | round / 10000)   checkpoints: \($t | length)   runs without price: \([ $t[] | select(.cost_usd == null) ] | length)   estimated: \([ $t[] | select(.cost_basis == "estimated" or .delta_basis == "priced") ] | length) (\([ $t[] | select(.stale == true) ] | length) after a stale cost-state, \([ $t[] | select(.output_partial == true) ] | length) lower bounds)",
       ( if $open > 0 then "  open runs: \($open) — a skill run started and never recorded its end, so its spend is missing and the total is a lower bound (≥)" else empty end ),
       ( if $running > 0 then "  in progress: \($running) run(s) still being written (not a gap)" else empty end ),
       ("  tokens: input \([ $c[].token_delta.input // 0 ] | add // 0)  output \([ $c[].token_delta.output // 0 ] | add // 0)  reasoning \([ $c[].token_delta.reasoning // 0 ] | add // 0)  cache_read \([ $c[].token_delta.cache_read // 0 ] | add // 0)  cache_write \([ $c[].token_delta.cache_write // 0 ] | add // 0)"),
@@ -1385,9 +1593,14 @@ ledger_report() {
           then "  legacy OpenCode (recorded before OpenCode support was removed): $\(($legacy | add // 0) * 10000 | round / 10000)"
           else empty end ),
       "  by stage:",
-      ( [ $c[] | { s: .stage, d: (.delta // 0) } ] | group_by(.s)[] | "    \(.[0].s): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
+      ( $c | group_by(.stage)[] | . as $g
+        | "    \($g[0].stage): $\(([ $g[] | .delta // 0 ] | add // 0) * 10000 | round / 10000)",
+          ( [ $g[] | select(is_suite) ] | if length == 0 then empty else "      claude plugin eval: " + suite_summary end ) ),
+      ( if any($c[]; is_suite and .cost_usd == null)
+        then "  ≥ = an eval left no readable result: its spend is unknown, never estimated"
+        else empty end ),
       "  by session:",
-      ( [ $c[] | { src: .source, d: (.delta // 0) } ] | group_by(.src)[] | "    \(.[0].src): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
+      ( [ $t[] | { src: .source, d: (.delta // 0) } ] | group_by(.src)[] | "    \(.[0].src): $\(([.[].d] | add // 0) * 10000 | round / 10000)" ),
       "  by agent/role (observed — derived from what ran, never a fixed list):",
       ( [ $c[].agent_deltas // {} | to_entries[] | { k: .key, d: .value.cost_usd, m: (.value.models // []), p: (.value.output_partial // false) } ]
         | group_by(.k)[]
@@ -1398,7 +1611,7 @@ ledger_report() {
         else empty end ),
       "  last step:",
       ( if ($c | length) == 0 then "    none yet" else empty end ),
-      ( $c | last // empty | "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" + (if .cost_basis == "estimated" then " (estimated)" else "" end) end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) )
+      ( $c | last // empty | if is_suite then "    stage \(.stage)  claude plugin eval " + ([ . ] | suite_summary) else "    stage \(.stage)  +" + (if .delta == null then "unpriced" else "$\(.delta * 10000 | round / 10000)" + (if .cost_basis == "estimated" then " (estimated)" else "" end) end) + "  " + ( [ (.agent_deltas // {}) | to_entries[] | "\(.key) " + (if .value.cost_usd == null then "unpriced" else "+$\(.value.cost_usd * 10000 | round / 10000)" end) ] | join("; ") ) end )
   ' "$file"
 
   # The configured role→model binding is WD-0025's reader (extended into
@@ -1463,12 +1676,12 @@ ledger_final_report() {
   fi
   live=$(live_sources "")
   [[ -n "$live" ]] || live='{}'
-  jq -r --argjson live "$live" "$OPEN_RUNS_JQ"'
+  jq -r --argjson live "$live" "$OPEN_RUNS_JQ""$SUITE_JQ"'
     def money: . * 10000 | round / 10000 | tostring | "$" + .;
     def lpad($n): tostring | (" " * ($n - length)) + .;
     def rpad($n): tostring | . + (" " * ($n - length));
     def spent: ((.value.cost_usd // 0) != 0) or ((.value.tokens // {}) | [.[]?] | add // 0) != 0;
-    (.checkpoints // []) as $all
+    (.checkpoints // [] | without_superseded) as $all
     # A run key: its run id, or (legacy, no id) the entry itself. A reconcile
     # takes the key of the entry it corrects, the previous one of its session,
     # so it lands under that skill and adds no run.
@@ -1495,7 +1708,7 @@ ledger_final_report() {
       def marks($es; $open): (if est($es) then "≈" else "" end)
         # An unpriced end a later settle covered is no longer missing spend.
         + (if est($es) or $open or any($es[]; .output_partial == true
-             or (.delta == null and (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not))) then "≥" else "" end);
+             or (.delta == null and (is_suite or (. as $x | any($settled[]; .run == $x.run and .idx > $x.idx) | not)))) then "≥" else "" end);
       "  " + ("skill" | rpad(20)) + ("runs" | lpad(5)) + "  cost",
       ( $order[] as $s
         | [ $ends[] | select(.skill == $s) ] as $es
@@ -1515,10 +1728,15 @@ ledger_final_report() {
                   + (if ($ds | length) == 0 then "unpriced"
                      else (if any(.[]; .value.output_partial == true) then "≥" else "" end) + ($ds | add | money) end)
                   + "  models " + ([ .[].value.models // [] | .[] ] | unique | join(", ")) )
-            else empty end ) ),
+            else empty end ),
+          # Eval results that ran inside these runs: spend of child processes,
+          # apart from the orchestrator and the sub-agents.
+          ( [ $es[] | select(is_suite) ]
+            | if length == 0 then empty
+              else "      " + ("claude plugin eval" | rpad(21)) + "  " + suite_summary end ) ),
       ( ( [ $ends[].delta | select(type == "number") ] | add // 0 ) as $t
         | "  " + ("total" | rpad(20)) + ([ $c[].key ] | unique | length | lpad(5)) + "  " + marks($ends; ($openstages | length) > 0) + ($t | money) ),
-      "  ≈ = estimated from the price table; ≥ = lower bound (an open run, an unpriced step, or incomplete sub-agent output)",
+      "  ≈ = estimated from the price table; ≥ = lower bound (an open run, an unpriced step, incomplete sub-agent output, or an eval with no readable result)",
       "  Note: this total covers only the spend of workflow-dev skill runs. Usage outside them (chat between skills, other work in the same session) is not recorded, so the real spend of the sessions can be higher."
   ' "$file"
 }
@@ -1598,6 +1816,31 @@ if [[ -n "$SNAPSHOT_STORY" ]]; then
   printf '%s\n' "$SNAP" | jq '{ source, harness, cost_usd } + (if .cost_basis then { cost_basis } else {} end)
     + (if .stale then { stale } else {} end) + { tokens, models, as_of }'
   exit "$SNAP_RC"
+fi
+
+# `--record-suite` adds one eval result to the skill run of this session that is
+# in progress, then refreshes the API. Nothing here needs reconciling.
+if [[ -n "$SUITE_STORY" ]]; then
+  if ! have_jq; then echo "session-usage.sh --record-suite needs jq." >&2; exit 1; fi
+  if ! valid_story_id "$SUITE_STORY"; then
+    printf 'usage: refusing an invalid story id %q (must be a bare name)\n' "$SUITE_STORY" >&2
+    exit 2
+  fi
+  SUITE_PATH="$(suite_key "$SUITE_PATH")"
+  SUITE_TX=""
+  if [[ -n "$TRANSCRIPT_ARG" ]]; then
+    [[ -f "$TRANSCRIPT_ARG" ]] && SUITE_TX="$TRANSCRIPT_ARG"
+  else
+    SUITE_R="$(resolve_claude)"
+    [[ "$SUITE_R" == *$'\t'* ]] && SUITE_TX="${SUITE_R%%$'\t'*}"
+  fi
+  if [[ -n "$SUITE_TX" ]]; then
+    SUITE_TX="$(CDPATH= cd -- "$(dirname -- "$SUITE_TX")" >/dev/null && pwd -P)/$(basename -- "$SUITE_TX")"
+  fi
+  SUITE_RC=0
+  ledger_add_suite "$SUITE_STORY" "$SUITE_PATH" "$SUITE_TX" || SUITE_RC=1
+  write_index "$SUITE_STORY" "$SUITE_TX" || true
+  exit "$SUITE_RC"
 fi
 
 # `--reconcile` settles a story's estimated sessions against the exact figure
