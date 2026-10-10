@@ -172,7 +172,7 @@ under its role, with its scoped brief, reporting findings as a structured list
 | **Algorithmic Integrity** | `wd-judge` | Part 13. Termination/progress, complexity/scalability, and untrusted-input algorithmic risk (ACV/ReDoS). |
 | **Scope** | `wd-operator` | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
 | **CI/CD** | `wd-operator` | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
-| **AC Coverage** | `wd-judge` | Part 14. One verdict per AC this change claims, with `file:line` evidence. Its brief is §14.1's isolated one — ACs and changed files only, never the plan — then §14.4's citation check and, on a NOT COVERED, its confirm pass. Runs in the reduced set too. |
+| **AC Coverage** | `wd-judge` | Part 14. One verdict per AC this change claims, with `file:line` evidence. Its brief is §14.1's isolated one — ACs and changed files only, never the plan — then §14.4's citation check and, when §14.4 calls for it, its confirm pass. Runs in the reduced set too. |
 
 **Git history disclosure** (Part 12) is conditional, not always-run: it fires
 only when `CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list,

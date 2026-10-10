@@ -10,7 +10,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 # Validation Rules — Universal Dimensions
 
-These rules are language- and stack-agnostic; they apply to any codebase. Each dimension is checked independently by a sub-agent that receives the list of changed files and reads them directly.
+These rules are language- and stack-agnostic; they apply to any codebase. Each dimension is checked independently by a sub-agent whose brief carries the changed files' contents and the diff inline (`validate/SKILL.md` Step 3) — it never fetches them itself.
 
 ---
 
@@ -944,13 +944,27 @@ Why: a story's ACs are spread across task groups. Judging all of them on one
 group's diff would report every AC that a later group covers as NOT COVERED,
 and every per-group validate would FAIL by design.
 
-**An AC split across task groups.** When another group's `Validates` line also
-names the AC, this change holds only its share of it, and the judge — who never
-sees the plan — reports PARTIAL. That PARTIAL is expected. The orchestrator, who
-reads the plan, marks it "shared with group N" in the report and gives it the
-disposition *accepted — shared AC*; it is not a finding to fix here. The
-batched/story-end pass, when the story has one, sees the whole story and judges
-the AC in full.
+**An AC split across task groups — single-diff scope only.** When another group's
+`Validates` line also names the AC, this change holds only its share of it, and
+the judge — who never sees the plan — reports PARTIAL. That PARTIAL is expected.
+The orchestrator, who reads the plan, marks it "shared with group N" in the
+report. Decide this after the §14.4 checks have run, keeping track of every
+PARTIAL with at least one citation that failed §14.4 item 1. Its disposition
+depends on whether another group can still finish it:
+- **Another group naming the AC is still Not Started or In Progress** →
+  *accepted — shared AC*; it is not a finding to fix here, since that group
+  delivers the rest. Unless one of its citations failed (§14.4 item 1): that
+  one stays a WARN.
+- **No other group naming it can still run** (each is Done, or in any other
+  status — Blocked, dropped) → it stays a
+  **WARN** that needs a disposition, and the report says the earlier groups'
+  share is committed outside this diff: the human confirms the whole AC is met,
+  or sends what is missing to a fix or a new story. Without this, in "after
+  every task group" mode, an AC no group finishes would pass with no one asked.
+
+The batched/story-end pass, when the story has one, sees the whole story and
+judges the AC in full: there, nothing is accepted as shared, and a PARTIAL is a
+WARN like any other.
 
 ### 14.3 Verdicts and evidence
 One verdict per AC:
@@ -977,7 +991,7 @@ that retries once. Judge the line, not its label.
 
 ### 14.4 Checks against a wrong verdict
 Both errors cost something: a false COVERED lets an unmet AC through, and a
-false NOT COVERED fails the gate (and stops an autonomous run) for nothing. Two
+false NOT COVERED fails the gate (and stops an autonomous run) for nothing. Three
 cheap checks, sized to that, instead of a full hunt/verify pair on every verdict:
 
 1. **Citation check — the orchestrator, no sub-agent.** For each COVERED or
@@ -994,14 +1008,36 @@ cheap checks, sized to that, instead of a full hunt/verify pair on every verdict
    difference: one with no passing citation stays NOT COVERED (confirmed), with
    no third pass. Only a confirmed NOT COVERED blocks; where the two passes
    disagree, the confirm pass's checked verdict stands.
+3. **Continuity check — the orchestrator, no sub-agent.** An AC worded as
+   continuity can hide new work ("export still works for files over 2 GB", when
+   it never did), and no judge can tell from the changed files alone. So for
+   every NOT VERIFIABLE STATICALLY whose AC **text** is worded as continuity
+   ("still", "keeps", "continues", "as before", "no longer breaks") — decided
+   from the AC, whatever reason the judge gave — read the plan tasks of the
+   group(s) that claim it:
+   - A planned task adds something **inside what the AC text asks for** — its
+     own case, qualifier or limit ("files over 2 GB") — that the behavior does
+     not do today → **WARN**, "worded as continuity, planned as new work"; the
+     human confirms it is met.
+   - Anything else — a refactor behind it, a test or docs for it, or new work
+     elsewhere that the AC only guards against breaking ("password login still
+     works" next to "add an SSO button") → it stays advisory: that is a real
+     continuity AC.
+   - No plan task can be read for it (no plan, or no group claims the AC) →
+     **WARN**, "continuity, plan not available to confirm"; the human confirms.
+
+   The orchestrator reads the plan; the judges never do, so this is the one step
+   that can catch it.
 
 ### 14.5 Severity, skip, and output
 **Verdict:**
 - **FAIL** — an AC confirmed NOT COVERED (§14.4). Every AC is required: the
   story format has no optional criteria.
-- **WARN** — a PARTIAL. The human decides whether the rest belongs here or in a
-  new story; like every WARN, it needs a disposition before the run closes.
-- **Advisory** — NOT VERIFIABLE STATICALLY: listed with its reason, never
+- **WARN** — a PARTIAL (except an accepted shared AC, §14.2), or a continuity
+  AC that §14.4 item 3 raises. The human decides whether the rest
+  belongs here or in a new story; like every WARN, it needs a disposition
+  before the run closes.
+- **Advisory** — any other NOT VERIFIABLE STATICALLY: listed with its reason, never
   blocking, the same tier as Part 11's NEEDS TESTING. It points at what manual QA
   or the human should check.
 - **SKIP** — no active story context, or a story with no ACs, or no AC this
