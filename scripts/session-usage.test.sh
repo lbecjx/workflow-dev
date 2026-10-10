@@ -1355,6 +1355,246 @@ tx "$TMP/j1-tx.jsonl" 1 5 1
 [[ -f "$J1D/keep" && -f "$J1D/-delete" && "$(jq -r '.stories["WD-QJ1"].open_runs' "$J1D/.workflow-dev/context/.usage/.index.json")" == "1" ]] \
   && ok "a ledger source that is not an absolute path is never probed" || no "a non-absolute ledger source is never probed"
 
+# --- 6m: --record-suite — an eval result joins the skill run it ran in ------
+# `claude plugin eval` spends in child processes, outside the transcript; its
+# result file is the only record. Fixtures are written here, never produced by
+# running the command.
+SUITE_PROJ="$TMP/suiteproj"
+mkdir -p "$SUITE_PROJ/.workflow-dev/context"
+SUITE_USAGE="$SUITE_PROJ/.workflow-dev/context/.usage"
+# suite_json FILE COST JUDGE_A JUDGE_B [PARTIAL] — one result, two judged runs.
+suite_json() {
+  printf '{"schemaVersion":1,"startedAt":"2026-10-10T00:00:00.000Z","costUsd":%s,"partial":%s,"cases":[{"name":"c","arms":{"with":[{"costUsd":1,"judgeCostUsd":%s},{"costUsd":1,"judgeCostUsd":%s}]}}]}\n' \
+    "$2" "${5:-false}" "$3" "$4" > "$1"
+}
+su() { ( cd "$SUITE_PROJ" && env -u CLAUDE_CODE_SESSION_ID CLAUDECODE=1 bash "$SCRIPT" "$@" ) }
+suite_entries() { # $1 story, $2 source
+  jq -c --arg s "$2" '[ .checkpoints[] | select(.source == $s) ]' "$SUITE_USAGE/$1.json"
+}
+SUITE_TMP="$(cd "$TMP" && pwd -P)"
+
+# Registered inside an open validate run: its run, its stage, costUsd plus judge.
+STX="$TMP/suite-a.jsonl"
+tx "$STX" 1.0 10 5
+su --snapshot WD-S1 --stage validate --start "$STX" >/dev/null 2>&1
+SR1="$TMP/r1/aggregate-result.json"; mkdir -p "$TMP/r1"
+suite_json "$SR1" 2.5 0.1 0.2
+SOUT=$(su --record-suite WD-S1 "$SR1" --transcript "$STX" 2>&1); SRC=$?
+SE=$(suite_entries WD-S1 "$SUITE_TMP/r1/aggregate-result.json")
+SRUN=$(jq -r '[.checkpoints[] | select(.kind == "start")] | last | .run' "$SUITE_USAGE/WD-S1.json")
+[[ $SRC -eq 0 && "$(jq -r 'length' <<< "$SE")" == "1" \
+   && "$(jq -r '.[0] | "\(.stage) \(.run) \(.kind) \(.harness)"' <<< "$SE")" == "validate $SRUN end plugin-eval" ]] \
+  && ok "an eval result joins the open validate run, as an end of its own source" \
+  || no "an eval result joins the open validate run ($SOUT)"
+# A run costUsd already holds its judge (measured on a kept trace): the judge
+# is shown as a part of the spend, never added to it.
+[[ "$(jq -r '.[0] | "\(.cost_usd * 1000 | round) \(.delta * 1000 | round) \(.suite.judge_usd * 1000 | round)"' <<< "$SE")" == "2500 2500 300" ]] \
+  && ok "the eval spend is costUsd, judge included, never added again" || no "the eval spend is costUsd, judge included ($SE)"
+assert_contains "claude plugin eval \$2.5 (judge \$0.3 included)" "$SOUT" "the record prints its spend and the judge part"
+[[ "$(jq -r '.stories["WD-S1"].open_runs' "$SUITE_USAGE/.index.json")" == "0" ]] \
+  && ok "an eval entry does not turn the run in progress into an open run" || no "an eval entry leaves the run in progress"
+
+# The same result twice, and through another spelling of its path: one entry.
+SOUT=$(su --record-suite WD-S1 "$TMP/r1/../r1/aggregate-result.json" --transcript "$STX" 2>&1); SRC=$?
+[[ $SRC -eq 0 && "$(suite_entries WD-S1 "$SUITE_TMP/r1/aggregate-result.json" | jq length)" == "1" ]] \
+  && ok "a result already recorded is not added again" || no "a result already recorded is not added again ($SOUT)"
+assert_contains "already recorded" "$SOUT" "a repeated record says so"
+
+# The run then ends: its delta is the transcript spend only, never the eval again.
+tx "$STX" 1.5 12 6
+su --snapshot WD-S1 --stage validate "$STX" >/dev/null 2>&1
+[[ "$(jq -r '[.checkpoints[] | select(.source != null and (.harness // "") != "plugin-eval")] | last | .delta * 1000 | round' "$SUITE_USAGE/WD-S1.json")" == "500" ]] \
+  && ok "the run end keeps its own delta beside the eval entry" || no "the run end keeps its own delta beside the eval entry"
+# A reconcile afterwards never touches the eval entry.
+su --reconcile WD-S1 >/dev/null 2>&1
+[[ "$(suite_entries WD-S1 "$SUITE_TMP/r1/aggregate-result.json" | jq length)" == "1" ]] \
+  && ok "a reconcile leaves the eval entry alone" || no "a reconcile leaves the eval entry alone"
+
+# The run has ended: a result recorded now has no run, and nothing is written.
+SR2="$TMP/r2/aggregate-result.json"; mkdir -p "$TMP/r2"; suite_json "$SR2" 1 0 0
+SBEFORE=$(shasum "$SUITE_USAGE/WD-S1.json")
+su --record-suite WD-S1 "$SR2" --transcript "$STX" >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 1 && "$(shasum "$SUITE_USAGE/WD-S1.json")" == "$SBEFORE" ]] \
+  && ok "a result after the validate run ended is refused, the ledger unchanged" \
+  || no "a result after the validate run ended is refused (rc $SRC)"
+# Another session with no entry in the story: refused too.
+STX2="$TMP/suite-other.jsonl"; tx "$STX2" 1 1 1
+su --record-suite WD-S1 "$SR2" --transcript "$STX2" >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 1 && "$(shasum "$SUITE_USAGE/WD-S1.json")" == "$SBEFORE" ]] \
+  && ok "a session with no entry in the story is refused, the ledger unchanged" \
+  || no "a session with no entry in the story is refused (rc $SRC)"
+
+# Nested in implement: the spend goes to implement, also after a task group end.
+STX3="$TMP/suite-impl.jsonl"; tx "$STX3" 1 1 1
+su --snapshot WD-S2 --stage implement --start "$STX3" >/dev/null 2>&1
+SR3="$TMP/r3/aggregate-result.json"; mkdir -p "$TMP/r3"; suite_json "$SR3" 1 0 0
+su --record-suite WD-S2 "$SR3" --transcript "$STX3" >/dev/null 2>&1
+tx "$STX3" 2 2 2; su --snapshot WD-S2 --stage implement "$STX3" >/dev/null 2>&1
+SR4="$TMP/r4/aggregate-result.json"; mkdir -p "$TMP/r4"; suite_json "$SR4" 0.5 0 0
+su --record-suite WD-S2 "$SR4" --transcript "$STX3" >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 0 && "$(jq -r '[.checkpoints[] | select(.harness == "plugin-eval") | .stage] | join(",")' "$SUITE_USAGE/WD-S2.json")" == "implement,implement" \
+   && "$(jq -r '[.checkpoints[].run] | unique | length' "$SUITE_USAGE/WD-S2.json")" == "1" ]] \
+  && ok "nested in implement, the eval spend goes to the implement run, also after a task group end" \
+  || no "nested in implement, the eval spend goes to the implement run"
+
+# No result file: recorded as such, with no amount, then the real figure once found.
+STX4="$TMP/suite-miss.jsonl"; tx "$STX4" 1 1 1
+su --snapshot WD-S3 --stage validate --start "$STX4" >/dev/null 2>&1
+SR5="$TMP/r5/aggregate-result.json"
+SOUT=$(su --record-suite WD-S3 "$SR5" --transcript "$STX4" 2>&1); SRC=$?
+SE=$(suite_entries WD-S3 "$SUITE_TMP/r5/aggregate-result.json")
+[[ $SRC -eq 0 && "$(jq -r '.[0] | "\(.cost_usd) \(.delta) \(.suite.readable) \(.suite.reason)"' <<< "$SE")" == "null null false missing" ]] \
+  && ok "a missing result is recorded with no amount and its reason" || no "a missing result is recorded with no amount ($SE)"
+assert_contains "lower bound (≥)" "$SOUT" "a missing result says the total is a lower bound"
+[[ "$(jq -r '.stories["WD-S3"].lower_bound' "$SUITE_USAGE/.index.json")" == "true" ]] \
+  && ok "a missing result makes the index total a lower bound" || no "a missing result makes the index total a lower bound"
+su --record-suite WD-S3 "$SR5" --transcript "$STX4" >/dev/null 2>&1
+[[ "$(suite_entries WD-S3 "$SUITE_TMP/r5/aggregate-result.json" | jq length)" == "1" ]] \
+  && ok "a result still missing is not recorded twice" || no "a result still missing is not recorded twice"
+mkdir -p "$TMP/r5"; suite_json "$SR5" 0.75 0 0
+su --record-suite WD-S3 "$SR5" --transcript "$STX4" >/dev/null 2>&1
+su --record-suite WD-S3 "$SR5" --transcript "$STX4" >/dev/null 2>&1
+SE=$(suite_entries WD-S3 "$SUITE_TMP/r5/aggregate-result.json")
+[[ "$(jq -r 'length' <<< "$SE")" == "2" && "$(jq -r '.[1].cost_usd' <<< "$SE")" == "0.75" ]] \
+  && ok "a result found later adds its figure once" || no "a result found later adds its figure once ($SE)"
+[[ "$(jq -r '.stories["WD-S3"] | "\(.lower_bound) \(.total_usd)"' "$SUITE_USAGE/.index.json")" == "false 0.75" ]] \
+  && ok "once found, the result is in the index total and no longer a lower bound" \
+  || no "once found, the result is in the index total ($(jq -c '.stories["WD-S3"]' "$SUITE_USAGE/.index.json"))"
+
+# Unreadable results: each is recorded with its reason and no amount.
+suite_bad() { # $1 label, $2 expected reason, $3 file content (printf format, no args)
+  local d="$TMP/bad-$RANDOM$RANDOM"; mkdir -p "$d"
+  printf "$3" > "$d/aggregate-result.json"
+  su --record-suite WD-S3 "$d/aggregate-result.json" --transcript "$STX4" >/dev/null 2>&1
+  local e; e=$(suite_entries WD-S3 "$(cd "$d" && pwd -P)/aggregate-result.json")
+  [[ "$(jq -r '.[0] | "\(.cost_usd) \(.suite.reason)"' <<< "$e")" == "null $2" ]] \
+    && ok "$1 is recorded as unreadable ($2)" || no "$1 is recorded as unreadable ($e)"
+}
+suite_bad "malformed JSON" "malformed" '{"schemaVersion":1,"costUsd":'
+suite_bad "two documents" "malformed" '{"schemaVersion":1,"costUsd":1}\n{"schemaVersion":1,"costUsd":1}\n'
+suite_bad "a non-object" "malformed" '[1,2]'
+suite_bad "a string costUsd" "no costUsd" '{"schemaVersion":1,"costUsd":"4.09"}'
+suite_bad "a missing costUsd" "no costUsd" '{"schemaVersion":1}'
+suite_bad "a negative costUsd" "no costUsd" '{"schemaVersion":1,"costUsd":-1}'
+suite_bad "another schemaVersion" "unknown schemaVersion" '{"schemaVersion":2,"costUsd":1}'
+suite_bad "a costUsd beyond any eval run" "implausible costUsd" '{"schemaVersion":1,"costUsd":1e300}'
+SDIR="$TMP/r-dir"; mkdir -p "$SDIR/aggregate-result.json"
+su --record-suite WD-S3 "$SDIR/aggregate-result.json" --transcript "$STX4" >/dev/null 2>&1
+[[ "$(suite_entries WD-S3 "$SUITE_TMP/r-dir/aggregate-result.json" | jq -r '.[0].suite.reason')" == "unreadable" ]] \
+  && ok "a directory in place of the result is unreadable" || no "a directory in place of the result is unreadable"
+
+# A path with spaces and a quote is one key; a partial result keeps its figure.
+SQ="$TMP/it's a dir"; mkdir -p "$SQ"; suite_json "$SQ/aggregate-result.json" 1.25 0 0 true
+su --record-suite WD-S3 "$SQ/aggregate-result.json" --transcript "$STX4" >/dev/null 2>&1; SRC=$?
+SE=$(suite_entries WD-S3 "$SUITE_TMP/it's a dir/aggregate-result.json")
+[[ $SRC -eq 0 && "$(jq -r '.[0] | "\(.cost_usd) \(.suite.partial)"' <<< "$SE")" == "1.25 true" ]] \
+  && ok "a path with spaces and a quote is recorded; a partial result keeps its costUsd" \
+  || no "a path with spaces and a quote / partial result ($SE)"
+
+# Usage errors exit 2 and write nothing.
+su --record-suite WD-S3 >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 2 ]] && ok "--record-suite with no arguments exits 2" || no "--record-suite with no arguments exits 2 (rc $SRC)"
+su --record-suite WD-S3 --transcript "$STX4" >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 2 ]] && ok "--record-suite with a flag for its path exits 2" || no "--record-suite with a flag for its path exits 2 (rc $SRC)"
+su --record-suite ../x "$SR1" --transcript "$STX4" >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 2 && ! -e "$SUITE_PROJ/.workflow-dev/context/x.json" ]] \
+  && ok "--record-suite refuses an invalid story id" || no "--record-suite refuses an invalid story id (rc $SRC)"
+su --record-suite WD-S3 "$SR1" --story WD-S3 >/dev/null 2>&1; SRC=$?
+[[ $SRC -eq 2 ]] && ok "--record-suite with --story exits 2" || no "--record-suite with --story exits 2 (rc $SRC)"
+
+# --- 6n: eval spend in --story, --final and the index ------------------------
+# WD-S1: one validate run ($0.5 of session spend) and one eval ($2.8, judge $0.3).
+SREP=$(su --story WD-S1 2>&1)
+assert_contains 'total: $3 ' "$SREP" "--story total includes the eval spend"
+assert_contains 'checkpoints: 1 ' "$SREP" "--story does not count an eval result as a checkpoint"
+assert_contains 'claude plugin eval: $2.5 (judge $0.3 included) over 1 result(s)' "$SREP" "--story shows the eval on its own line, judge included"
+assert_absent 'r1/aggregate-result.json' "$SREP" "--story does not list an eval result as a session"
+assert_absent 'not a configured role' "$SREP" "the eval spend is not flagged as an unknown role"
+SFIN=$(su --story WD-S1 --final 2>&1)
+assert_contains 'claude plugin eval     $2.5 (judge $0.3 included) over 1 result(s)' "$SFIN" "--final shows the eval under the validate row"
+assert_contains 'validate                1  $3' "$SFIN" "--final validate row includes the eval spend"
+[[ "$(jq -r '.stories["WD-S1"] | "\(.total_usd) \(.suite_usd) \(.sessions) \(.checkpoints) \(.lower_bound)"' "$SUITE_USAGE/.index.json")" == "3 2.5 1 1 false" ]] \
+  && ok "the index total includes the eval; it is neither a session nor a checkpoint" \
+  || no "the index total includes the eval ($(jq -c '.stories["WD-S1"]' "$SUITE_USAGE/.index.json"))"
+
+# WD-S2: nested in implement, two results, listed under implement.
+SFIN=$(su --story WD-S2 --final 2>&1)
+assert_contains 'claude plugin eval     $1.5 (judge $0 included) over 2 result(s)' "$SFIN" "--final shows a nested eval under the implement row"
+
+# WD-S3: results with no readable file make the totals lower bounds.
+SREP=$(su --story WD-S3 2>&1)
+assert_contains 'total: ≥$' "$SREP" "--story marks the total ≥ when an eval left no result"
+assert_contains 'without a result' "$SREP" "--story counts the results it could not read"
+assert_contains 'its spend is unknown, never estimated' "$SREP" "--story explains the ≥ of a missing eval result"
+SFIN=$(su --story WD-S3 --final 2>&1)
+assert_contains 'claude plugin eval     ≥$' "$SFIN" "--final marks an eval with no result ≥"
+assert_contains 'or an eval with no readable result' "$SFIN" "--final legend names the missing eval result"
+
+# --- 6o: a settle never takes an eval result out of its run -----------------
+# The exact session figure that settles an estimated end never holds the eval
+# spend (child processes), so the settle subtracts only the run session entries.
+q_new s4; q_msg 10; q_cs 1
+su --snapshot WD-S4 --stage validate --start "$Q_TX" >/dev/null 2>&1
+SR6="$TMP/r6/aggregate-result.json"; mkdir -p "$TMP/r6"; suite_json "$SR6" 2 0 0
+su --record-suite WD-S4 "$SR6" --transcript "$Q_TX" >/dev/null 2>&1
+q_msg 100000; su --snapshot WD-S4 --stage validate "$Q_TX" >/dev/null 2>&1
+q_cs 2.5; su --reconcile WD-S4 >/dev/null 2>&1
+[[ "$(jq -r '[.checkpoints[] | select(.settles == true)] | length' "$SUITE_USAGE/WD-S4.json")" == "1" \
+   && "$(jq -r '.stories["WD-S4"] | "\(.total_usd) \(.suite_usd)"' "$SUITE_USAGE/.index.json")" == "3.5 2" ]] \
+  && ok "a settle keeps the eval spend of its run (session 1.5 + eval 2)" \
+  || no "a settle keeps the eval spend of its run ($(jq -c '.stories["WD-S4"]' "$SUITE_USAGE/.index.json"))"
+
+# A missing result stays a lower bound in --final after its run is settled.
+q_new s5; q_msg 10; q_cs 1
+su --snapshot WD-S5 --stage validate --start "$Q_TX" >/dev/null 2>&1
+su --record-suite WD-S5 "$TMP/r7/aggregate-result.json" --transcript "$Q_TX" >/dev/null 2>&1
+q_msg 100000; su --snapshot WD-S5 --stage validate "$Q_TX" >/dev/null 2>&1
+q_cs 2.5; su --reconcile WD-S5 >/dev/null 2>&1
+SFIN=$(su --story WD-S5 --final 2>&1)
+[[ "$(jq -r '[.checkpoints[] | select(.settles == true)] | length' "$SUITE_USAGE/WD-S5.json")" == "1" ]] \
+  && assert_contains 'validate                1  ≥$1.5' "$SFIN" "--final keeps ≥ for a missing eval after a settle" \
+  || no "--final keeps ≥ for a missing eval after a settle (no settle happened)"
+[[ "$(jq -r '.stories["WD-S5"].lower_bound' "$SUITE_USAGE/.index.json")" == "true" ]] \
+  && ok "the index keeps lower_bound for a missing eval after a settle" \
+  || no "the index keeps lower_bound for a missing eval after a settle"
+
+# A result recorded during its run, recorded again after the run ended, is
+# reported as already recorded (exit 0), never as lost.
+SOUT=$(su --record-suite WD-S1 "$SR1" --transcript "$STX" 2>&1); SRC=$?
+[[ $SRC -eq 0 ]] && assert_contains "already recorded" "$SOUT" "a repeated record after the run ended says already recorded" \
+  || no "a repeated record after the run ended exits 0 (rc $SRC: $SOUT)"
+
+
+# A symlink to a recorded result is the same result.
+ln -s "$SR1" "$TMP/r1/link.json"
+su --record-suite WD-S1 "$TMP/r1/link.json" --transcript "$STX" >/dev/null 2>&1
+[[ "$(jq -r '[.checkpoints[] | select(.harness == "plugin-eval")] | length' "$SUITE_USAGE/WD-S1.json")" == "1" ]] \
+  && ok "a symlink to a recorded result is not counted again" || no "a symlink to a recorded result is not counted again"
+
+# A `..` after a directory that does not exist yet gets the key the file has
+# once the directory appears, so the result found later replaces its "no result".
+q_new s6; q_msg 10; q_cs 1
+su --snapshot WD-S6 --stage validate --start "$Q_TX" >/dev/null 2>&1
+su --record-suite WD-S6 "$TMP/gone6/../r8/aggregate-result.json" --transcript "$Q_TX" >/dev/null 2>&1
+mkdir -p "$TMP/gone6" "$TMP/r8"; suite_json "$TMP/r8/aggregate-result.json" 1 0 0
+su --record-suite WD-S6 "$TMP/gone6/../r8/aggregate-result.json" --transcript "$Q_TX" >/dev/null 2>&1
+[[ "$(jq -r '[.checkpoints[] | select(.harness == "plugin-eval") | .source] | unique | length' "$SUITE_USAGE/WD-S6.json")" == "1" \
+   && "$(jq -r '.stories["WD-S6"].lower_bound' "$SUITE_USAGE/.index.json")" == "false" ]] \
+  && ok "a .. after a missing directory keys the result as it will be once written" \
+  || no "a .. after a missing directory keys the result as it will be once written ($(jq -c '[.checkpoints[] | select(.harness == "plugin-eval") | .source]' "$SUITE_USAGE/WD-S6.json"))"
+
+# A `..` after a symlinked directory is the parent of its target, as the
+# kernel opens it: the result is read and keyed where it really is.
+mkdir -p "$TMP/k9/z/q" "$TMP/k9/a"; ln -s "$TMP/k9/z/q" "$TMP/k9/a/lnk"
+suite_json "$TMP/k9/z/aggregate-result.json" 1 0 0
+q_new s7; q_msg 10; q_cs 1
+su --snapshot WD-S7 --stage validate --start "$Q_TX" >/dev/null 2>&1
+su --record-suite WD-S7 "$TMP/k9/a/lnk/../aggregate-result.json" --transcript "$Q_TX" >/dev/null 2>&1
+su --record-suite WD-S7 "$TMP/k9/z/aggregate-result.json" --transcript "$Q_TX" >/dev/null 2>&1
+[[ "$(jq -r '[.checkpoints[] | select(.harness == "plugin-eval") | "\(.source)|\(.cost_usd)"] | join(",")' "$SUITE_USAGE/WD-S7.json")" == "$SUITE_TMP/k9/z/aggregate-result.json|1" ]] \
+  && ok "a .. after a symlinked directory reads and keys the real file, once" \
+  || no "a .. after a symlinked directory ($(jq -c '[.checkpoints[] | select(.harness == "plugin-eval") | .source]' "$SUITE_USAGE/WD-S7.json"))"
+
 # --- 7: jq missing → clear failure, not a wrong number ----------------------
 # Empty PATH that still runs bash by absolute path: the jq guard fires before
 # any other external tool, so this is portable (unlike assuming /bin has no jq).

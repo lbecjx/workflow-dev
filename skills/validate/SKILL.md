@@ -117,7 +117,8 @@ list, and it is the **default**, not an opt-in:
 - **Reduced set — no real logic in the diff** (docs/comments only, a pure
   rename, a config-value change, a version bump). Run only checks the
   orchestrator performs itself: the discovered commands (an `evals/` run
-  included, with its judge resolved per `references/rules.md` §6.1), the
+  included, with its judge resolved and its spend recorded per
+  `references/rules.md` §6.1), the
   `.workflow-dev/` ↔ `config.json` drift check, and a direct read of any in-scope `CHANGELOG.md`
   entry. The judgment dimensions (Code quality, Testing, Architecture,
   Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
@@ -158,7 +159,7 @@ under its role, with its scoped brief, reporting findings as a structured list
 
 | Sub-agent | Role | Dimensions (from rules.md) |
 |-----------|------|-----------------------------|
-| **Verification** | `wd-operator` | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite, run once per pass with the judge model the orchestrator resolved before briefing — `references/rules.md` §6.1) — a diff that changes tests is executed, not reasoned about. |
+| **Verification** | `wd-operator` | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite, run once per pass with the judge model the orchestrator resolved before briefing, into a fresh `--output-dir` the operator returns so the orchestrator records the eval's spend — `references/rules.md` §6.1) — a diff that changes tests is executed, not reasoned about. |
 | **Security** | `wd-judge` | Parts 2–3. Read the changed files for vulnerabilities. |
 | **Code quality** | `wd-operator` | Part 4. Smells, conventions, patterns. |
 | **Testing** | `wd-operator` | Part 5. Coverage of changes, test quality. |
