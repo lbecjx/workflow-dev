@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.41.0
+
+- `validate` runs plugin evals with the model bound to `wd-judge` as the judge,
+  or with the session's model when none is bound, and says which. It never
+  falls back to the eval command's built-in judge.
+- A new or changed eval runs once per pass; a failure that comes only from the
+  judge is reported, not chased.
+- `plan` adds an eval only when a `wd-judge` check finds it worth its upkeep,
+  and writes the reason into the plan.
+
 ## 1.40.0
 
 - The adversarial verify now gets the call sites of the changed code and rejects
