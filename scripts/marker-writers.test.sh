@@ -121,29 +121,35 @@ OUT="$(review 'another message' 2>&1)"; RC=$?
 chmod 700 "$MARKER_DIR"
 
 # --- the reviewed writer follows the human's co-authorship decision ----------
-# The decision lives in the active story (coauthor-decision.sh); the fixtures
+# The decision lives in the repository config (coauthor-decision.sh); fixtures
 # are built here, never typed into a shell command the live hook would deny.
-( cd "$PROJ" && git checkout -q -b wd-0099-coauthor )
-coauthor_story() {
-  printf '# WD-0099: a story\n\n### Decisions\n| Date | Decision | Decided by |\n|---|---|---|\n%s\n\n### Implementation Status: In Progress\n' \
-    "$1" > "$PROJ/.workflow-dev/context/WD-0099.md"
+coauthor_cfg() {
+  if [[ -n "$1" ]]; then printf '{ "gitignored": true, "agentCoauthorship": "%s" }' "$1"; else printf '{ "gitignored": true }'; fi \
+    > "$PROJ/.workflow-dev/config.json"
 }
 TRAILER='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 PRLINE='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
 marks() { review "$1" >/dev/null 2>&1 && printf marked || printf refused; }
 expect_mark() { [[ "$2" == "$3" ]] && ok "$1" || no "$1 (got: $2)"; }
 
-coauthor_story '| 2026-10-10 | Agent co-authorship: yes | Human |'
+coauthor_cfg yes
 expect_mark "yes: a message ending in the trailer is marked" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" marked
 expect_mark "yes: a PR text ending in the PR line is marked" "$(marks "$(printf 'Title\n\nSummary.\n\n%s' "$PRLINE")")" marked
 expect_mark "yes: an attribution phrase in the body is refused" "$(marks "$(printf 'AI-generated change\n\n%s' "$TRAILER")")" refused
-coauthor_story '| 2026-10-10 | Agent co-authorship: no | Human |'
+coauthor_cfg no
 expect_mark "no: the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
-coauthor_story ''
+coauthor_cfg ""
 expect_mark "no decision: the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
-coauthor_story '| 2026-10-10 | Agent co-authorship: yes | Agent (inferred) |'
-expect_mark "a yes the agent inferred: the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
-rm -f "$PROJ/.workflow-dev/context/WD-0099.md"
+coauthor_cfg YES
+expect_mark "a value other than "yes": the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
+rm -f "$PROJ/.workflow-dev/config.json"
+
+# Without the rule's helper nothing is marked (it used to mark, with an error).
+NOHELPER="$TMP/nohelper"
+mkdir -p "$NOHELPER"
+cp "$HERE/git-message-mark-reviewed.sh" "$HERE/marker-dir.sh" "$NOHELPER/"
+OUT="$(printf '%s' 'a message' | ( cd "$PROJ" && bash "$NOHELPER/git-message-mark-reviewed.sh" 2>&1 ))"; RC=$?
+[[ $RC -ne 0 ]] && ok "coauthor-decision.sh missing: the reviewed writer refuses (rc=$RC)" || no "coauthor-decision.sh missing: the reviewed writer refuses (got rc=$RC: $OUT)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

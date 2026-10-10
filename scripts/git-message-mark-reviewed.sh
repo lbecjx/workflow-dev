@@ -20,7 +20,7 @@
 #
 # Refuses to mark a message carrying AI/agent/LLM attribution the human has not
 # allowed (rules.md §12.3). The default is no attribution at all. Only an
-# explicit yes from the human, recorded in the active story, lets through the
+# explicit yes from the human, recorded for this repository, lets through the
 # two co-authorship lines the harness supplies, and nothing else.
 # coauthor-decision.sh owns both the patterns and the decision, and
 # pre-commit-message-check.sh sources the same file, so a message cannot be
@@ -33,6 +33,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/marker-dir.sh"
 # shellcheck source=coauthor-decision.sh
 source "$HERE/coauthor-decision.sh"
+# Without the rule nothing can be checked, so nothing is marked.
+if ! declare -F has_ai_attribution >/dev/null; then
+  echo "Refusing to mark: scripts/coauthor-decision.sh is missing or failed to load, so the AI/agent attribution rule cannot be checked. Reinstall or update the plugin." >&2
+  exit 1
+fi
 
 # Usage: printf '%s' "<final message text>" | git-message-mark-reviewed.sh
 
@@ -49,7 +54,7 @@ if has_ai_attribution "$MESSAGE" "$COAUTHOR"; then
   if [[ "$COAUTHOR" == "yes" ]]; then
     echo "Refusing to mark: this text credits an AI/agent beyond the two co-authorship lines the human allowed (rules.md §12.3). Keep only the harness's Co-Authored-By trailer and PR line, each on a line of its own, and mark the rewritten text instead." >&2
   else
-    echo "Refusing to mark: this text contains AI/agent/LLM attribution or co-authorship, and the human's co-authorship decision for the active story is no (the default) or could not be read (rules.md §12.3). Remove it and mark the rewritten text instead." >&2
+    echo "Refusing to mark: this text contains AI/agent/LLM attribution or co-authorship, and the human's co-authorship decision for this repository is no (the default) or could not be read (rules.md §12.3). Remove it and mark the rewritten text instead." >&2
   fi
   exit 1
 fi

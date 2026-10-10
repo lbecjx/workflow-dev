@@ -10,7 +10,7 @@
 # Tests for pre-commit-message-check.sh, which is the one script here that has
 # *two* enforcement levels — so it owns three words, not a boolean:
 # `ok` (nothing to raise), `notify` (the Part 12 review) and `block` (the
-# AI-attribution hard rule). All three are pinned through the hook's own JSON:
+# AI-attribution rule). All three are pinned through the hook's own JSON:
 # silence, an `ask`, or a `deny` — a wrong decision would silently become "no
 # reminder", or a commit that should have stopped.
 #
@@ -95,8 +95,8 @@ case "$ATTR_JSON" in
   *) no "AI attribution → denies (got: $ATTR_JSON)" ;;
 esac
 case "$ATTR_TEXT" in
-  *"Part 12.3"*) ok "the block reason names the hard rule" ;;
-  *) no "the block reason names the hard rule (got: $ATTR_TEXT)" ;;
+  *"Part 12.3"*) ok "the block reason names the attribution rule" ;;
+  *) no "the block reason names the attribution rule (got: $ATTR_TEXT)" ;;
 esac
 
 # --- 3: clean but unreviewed → notify --------------------------------------
@@ -412,7 +412,7 @@ with_transcript() { printf '%s' "$1" | jq -c --arg p "$2" '. + {transcript_path:
 
 ES_ATTR_JSON="$(hook "$(with_transcript "$ATTR" "$SPANISH_TRANSCRIPT")")"
 case "$ES_ATTR_JSON" in
-  *'"permissionDecision":"deny"'*"Este commit/PR contiene atribución"*"Part 12.3"*) ok "Spanish conversation → the attribution deny is in Spanish and still denies" ;;
+  *'"permissionDecision":"deny"'*"Este commit/PR contiene atribución"*"decisión de este repositorio"*"Part 12.3"*) ok "Spanish conversation → the attribution deny is in Spanish and still denies" ;;
   *) no "Spanish conversation → the attribution deny is in Spanish and still denies (got: $ES_ATTR_JSON)" ;;
 esac
 printf '%s' "$ES_ATTR_JSON" | jq -e . >/dev/null 2>&1 && ok "…and is valid JSON" || no "…and is valid JSON"
@@ -452,15 +452,12 @@ esac
 rm -f "$HOME/.claude/settings.json"
 
 # --- 11: the human's co-authorship decision ---------------------------------
-# A yes recorded in the active story lets through the harness's trailer and PR
+# A yes recorded in the repository config lets through the harness's trailer and PR
 # line, as whole lines, and nothing else; every other state denies as before.
-# The story is found through the branch, so the project becomes a git repo here.
-git -C "$PROJ" init -q 2>/dev/null && git -C "$PROJ" checkout -q -b wd-0099-coauthor
-coauthor_story() {
-  printf '# WD-0099: a story\n\n### Decisions\n| Date | Decision | Decided by |\n|---|---|---|\n%s\n\n### Implementation Status: In Progress\n' \
-    "$1" > "$PROJ/.workflow-dev/context/WD-0099.md"
+coauthor_cfg() {
+  if [[ -n "$1" ]]; then printf '{ "gitignored": true, "agentCoauthorship": "%s" }' "$1"; else printf '{ "gitignored": true }'; fi \
+    > "$PROJ/.workflow-dev/config.json"
 }
-YES_ROW='| 2026-10-10 | Agent co-authorship: yes | Human |'
 TRAILER='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 PRLINE='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
 COMMIT_MSG="$(printf 'Add a thing\n\n%s' "$TRAILER")"
@@ -473,7 +470,7 @@ ELSEWHERE_COMMIT="$(mk "$(printf 'git -C /other commit -m "%s"' "$COMMIT_MSG")")
 MAYBE_YES="$(mk "$(printf 'bash -c '"'"'git commit -m "%s"'"'"'' "$COMMIT_MSG")")"
 expect_word() { [[ "$2" == "$3" ]] && ok "$1" || no "$1 (got: $2)"; }
 
-coauthor_story "$YES_ROW"
+coauthor_cfg yes
 expect_word "yes: the trailer in a heredoc is not denied (review ask instead)" "$(status "$HEREDOC_COMMIT")" notify
 # A multi-line quoted body is past what the review extraction reads, so these
 # are silent rather than asked about — the point is that neither is denied.
@@ -482,10 +479,18 @@ expect_word "yes: the PR line in --body is not denied" "$(status "$PR_YES")" ok
 expect_word "yes: an attribution phrase in the body → block" "$(status "$PHRASE_COMMIT")" block
 expect_word "yes: the trailer with more text on its line → block" "$(status "$TAIL_COMMIT")" block
 expect_word "yes: git -C another repo with the trailer → block" "$(status "$ELSEWHERE_COMMIT")" block
+# A wrapped command is not plain, so the yes does not apply to it: asked, as
+# under no (the command inside could reach another repository).
 case "$(plain "$MAYBE_YES")" in
-  *"Part 12.3"*) no "yes: a wrapped commit with the trailer is not asked about attribution" ;;
-  *) ok "yes: a wrapped commit with the trailer is not asked about attribution" ;;
+  *"Part 12.3"*) ok "yes: a wrapped commit with the trailer is still asked about attribution" ;;
+  *) no "yes: a wrapped commit with the trailer is still asked about attribution" ;;
 esac
+CWD_ELSE="$(printf '{"cwd":"%s","tool_input":{"command":%s}}' "$TMP" "$(printf 'git commit -m "%s"' "$COMMIT_MSG" | jq -Rs .)")"
+expect_word "yes: the payload names another working directory → block" "$(status "$CWD_ELSE")" block
+CWD_SAME="$(printf '{"cwd":"%s","tool_input":{"command":%s}}' "$PROJ" "$(printf 'git commit -m "%s"' "$COMMIT_MSG" | jq -Rs .)")"
+expect_word "yes: the payload names this working directory → not denied" "$(status "$CWD_SAME")" ok
+CD_FIRST="$(mk "$(printf 'cd . && git commit -m "%s"' "$COMMIT_MSG")")"
+expect_word "yes: a commit after cd is not plain → block" "$(status "$CD_FIRST")" block
 mark "$COMMIT_MSG"
 expect_word "yes: the reviewed message with the trailer → ok" "$(status "$QUOTED_COMMIT")" ok
 unmark
@@ -509,17 +514,20 @@ cp "$HERE/pre-commit-message-check.sh" "$HERE/command-match.sh" "$HERE/marker-di
 nohelper() { word_of "$( ( cd "$PROJ" && printf '%s' "$1" | bash "$NOHELPER/pre-commit-message-check.sh" 2>/dev/null ) )"; }
 expect_word "coauthor-decision.sh missing: a commit with the trailer → block" "$(nohelper "$QUOTED_COMMIT")" block
 expect_word "coauthor-decision.sh missing: an unrelated command → ok" "$(nohelper "$OTHER")" ok
+expect_word "coauthor-decision.sh missing: a wrapped commit → asks, never blocks" "$(nohelper "$MAYBE_YES")" notify
+TWO_M="$(mk "$(printf 'git commit -m "Add a thing" -m "%s"' "$TRAILER")")"
+expect_word "yes: the trailer as a second -m on one line → block (safe side; heredoc is the form)" "$(status "$TWO_M")" block
 
-coauthor_story '| 2026-10-10 | Agent co-authorship: no | Human |'
+coauthor_cfg no
 expect_word "no: a body read from a file with the trailer → block" "$(status "$(mk 'git commit -F msg-trailer.txt')")" block
 expect_word "no: the trailer → block" "$(status "$QUOTED_COMMIT")" block
 expect_word "no: the PR line → block" "$(status "$PR_YES")" block
 expect_word "no: a wrapped commit with the trailer → notify" "$(status "$MAYBE_YES")" notify
-coauthor_story ''
+coauthor_cfg ""
 expect_word "no decision: the trailer → block" "$(status "$QUOTED_COMMIT")" block
-coauthor_story '| 2026-10-10 | Agent co-authorship: yes | Agent (inferred) |'
-expect_word "a yes the agent inferred: the trailer → block" "$(status "$QUOTED_COMMIT")" block
-rm -f "$PROJ/.workflow-dev/context/WD-0099.md"
+coauthor_cfg YES
+expect_word "a value other than "yes": the trailer → block" "$(status "$QUOTED_COMMIT")" block
+rm -f "$PROJ/.workflow-dev/config.json"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

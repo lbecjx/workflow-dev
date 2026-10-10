@@ -44,12 +44,12 @@ is asked about first; see "Asked at init"). The agent records the row
   by `init` (its Phase 6 step 8, `init-auto` included) or in the turn where the
   human asks for autonomous mode mid-conversation — ask once whether the commit
   and the PR should mention the agent as co-author
-  (`../skills/validate/references/rules.md` §12.3). Skip it when the story
-  already holds an `Agent co-authorship:` row decided by `Human`. It is asked
-  here because the run asks nothing later, and `summarize-changes` must not
-  stop an unattended run to ask it. Same question, options, and row as
-  `summarize-changes` Step 1; the row is always decided by `Human`, never
-  written as `Agent (inferred)`. No answer means no, and writes no row.
+  (`../skills/validate/references/rules.md` §12.3). Skip it when the repo's
+  `.workflow-dev/config.json` already holds `agentCoauthorship`: the answer is
+  per repository, asked once. It is asked here because the run asks nothing
+  later, and `summarize-changes` must not stop an unattended run to ask it.
+  Same question, options, and key as `summarize-changes` Step 1; the answer is
+  always the human's, never inferred. No answer means no, and writes nothing.
 - **Asked at init** when the human has not said how to run: `init` asks through
   the ask-question tool (step by step vs. autonomous). The recommended and
   default answer is step by step; no answer never means autonomous. Init never
@@ -197,7 +197,7 @@ not judgment calls, and they have no autonomous fallback:
   (`../skills/validate/references/rules.md` §12.3) — in autonomous mode exactly
   as in human-piloted mode. A missing answer is no, never an inferred yes, and
   the agent must not "help" the run along by editing attribution text, or the
-  decision row, past the check.
+  `agentCoauthorship` key, past the check.
 
 Besides the pre-autonomous checkpoint, one question is required even in
 autonomous mode: when model tiering is not set up,
@@ -255,8 +255,8 @@ mechanism they already share with the skills, not through any new signal:
   exact message/PR text reviewed (`git-message-mark-reviewed.sh`).
 - The AI/agent attribution block in `pre-commit-message-check.sh` has **no**
   marker and **no** bypass: it reads only the human's co-authorship decision,
-  recorded in the story, which allows the two co-authorship lines and nothing
-  else.
+  recorded for the repository, which allows the two co-authorship lines and
+  nothing else.
 
 So the hooks require no functional change and no signal-parsing: an autonomous
 run writes the markers as part of its normal flow, and the hooks stay quiet for

@@ -27,7 +27,7 @@
 #   checked separately and **denied outright** — the only rule in this file
 #   that is — regardless of whether the text carries a reviewed-marker. The
 #   one exception is the human's own: an explicit yes to agent co-authorship,
-#   recorded in the active story, lets through the two co-authorship lines the
+#   recorded for this repository, lets through the two co-authorship lines the
 #   harness supplies and nothing else (coauthor-decision.sh owns the patterns
 #   and the decision). `git-message-mark-reviewed.sh` already refuses to mark
 #   text the decision does not allow, so reaching this point means that step
@@ -98,6 +98,8 @@ PR_VERDICT="${SCAN##* }"
 # loaded, a commit/PR is refused rather than waved through: before the rule moved
 # there it was inline, and a missing file must not turn the deny off.
 if ! declare -F has_ai_attribution >/dev/null; then
+  # `real` is refused; `maybe` (wrapped, may not be a commit at all) is asked.
+  [[ "$VERDICT" == "real" ]] || emit notify "workflow-dev cannot check this command for AI/agent attribution: scripts/coauthor-decision.sh is missing or failed to load. If it is a commit/PR, make sure it credits no AI, or reinstall the plugin."
   emit block "workflow-dev cannot check this commit/PR for AI/agent attribution: scripts/coauthor-decision.sh is missing or failed to load. Reinstall or update the plugin."
 fi
 
@@ -110,16 +112,29 @@ MSG_FLAG='(-[A-Za-z]*m[A-Za-z]*|--message|--body)'
 
 # Denies (or, for `maybe`, asks) when $1 carries attribution the human's
 # co-authorship decision does not allow. The decision is only read when the text
-# carries attribution at all, once per run, and a command that may act on another
-# repository (`git -C`, `cd`, `gh -R`, …) is held to the default no: the decision
-# belongs to the story of this working directory, not to whatever repository the
-# command reaches.
+# carries attribution at all, once per run, and only for a plain `git commit` /
+# `gh pr create|edit` (coauthor_command_plain): anything that could reach another
+# repository (`cd`, `bash -c`, `git -C`, `gh -R`, …) is held to the default no,
+# because the decision belongs to the repository of this working directory.
 COAUTHOR=""
+# The decision is read from this process's directory. When the payload names a
+# different working directory for the command, the decision read here may belong
+# to another repository than the one the command acts on, so the yes does not
+# apply. No `cwd` in the payload (older Claude Code) leaves this directory as
+# the answer.
+same_cwd() {
+  local want here
+  want=$(printf '%s' "$INPUT" | { command -v jq >/dev/null 2>&1 && jq -r '.cwd // empty' 2>/dev/null; } )
+  [[ -n "$want" ]] || return 0
+  want=$(cd "$want" 2>/dev/null && pwd -P) || return 1
+  here=$(pwd -P)
+  [[ "$want" == "$here" ]]
+}
 check_attribution() {
   has_ai_attribution "$1" no || return 0
   if [[ -z "$COAUTHOR" ]]; then
     COAUTHOR=no
-    coauthor_command_elsewhere "$COMMAND" || COAUTHOR="$(coauthor_decision)"
+    coauthor_command_plain "$COMMAND" && same_cwd && COAUTHOR="$(coauthor_decision)"
   fi
   has_ai_attribution "$1" "$COAUTHOR" || return 0
   if [[ "$VERDICT" == "real" ]]; then
@@ -140,7 +155,7 @@ check_attribution "$COMMAND"
 # project: this plugin is installed per user, so without this it would question
 # every commit and PR in every repo on the machine. The attribution rule above is
 # deliberately not behind this gate: outside a workflow-dev project there is no
-# story, so the decision is no and attribution is denied as it always was. Same test, from the same
+# config, so the decision is no and attribution is denied as it always was. Same test, from the same
 # working directory, as pre-commit-validate-check.sh.
 [[ -d ".workflow-dev/context" ]] || quiet
 

@@ -49,7 +49,8 @@ the Free Software Foundation, either version 3 of the License, or
   language changes only the words, never the decision: the attribution deny
   stays a deny in every language.
 - The attribution block reads one thing besides the command: the human's
-  co-authorship decision in the active story (`scripts/coauthor-decision.sh`,
+  co-authorship decision for the repository, `agentCoauthorship` in
+  `.workflow-dev/config.json` (`scripts/coauthor-decision.sh`,
   shared with `git-message-mark-reviewed.sh`). Only an explicit yes lets the
   harness's trailer and PR line through; any doubt is no.
 - After a real `gh pr create`/`gh pr edit` succeeds, `scripts/post-pr-url-check.sh`

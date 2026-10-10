@@ -70,29 +70,32 @@ into the end-of-run report instead of presenting it to a human per task group.
 
 **Agent co-authorship** (`../validate/references/rules.md` §12.3). Before
 drafting, settle whether the commit and PR credit the agent as co-author. The
-answer is the human's, and it lives in the active story's Working Memory →
-Decisions as one row:
+answer is the human's, once per repository, and it lives in
+`.workflow-dev/config.json` beside the other one-time answers:
 
-```markdown
-| YYYY-MM-DD | Agent co-authorship: <yes | no> | Human |
+```json
+{ "gitignored": true, "agentCoauthorship": "no" }
 ```
 
-- **One well-formed row decided by `Human`** → use it; never ask again.
-- **Otherwise, human-piloted** (no row, or a malformed, duplicated, or
-  agent-inferred one) → ask with the ask-question tool, worded per
-  `references/user-language.md`, before drafting:
-  - **Question:** should the commit and the PR mention the agent as
-    co-author?
+- **The key is set to `"yes"` or `"no"`** → use it; never ask again.
+- **Otherwise, human-piloted** (no key, or a malformed one) → ask with the
+  ask-question tool, worded per `references/user-language.md`, before
+  drafting:
+  - **Question:** should the commit and the PR of this repo mention the agent
+    as co-author? The question also says the answer is kept for the repo, and
+    that to change it later the human just has to say so.
   - **Option 1:** `No (Recommended)` — "Nothing in the text credits the agent."
   - **Option 2:** `Yes` — "Add the agent's co-author line to commit and PR."
 
-  Write the answer as that one row (replacing any row it supersedes, so exactly
-  one remains), decided by `Human`. No answer, or an answer you cannot read as
-  yes or no, is **no**, and writes no row.
-- **Otherwise, autonomous** → **no**, without asking and without writing a row
+  Write the answer as that one key, keeping the file's other keys. No answer,
+  or an answer you cannot read as yes or no, is **no**, and writes nothing.
+- **Otherwise, autonomous** → **no**, without asking and without writing
   (the question belongs right after the human chose autonomous —
   `references/autonomous-mode.md`), and say so in the hand-back.
-- **No active story** → **no**.
+
+**Changing it.** When the human asks, at any point, to change whether the agent
+is credited, rewrite the key to their answer — no skill needs to be running.
+Never change it on your own.
 
 Every doubt resolves to **no** — the recommended option and the behavior
 before this question existed. Never infer yes from context: not from the
@@ -120,6 +123,14 @@ Then apply the co-authorship decision from Step 1:
   and the PR description with its attribution line, each on a line of its own,
   copied exactly as the harness gives them in this session. Never write a model
   name yourself: if the session gives no such line, add nothing and say so.
+  Hand the text back for a plain `git commit -m "$(cat <<'EOF' … EOF)"` /
+  `gh pr create --title "…" --body "$(cat <<'EOF' … EOF)"`: the commit hook
+  applies the yes only to that plain shape (§12.3), and a trailer passed as a
+  second one-line `-m` is still refused. Keep the message free of `$(`,
+  backticks, unbalanced parentheses, and parentheses together with a quote, a
+  backslash or a `#`:
+  macOS `/bin/bash` can end the heredoc early on them, so the hook treats such
+  a message as not plain and refuses the trailer.
 - **No** → remove every attribution form (§12.3), including any the harness
   asks you to add.
 

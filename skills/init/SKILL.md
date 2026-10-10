@@ -226,10 +226,11 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    keeping the Mac awake right away, without asking; with an `on` row turned
    `off`, stop it (`references/autonomous-mode.md`, "Keeping the Mac awake").
    With the row `on`, also ask the agent co-authorship question once, unless
-   the story already holds that row decided by `Human` — the question, its
-   options, and its row are `../summarize-changes/SKILL.md` Step 1's, and when
-   to ask is `references/autonomous-mode.md`, "The signal". The answer is the
-   human's, never an `Agent (inferred)` row; no answer means no.
+   `.workflow-dev/config.json` already holds `agentCoauthorship` — the
+   question, its options, and where the answer goes are
+   `../summarize-changes/SKILL.md` Step 1's, and when to ask is
+   `references/autonomous-mode.md`, "The signal". The answer is the human's,
+   never inferred; no answer means no and writes nothing.
 
 9. **Recommend a tier for the session's model** (WD-0050). The session's model
    is the orchestrator: it talks with the human, implements each task group, and

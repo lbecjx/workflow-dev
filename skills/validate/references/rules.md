@@ -710,11 +710,12 @@ was fixed — worse than saying nothing.
       wrote or assisted with it and of any default a tool or harness would
       otherwise add. Whether to credit the agent is the human's call, not the
       plugin's: some teams must declare AI help, others must not. So the
-      human is asked once per story, and the answer is recorded in the
-      story's Decisions as `Agent co-authorship: yes` or `no`, decided by
-      `Human`. **No is the default and wins every doubt**: no answer, an
-      ambiguous one, a missing, malformed, duplicated, or agent-inferred row,
-      no active story, or a decision that cannot be read all mean no. Only
+      human is asked once per repository, and the answer is recorded in
+      `.workflow-dev/config.json` as `"agentCoauthorship": "yes"` or `"no"`;
+      it changes only when the human asks. **No is the default and wins every
+      doubt**: no answer, an ambiguous one, a missing, malformed, or
+      duplicated key, any value but `"yes"`, or a decision that cannot be
+      read all mean no. Only
       an explicit yes allows exactly two lines, each on a line of its own and
       copied as the harness supplies them: the commit's `Co-Authored-By:
       <name> <email>` trailer and the PR's `🤖 Generated with [<tool>](<url>)`
@@ -804,13 +805,16 @@ also enforced mechanically, with no ask/confirm step. `git-message-mark-
 reviewed.sh` refuses to mark a message carrying attribution the human's
 decision does not allow, and `pre-commit-message-check.sh` **denies** the
 commit/PR outright (not "ask," the only rule in this file that does) if it
-slips through some other way. Both read the decision from the active story
-and share one definition of the patterns (`scripts/coauthor-decision.sh`).
-The active story is the one the git branch names, or the only story in
-progress when the branch names none; a branch naming a closed or unknown story,
-or several, reads as no, and so does a command aimed at another repository;
-with a yes they let through the trailer and the PR line above and nothing
-else. A git hook outside this plugin (a global `commit-msg`, say) may still
+slips through some other way. Both read the decision from
+`.workflow-dev/config.json` in the working directory (none there, as in a
+subdirectory, reads as no) and share one definition of the patterns
+(`scripts/coauthor-decision.sh`). The hook applies a yes only to a plain command — exactly `git commit …` or
+`gh pr create|edit …`, one command, no `cd`, wrapper (`bash -c`, `eval`), git
+option before `commit`, `gh -R`/`--repo` or PR URL — because anything else could
+reach another repository; every other shape gets no. With a yes they let
+through the trailer and the PR line above, each alone on its line (the heredoc
+form `-m "$(cat <<'EOF' … EOF)"` keeps them so), and nothing else. A git
+hook outside this plugin (a global `commit-msg`, say) may still
 reject a commit the yes allowed — the decision governs this plugin's checks
 only.
 
