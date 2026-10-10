@@ -29,6 +29,7 @@ The plan is written knowing that `/workflow-dev:validate` will be run after each
 | **Testing** | New behavior has tests, tests are meaningful | No (advisory) |
 | **Architecture** | Layer boundaries, dependency direction, coupling | No (advisory) |
 | **Performance** | No N+1, no unbounded growth, resource cleanup | Rarely (only obvious incidents) |
+| **AC Coverage** | Each AC a task group claims (`Validates: AC #X`) has `file:line` evidence in its change | Yes (an AC confirmed NOT COVERED) |
 
 ---
 

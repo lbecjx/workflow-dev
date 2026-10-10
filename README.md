@@ -62,7 +62,7 @@ workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usag
 | `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
 | `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
 | `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
-| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, an adversarial correctness pass) before commit |
+| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, acceptance-criteria coverage, an adversarial correctness pass) before commit |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
@@ -93,7 +93,7 @@ The skills name the **capability** — "run a command", "ask the human", "read a
 
 ## Model tiering
 
-`workflow-dev` spawns sub-agents for four jobs: running a fixed checklist (Verification, the Part 12 text review), making a contested call (Security, Architecture, Algorithmic Integrity), hunting adversarially for the input that breaks a change (Adversarial Correctness), and studying the story and the repo to draft the plan (`init`'s research, `plan`'s task groups). The plugin never names a model — it names **roles**, `wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`, and you bind each role to a model Claude Code actually offers:
+`workflow-dev` spawns sub-agents for four jobs: running a fixed checklist (Verification, the Part 12 text review), making a contested call (Security, Architecture, Algorithmic Integrity, AC Coverage), hunting adversarially for the input that breaks a change (Adversarial Correctness), and studying the story and the repo to draft the plan (`init`'s research, `plan`'s task groups). The plugin never names a model — it names **roles**, `wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`, and you bind each role to a model Claude Code actually offers:
 
 ```
 /workflow-dev:setup-models

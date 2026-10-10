@@ -68,9 +68,12 @@ Validates: AC #X
 
 Ask: "Starting with Task Group N?"
 
-In autonomous mode, skip this ask — continue with the next task group. Record
-that the task group was started (a normal progress-table update, no separate
-decision to log). Also run the keep-awake `start` again at the start of every
+Once it starts, in every mode, mark the group **In Progress** in Plan Progress
+(a normal progress-table update, no separate decision to log). `validate` reads
+that row to know which ACs this change claims (`../validate/references/rules.md`
+§14.2); a group left at Not Started makes its AC Coverage SKIP.
+
+In autonomous mode, skip this ask — continue with the next task group. Also run the keep-awake `start` again at the start of every
 task group, so a `caffeinate` that died mid-run is relaunched
 (`references/autonomous-mode.md`, "Keeping the Mac awake").
 
