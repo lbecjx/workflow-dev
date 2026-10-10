@@ -1,0 +1,22 @@
+schema_version: "1.1"
+name: rejects-unreachable-race
+description: >
+  Guard for WD-0057, the mirror of detects-stale-rollback-race. The diff adds
+  an "only one keeper per session" check to keeper.sh. Two `start` calls fired
+  at the same time can both pass the check, but the only caller (session.sh)
+  runs `start` once, in sequence. The adversarial verify gets the call sites
+  (rules.md §11.2), so that race must come back REJECTED (unreachable from a
+  real caller, or outside the plan's concurrency model) and validate must not
+  FAIL because of it. The prompt asks for verify's outcome on every hunt
+  finding, so a run where the race was never raised does not pass.
+
+  Answering "complete" keeps the case hard: at that depth hunt can really fire
+  two parallel starts and see two keepers. A rules edit that drops both the
+  reachability check and the concurrency-model reading should make this case
+  fail again.
+
+  Pass a capable model with `--judge-model`: the default judge once voted
+  FAIL 3/3 on a final message that met every criterion.
+tags: [adversarial-correctness, regression]
+context:
+  scaffold_script: fixture.sh

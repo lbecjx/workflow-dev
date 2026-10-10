@@ -135,10 +135,14 @@ When all tasks in the group are done:
 
 **In autonomous mode the quality gate is load-bearing** (see
 `references/autonomous-mode.md`): a FAIL here does not let the run continue to a
-commit/PR. Fix and re-validate; if the finding cannot be fixed, stop and report
-it — never downgrade a blocking finding to a warning so the run can keep going.
-Stopping also lets the Mac sleep again (`references/autonomous-mode.md`,
-"Keeping the Mac awake").
+commit/PR. Fix and re-validate; if the finding still stands after the rounds
+`../validate/references/rules.md` §11.3 allows, record it as a known
+limitation and go on (point 4 below) — never downgrade a blocking
+finding to a warning so the run can keep going. Any other stop also lets the
+Mac sleep again (`references/autonomous-mode.md`, "Keeping the Mac awake").
+
+**Fixing a finding — in any mode** follows `../validate/references/rules.md`
+§11.3 (fix in proportion, and a cap on the rounds spent on the same finding).
 
 1. Show completion summary.
 
@@ -149,8 +153,9 @@ Stopping also lets the Mac sleep again (`references/autonomous-mode.md`,
 
    - **"After every task group"** (or no such row at all — an older story
      from before this mode existed): unchanged from before. Run
-     `/workflow-dev:validate`. If FAIL → fix issues, re-validate. Once it
-     PASSes, continue to point 4.
+     `/workflow-dev:validate`. If FAIL → fix issues, re-validate, within
+     §11.3's cap. Once it PASSes (or, in autonomous mode, its FAIL is
+     capped and recorded — point 4), continue to point 4.
    - **"Once, at the end"**: defer this task group's validation instead of
      running it. Call `"$PLUGIN_ROOT"/scripts/validate-mark-deferred.sh` (`PLUGIN_ROOT` is `${CLAUDE_PLUGIN_ROOT}` when set; a skill's shell calls don't get it, so fall back to `cd -P "<this skill's directory>/../.." && pwd -P`) — this marks the
      current diff so the commit-time hook (`pre-commit-validate-check.sh`)
@@ -180,7 +185,9 @@ Stopping also lets the Mac sleep again (`references/autonomous-mode.md`,
    place.
 
 4. Once this task group is validated, deferred, or overridden (not
-   FAILed) → run `/workflow-dev:summarize-changes` for the commit
+   FAILed — except, in autonomous mode, a FAIL whose findings are all capped
+   under `../validate/references/rules.md` §11.3 and recorded as known
+   limitations: the verdict stays FAIL, and the run goes on) → run `/workflow-dev:summarize-changes` for the commit
    message, then suggest it to the human. Update plan progress in
    story.md. In autonomous mode, do not suggest — `summarize-changes`
    marks the text reviewed, and the run continues to the next task group
@@ -202,7 +209,8 @@ Stopping also lets the Mac sleep again (`references/autonomous-mode.md`,
 
 ### Step 6: Update story.md and suggest saving
 
-After successful validation:
+After successful validation (or, in autonomous mode, a FAIL capped under
+§11.3, as in Step 5 point 4):
 - Mark task group as "Done" in Plan Progress table (this one update happens here, directly — it's the literal record of what this skill just did)
 - Suggest running `/workflow-dev:save` to persist estimated progress, discoveries, and anything else from this task group into the story's Working Memory section — don't duplicate that logic here inline; `save` already owns reviewing the conversation and classifying what goes where
   - **In autonomous mode, run `/workflow-dev:save` after every task group**

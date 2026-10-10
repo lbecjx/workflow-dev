@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.40.0
+
+- The adversarial verify now gets the call sites of the changed code and rejects
+  a trigger no real caller can produce; a trigger reproduced only with injected
+  delays stays a warning.
+- Fixes follow a fix-in-proportion rule and stop after 2 rounds on the same
+  finding; `plan` states the concurrency model behind an "only one" criterion.
+- Re-run `/workflow-dev:setup-models` once: the role registry changed, so the
+  agent roles read as stale until they are regenerated (your models are kept).
+
 ## 1.39.0
 
 - New `/workflow-dev:init-auto <story>`: starts a story with `init` in

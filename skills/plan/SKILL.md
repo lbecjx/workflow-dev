@@ -248,6 +248,8 @@ If human approves, write the plan as a new section in the story.md file:
 ```markdown
 ## 5. Plan
 
+**Concurrency model:** <only when an AC sets an "only one" invariant — e.g. "one sequential caller: init runs start once, on the main thread">
+
 ### Task Group 1: <Title>
 **Execution class:** <mechanical | judgment>
 - [ ] <task>
@@ -268,6 +270,15 @@ If human approves, write the plan as a new section in the story.md file:
 | 1 | <title> | Not Started |
 | 2 | <title> | Not Started |
 ```
+
+**Concurrency model.** When an AC sets an "only one" invariant (one process
+per session, one row per user, exactly one of), write the line above: who calls
+the code and how, as the plan assumes it, e.g. one sequential caller or
+parallel requests. Leave it out otherwise. `validate` hands it to the
+adversarial `verify`, which judges a finding against it
+(`../validate/references/rules.md` §11.2, which owns the rule) — so an AC that
+does not mention concurrency is not read as "safe under concurrent calls",
+unless a real caller runs the code in parallel.
 
 Tell the human the plan is saved and suggest running `/workflow-dev:implement` to start on Task Group 1.
 
