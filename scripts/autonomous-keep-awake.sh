@@ -14,21 +14,19 @@
 #
 #   autonomous-keep-awake.sh start|stop|status [--watch <pid>]
 #
-# It prints one status word (plus a PID) on stdout and the agent writes the
+# It prints one status word (plus PIDs) on stdout and the agent writes the
 # chat notice in the conversation's language — a script cannot know that
 # language (references/user-language.md, "Out of scope"):
 #
-#   started <pid>   launched a new caffeinate
-#   running <pid>   ours is already alive; nothing launched (one per session)
-#   stopped <pid>   ours was alive and is now ended
-#   not-running     no caffeinate of ours is alive (already gone is not an error)
-#   unsupported     not macOS, or no caffeinate: skipped, nothing written
-#   no-session      no Claude Code session PID to tie caffeinate to: skipped
+#   started <pid>    launched a new caffeinate
+#   running <pid>    one for this session is already alive; nothing launched
+#   stopped <pid...> this session's caffeinate is ended
+#   not-running      none for this session is alive (already gone is not an error)
+#   unsupported      not macOS, or no caffeinate: skipped
+#   no-session       no Claude Code session PID to tie caffeinate to: skipped
+#   unknown          pgrep failed; nothing launched or ended
 #
-# Those are all normal outcomes and exit 0, because none of them may stop the
-# run. A usage error exits 2; an untrusted marker directory, or a lock another
-# live call holds for over ~5 s, exits 1 with the reason on stderr (the agent
-# reports it as a skip and the run goes on).
+# All of them exit 0, because none may stop the run. Only a usage error exits 2.
 #
 # ## Why `-i -w <session>` and nothing else
 #
@@ -42,25 +40,24 @@
 #   the Bash tool's own shell would be useless here: that shell exits as soon as
 #   the tool call returns.
 #
-# ## Why `stop` checks the command line, not just the PID
+# ## The session PID is the identity
 #
-# The human may run caffeinate themselves, and other sessions may run their
-# own; `killall caffeinate` would end those too. And a PID saved in the marker
-# may have been reused by an unrelated process since. So a process is only ours
-# when it belongs to this user and its command line is exactly
-# `caffeinate -i -w <this session>` (see is_our_command). Anything else is left
-# alone — including a caffeinate the human started with the very same
-# arguments: only the PID this script saved is ever ended.
+# There is no PID file and no lock. The command line `caffeinate -i -w
+# <session>` names the session it belongs to, so `pgrep` on it answers "is
+# ours running?" and `pkill` on it ends it. Only this user's processes match,
+# and only that exact command line: another session's caffeinate (another
+# `-w`), or the human's `caffeinate -t …`, is never touched. The executable
+# must be the full path this script launches, so a caffeinate the human types
+# by hand (argv `caffeinate …`) is not ours either. If pgrep fails (any exit
+# but 0 or 1), the answer is `unknown` and nothing is launched or ended. Each
+# `start` and `stop` is a sequential step of the run (`start` repeats at every
+# task group), so two calls racing each other is not a case this handles.
 #
 # Known limit, stated on purpose: caffeinate does not stop the sleep that comes
 # from closing a laptop lid with no external display. Linux (`systemd-inhibit`)
 # is out of scope: there the script answers `unsupported`.
 
 set -u
-
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=marker-dir.sh
-source "$HERE/marker-dir.sh"
 
 usage() {
   printf 'usage: %s start|stop|status [--watch <pid>]\n' "$(basename "$0")" >&2
@@ -101,99 +98,6 @@ find_session() {
   return 1
 }
 
-# 0 when the command line $1 is a caffeinate this script launches for session
-# $2: `[<one word> ]<path>/caffeinate -i -w <session>`, nothing before or after.
-# The one optional leading word covers `nohup` (the instant before it execs) and
-# an interpreter running a test double (`/bin/bash <path>/caffeinate ...`). A
-# shell whose `-c` string merely ends with those words has more than one word
-# in front, so it never matches.
-is_our_command() {
-  local cmd="$1" session="$2" re
-  re="^([^ ]+ )?([^ ]*/)?caffeinate -i -w ${session}\$"
-  [[ "$cmd" =~ $re ]]
-}
-
-# 0 when $1 is a live caffeinate that this script launched for session $2.
-owned_alive() {
-  local pid="$1" session="$2" cmd
-  is_pid "$pid" || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
-  cmd="$(ps -o command= -p "$pid" 2>/dev/null)" || return 1
-  is_our_command "$cmd" "$session"
-}
-
-# Serialises `start` and `stop` for one session. Without it, two `start` calls
-# in the same instant (parallel tool calls) both saw no caffeinate, both
-# launched one, and the marker kept only the second: `stop` then ended one and
-# the other kept the Mac awake until the session closed (found by WD-0055's
-# adversarial pass).
-#
-# `mkdir` is atomic, so it is the lock; it holds the holder's PID. A lock is
-# stale when its holder is gone: the PID is dead, or now belongs to a process
-# that is not this script (PID reuse), or the PID file stayed empty for ~3 s
-# (the holder died between `mkdir` and the write). Taking a stale lock over is
-# guarded by a second `mkdir` (`.takeover`, also holding a PID and stale on
-# the same terms), and the winner removes the lock only if it still names the
-# same dead holder. A plain `rm` + `mkdir` let two waiters each delete the
-# other's fresh lock and both launch. A lock held by a live call for longer
-# than a few seconds is reported (exit 1), never waited on longer.
-LOCK=""
-release_lock() {
-  [[ -n "$LOCK" && "$(cat "$LOCK/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$LOCK"
-}
-pid_in() {
-  head -c 16 "$1/pid" 2>/dev/null | tr -cd '0-9'
-}
-holder_alive() {
-  is_pid "$1" && kill -0 "$1" 2>/dev/null \
-    && [[ "$(ps -o command= -p "$1" 2>/dev/null)" == *autonomous-keep-awake* ]]
-}
-take_lock() {
-  local lock="$1" guard="$1.takeover" tries=0 empty=0 guard_empty=0 holder g
-  while :; do
-    if mkdir "$lock" 2>/dev/null; then
-      # The write fails only if a takeover removed the lock in between; then
-      # it is not ours, so compete again rather than run unlocked.
-      printf '%s\n' "$$" > "$lock/pid" 2>/dev/null && break
-      continue
-    fi
-    tries=$((tries + 1))
-    holder="$(pid_in "$lock")"
-    if [[ -z "$holder" ]]; then empty=$((empty + 1)); else empty=0; fi
-    # The guard is checked on every try, with a shorter grace than the lock,
-    # so a dead guard is always gone by the time a stale lock is taken over:
-    # both left empty by killed calls would otherwise block the session. The
-    # empty count resets whenever the guard is missing: summed across different
-    # guards, it let one waiter remove another's guard in the instant between
-    # its `mkdir` and its PID write, and both then took the lock over.
-    if [[ -d "$guard" ]]; then
-      g="$(pid_in "$guard")"
-      if [[ -z "$g" ]]; then guard_empty=$((guard_empty + 1)); else guard_empty=0; fi
-      if { [[ -n "$g" ]] && ! holder_alive "$g"; } || (( guard_empty >= 20 )); then
-        rm -rf "$guard"; guard_empty=0
-      fi
-    else
-      guard_empty=0
-    fi
-    if { [[ -n "$holder" ]] && ! holder_alive "$holder"; } || (( empty >= 30 )); then
-      if mkdir "$guard" 2>/dev/null; then
-        printf '%s\n' "$$" > "$guard/pid" 2>/dev/null
-        [[ "$(pid_in "$lock")" == "$holder" ]] && rm -rf "$lock"
-        rm -rf "$guard"
-        empty=0
-        continue
-      fi
-    fi
-    if (( tries >= 40 )); then
-      printf 'keep-awake lock is held by process %s\n' "${holder:-unknown}" >&2
-      return 1
-    fi
-    sleep 0.1
-  done
-  LOCK="$lock"
-  trap release_lock EXIT
-}
-
 [[ $# -ge 1 ]] || usage
 action="$1"; shift
 case "$action" in start|stop|status) ;; *) usage ;; esac
@@ -209,7 +113,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Platform first, so a non-macOS run touches nothing on disk.
+# Platform first, so a non-macOS run does nothing at all.
 if [[ "$(uname -s 2>/dev/null)" != "Darwin" ]]; then
   echo "unsupported"; exit 0
 fi
@@ -224,49 +128,57 @@ fi
 if [[ -z "$watch" ]] || ! kill -0 "$watch" 2>/dev/null; then
   echo "no-session"; exit 0
 fi
+# One spelling per session: `0123` and `123` are the same process, and the
+# command line has to be matched the way it was launched.
+watch=$((10#$watch))
 
-dir="$(marker_root)/keep-awake"
-marker="$dir/$watch.pid"
+# This user's caffeinate for this session: exactly the caffeinate this script
+# launches (`$cafe`, resolved from PATH above) followed by exactly `-i -w
+# <session>` and nothing after it, so session 12 never matches 123. A process
+# that only names caffeinate in its arguments (`less caffeinate …`), or another
+# executable that happens to be called caffeinate, never matches. The one
+# prefix allowed is /bin/bash or /bin/sh, which is how a shell-script test
+# double at that same path shows up in the process table.
+cafe_re="$(printf '%s' "$cafe" | sed 's/[][\\.*^$+?(){}|]/\\&/g')"
+pattern="^(/bin/(ba)?sh )?${cafe_re} -i -w ${watch}\$"
 
-reason="$(marker_chain_reason "$dir")" || true
-if [[ -n "$reason" ]]; then
-  printf 'keep-awake marker directory cannot be trusted: %s\n' "$reason" >&2
-  exit 1
-fi
+# pgrep exits 0 on a match and 1 on none; anything else means it could not
+# look (a sandbox, a broken process table). Then the answer is unknown, and
+# start must not launch a second caffeinate, nor stop kill blindly.
+pids=""
+ours() {
+  local out rc
+  out="$(pgrep -U "$(id -u)" -f "$pattern" 2>/dev/null)"; rc=$?
+  case "$rc" in
+    0) pids="$(printf '%s' "$out" | tr '\n' ' ' | sed 's/ $//')"; return 0 ;;
+    1) pids=""; return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-if [[ "$action" != "status" ]]; then
-  marker_ensure_dir "$dir" || exit 1
-  take_lock "$dir/$watch.lock" || exit 1
-fi
-
-saved=""
-if [[ -f "$marker" ]]; then
-  saved="$(head -c 32 "$marker" 2>/dev/null | tr -d '[:space:]')"
+if ! ours; then
+  echo "unknown"; exit 0
 fi
 
 case "$action" in
   status)
-    if owned_alive "$saved" "$watch"; then echo "running $saved"; else echo "not-running"; fi
+    if [[ -n "$pids" ]]; then echo "running $pids"; else echo "not-running"; fi
     ;;
   start)
-    if owned_alive "$saved" "$watch"; then
-      echo "running $saved"; exit 0
+    # Safe to call again and again: one alive → `running`; none (never
+    # started, or it died) → launch a new one.
+    if [[ -n "$pids" ]]; then
+      echo "running $pids"; exit 0
     fi
     # nohup + full redirection: the Bash tool's shell exits when the call
     # returns, and caffeinate must outlive it (it is reparented to launchd).
     nohup "$cafe" -i -w "$watch" </dev/null >/dev/null 2>&1 &
-    pid=$!
-    printf '%s\n' "$pid" | marker_write "$marker" || { kill "$pid" 2>/dev/null; exit 1; }
-    echo "started $pid"
+    echo "started $!"
     ;;
   stop)
-    if owned_alive "$saved" "$watch" && kill "$saved" 2>/dev/null; then
-      rm -f "$marker"
-      echo "stopped $saved"
+    if [[ -n "$pids" ]] && pkill -U "$(id -u)" -f "$pattern" 2>/dev/null; then
+      echo "stopped $pids"
     else
-      # Gone already, never ours, or garbage: nothing to end. The stale marker
-      # goes; any process it pointed at that is not ours stays untouched.
-      [[ -e "$marker" || -L "$marker" ]] && rm -f "$marker"
       echo "not-running"
     fi
     ;;

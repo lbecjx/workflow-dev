@@ -10,14 +10,17 @@
 # Tests for autonomous-keep-awake.sh (WD-0055). The real caffeinate is never
 # run: a test double first in PATH records its arguments and, like the real
 # one under `-w`, lives exactly as long as the PID it watches. The "session" is
-# a throwaway `sleep`, and every marker lives under a throwaway TMPDIR.
+# a throwaway `sleep`.
 #
 # What it pins:
 #   - start launches one caffeinate with exactly `-i -w <session>` (never -d/-u),
-#     saves its PID, and a second start launches nothing;
-#   - stop ends only our own process, and a dead, garbage or foreign PID is
-#     `not-running`, never an error and never a kill;
-#   - outside macOS, or with no caffeinate, nothing runs and nothing is written;
+#     and a second start launches nothing;
+#   - stop ends this session's caffeinate and leaves another session's alone;
+#     with nothing running it is `not-running`, never an error;
+#   - only a caffeinate at the exact path the script launches is ours, never
+#     one at another path or a process that merely names caffeinate;
+#   - when pgrep fails, the answer is `unknown` and nothing is launched or ended;
+#   - outside macOS, or with no caffeinate, nothing runs;
 #   - with no session to watch it skips; when the session ends, caffeinate ends.
 #
 #   bash scripts/autonomous-keep-awake.test.sh
@@ -33,7 +36,6 @@ cleanup() {
   local p
   for p in "${PIDS[@]:-}"; do
     [[ -n "$p" ]] || continue
-    pkill -P "$p" 2>/dev/null
     kill "$p" 2>/dev/null
     wait "$p" 2>/dev/null
   done
@@ -46,8 +48,7 @@ fail=0
 ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
-export TMPDIR="$TMP/tmpdir"
-mkdir -p "$TMPDIR" "$TMP/bin"
+mkdir -p "$TMP/bin"
 ARGV_LOG="$TMP/argv.log"
 : > "$ARGV_LOG"
 
@@ -65,18 +66,17 @@ export PATH="$TMP/bin:$PATH"
 export FAKE_UNAME="Darwin"
 unset CLAUDE_PID
 
-MARKERS="$TMPDIR/workflow-dev-validate/keep-awake"
+run() { bash "$SCRIPT" "$@"; }
+count_ours() { ps -U "$(id -u)" -o command= | grep -c -- "caffeinate -i -w $1\$"; }
+launched() { wc -l < "$ARGV_LOG" | tr -d ' '; }
 
 sleep 300 & SESSION=$!; PIDS+=("$SESSION")
-
-run() { bash "$SCRIPT" "$@"; }
+sleep 300 & OTHER_SESSION=$!; PIDS+=("$OTHER_SESSION")
 
 # --- 1. start launches one caffeinate with exactly -i -w <session> ----------
 out="$(run start --watch "$SESSION")"; rc=$?
-CAF="${out#started }"
+CAF="${out#started }"; PIDS+=("$CAF")
 [[ $rc -eq 0 && "$out" =~ ^started\ [0-9]+$ ]] && ok "start prints started <pid>" || no "start prints started <pid> (got: rc=$rc '$out')"
-PIDS+=("$CAF")
-[[ "$(cat "$MARKERS/$SESSION.pid" 2>/dev/null)" == "$CAF" ]] && ok "start saves the PID in the session marker" || no "start saves the PID in the session marker"
 for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$ARGV_LOG" ]] && break; sleep 0.1; done
 [[ "$(cat "$ARGV_LOG")" == "-i -w $SESSION" ]] && ok "caffeinate gets exactly -i -w <session>" || no "caffeinate gets exactly -i -w <session> (got: $(cat "$ARGV_LOG"))"
 if grep -Eq -- '(^| )-[a-z]*[du]' "$ARGV_LOG"; then no "no -d and no -u in the launched command"; else ok "no -d and no -u in the launched command"; fi
@@ -85,189 +85,119 @@ kill -0 "$CAF" 2>/dev/null && ok "caffeinate outlives the start call" || no "caf
 # --- 2. a second start launches nothing --------------------------------------
 out="$(run start --watch "$SESSION")"
 [[ "$out" == "running $CAF" ]] && ok "second start answers running <same pid>" || no "second start answers running <same pid> (got: '$out')"
-[[ "$(wc -l < "$ARGV_LOG" | tr -d ' ')" == "1" ]] && ok "only one caffeinate was ever launched" || no "only one caffeinate was ever launched"
+out="$(run start --watch "0$SESSION")"
+[[ "$out" == "running $CAF" ]] && ok "a leading zero names the same session" || no "a leading zero names the same session (got: '$out')"
+[[ "$(launched)" == "1" && "$(count_ours "$SESSION")" == "1" ]] && ok "only one caffeinate was ever launched" || no "only one caffeinate was ever launched ($(launched) launched)"
 [[ "$(run status --watch "$SESSION")" == "running $CAF" ]] && ok "status reports running <pid>" || no "status reports running <pid>"
 
-# --- 3. stop ends it ---------------------------------------------------------
+# --- 3. stop closes only its own --------------------------------------------
+caffeinate -i -w "$OTHER_SESSION" & OTHER_CAF=$!; PIDS+=("$OTHER_CAF")
+sleep 0.3
 out="$(run stop --watch "$SESSION")"
 [[ "$out" == "stopped $CAF" ]] && ok "stop prints stopped <pid>" || no "stop prints stopped <pid> (got: '$out')"
 sleep 0.3
 kill -0 "$CAF" 2>/dev/null && no "our caffeinate is ended" || ok "our caffeinate is ended"
-[[ ! -e "$MARKERS/$SESSION.pid" ]] && ok "stop removes the marker" || no "stop removes the marker"
+kill -0 "$OTHER_CAF" 2>/dev/null && ok "another session's caffeinate is left alone" || no "another session's caffeinate is left alone"
 
-# --- 4. stop again is not an error -------------------------------------------
+# --- 3b. a process that only names caffeinate in its arguments is not ours --
+bash -c 'exec -a "less caffeinate -i -w $1" sleep 300' x "$SESSION" & DECOY=$!; PIDS+=("$DECOY")
+sleep 0.3
+[[ "$(run status --watch "$SESSION")" == "not-running" ]] && ok "a non-caffeinate naming our arguments is not ours" || no "a non-caffeinate naming our arguments is not ours"
+run stop --watch "$SESSION" >/dev/null
+kill -0 "$DECOY" 2>/dev/null && ok "stop leaves that process alone" || no "stop leaves that process alone"
+kill "$DECOY" 2>/dev/null; wait "$DECOY" 2>/dev/null
+
+# --- 3c. another executable called caffeinate is not ours -------------------
+mkdir -p "$TMP/elsewhere"
+cp "$TMP/bin/caffeinate" "$TMP/elsewhere/caffeinate"
+"$TMP/elsewhere/caffeinate" -i -w "$SESSION" & IMPOSTOR=$!; PIDS+=("$IMPOSTOR")
+sleep 0.3
+[[ "$(run status --watch "$SESSION")" == "not-running" ]] && ok "a caffeinate at another path is not ours" || no "a caffeinate at another path is not ours"
+run stop --watch "$SESSION" >/dev/null
+kill -0 "$IMPOSTOR" 2>/dev/null && ok "stop leaves the other-path caffeinate alone" || no "stop leaves the other-path caffeinate alone"
+kill "$IMPOSTOR" 2>/dev/null; wait "$IMPOSTOR" 2>/dev/null
+: > "$ARGV_LOG"
+
+# --- 3d. pgrep that cannot look: unknown, nothing launched or ended ----------
+mkdir -p "$TMP/badpgrep"
+printf '#!/bin/bash\nexit 3\n' > "$TMP/badpgrep/pgrep"
+chmod +x "$TMP/badpgrep/pgrep"
+out="$(PATH="$TMP/badpgrep:$PATH" bash "$SCRIPT" start --watch "$SESSION")"; rc=$?
+sleep 0.3
+[[ $rc -eq 0 && "$out" == "unknown" ]] && ok "start with a failing pgrep answers unknown, exit 0" || no "start with a failing pgrep (got: rc=$rc '$out')"
+[[ ! -s "$ARGV_LOG" ]] && ok "and launches nothing" || no "and launches nothing ($(launched) launched)"
+out="$(run start --watch "$SESSION")"; OURS="${out#started }"; PIDS+=("$OURS")
+sleep 0.3
+out="$(PATH="$TMP/badpgrep:$PATH" bash "$SCRIPT" stop --watch "$SESSION")"
+[[ "$out" == "unknown" ]] && ok "stop with a failing pgrep answers unknown" || no "stop with a failing pgrep (got: '$out')"
+sleep 0.5
+kill -0 "$OURS" 2>/dev/null && ok "and ends nothing, not even ours" || no "and ends nothing, not even ours"
+run stop --watch "$SESSION" >/dev/null
+: > "$ARGV_LOG"
+
+# --- 4. stop with nothing running is not an error ----------------------------
 out="$(run stop --watch "$SESSION")"; rc=$?
 [[ $rc -eq 0 && "$out" == "not-running" ]] && ok "stop with nothing running: not-running, exit 0" || no "stop with nothing running (got: rc=$rc '$out')"
 [[ "$(run status --watch "$SESSION")" == "not-running" ]] && ok "status reports not-running" || no "status reports not-running"
+kill -0 "$OTHER_CAF" 2>/dev/null && ok "still: another session's caffeinate is left alone" || no "still: another session's caffeinate is left alone"
 
-# --- 5. a marker pointing at a dead PID --------------------------------------
-sleep 0 & DEAD=$!; wait "$DEAD" 2>/dev/null
-mkdir -p "$MARKERS"; chmod 700 "$TMPDIR/workflow-dev-validate" "$MARKERS"
-printf '%s\n' "$DEAD" > "$MARKERS/$SESSION.pid"
-out="$(run stop --watch "$SESSION")"; rc=$?
-[[ $rc -eq 0 && "$out" == "not-running" ]] && ok "dead PID: not-running, exit 0" || no "dead PID (got: rc=$rc '$out')"
-[[ ! -e "$MARKERS/$SESSION.pid" ]] && ok "dead PID: stale marker removed" || no "dead PID: stale marker removed"
-
-# --- 6. a marker with garbage ------------------------------------------------
-printf 'not a pid; rm -rf /\n' > "$MARKERS/$SESSION.pid"
-out="$(run stop --watch "$SESSION")"; rc=$?
-[[ $rc -eq 0 && "$out" == "not-running" ]] && ok "garbage marker: not-running, exit 0" || no "garbage marker (got: rc=$rc '$out')"
-printf 'junk' > "$MARKERS/$SESSION.pid"
-out="$(run start --watch "$SESSION")"
-CAF2="${out#started }"; PIDS+=("$CAF2")
-[[ "$out" =~ ^started\ [0-9]+$ ]] && ok "start over a garbage marker launches a fresh one" || no "start over a garbage marker (got: '$out')"
+# --- 4b. a caffeinate that died is relaunched by the next start -----------
+out="$(run start --watch "$SESSION")"; C1="${out#started }"; PIDS+=("$C1")
+kill "$C1"; wait "$C1" 2>/dev/null; sleep 0.2
+out="$(run start --watch "$SESSION")"; C2="${out#started }"; PIDS+=("$C2")
+[[ "$out" =~ ^started\ [0-9]+$ && "$C2" != "$C1" ]] && kill -0 "$C2" 2>/dev/null && ok "start after ours died launches a new one" || no "start after ours died (got: '$out')"
+[[ "$(count_ours "$SESSION")" == "1" ]] && ok "and exactly one is running" || no "and exactly one is running ($(count_ours "$SESSION"))"
 run stop --watch "$SESSION" >/dev/null
 
-# --- 7. a marker pointing at a live process that is not ours -----------------
-sleep 300 & OTHER=$!; PIDS+=("$OTHER")
-printf '%s\n' "$OTHER" > "$MARKERS/$SESSION.pid"
-out="$(run stop --watch "$SESSION")"
-[[ "$out" == "not-running" ]] && ok "foreign live PID: not-running" || no "foreign live PID (got: '$out')"
-kill -0 "$OTHER" 2>/dev/null && ok "foreign live PID is left alone" || no "foreign live PID is left alone"
-[[ "$(run status --watch "$SESSION")" == "not-running" ]] && ok "status does not claim a foreign PID" || no "status does not claim a foreign PID"
-
-# --- 8. usage errors ---------------------------------------------------------
+# --- 5. usage errors ---------------------------------------------------------
 run start --watch abc >/dev/null 2>&1; rc=$?
 [[ $rc -eq 2 ]] && ok "non-numeric --watch exits 2" || no "non-numeric --watch exits 2 (got: $rc)"
 run start --watch 1 >/dev/null 2>&1; rc=$?
 [[ $rc -eq 2 ]] && ok "--watch 1 (launchd) exits 2" || no "--watch 1 exits 2 (got: $rc)"
 run bogus >/dev/null 2>&1; rc=$?
 [[ $rc -eq 2 ]] && ok "unknown action exits 2" || no "unknown action exits 2 (got: $rc)"
-run >/dev/null 2>&1; rc=$?
-[[ $rc -eq 2 ]] && ok "no action exits 2" || no "no action exits 2 (got: $rc)"
 
-# --- 9. outside macOS: nothing runs, nothing is written ----------------------
-rm -rf "$TMPDIR/workflow-dev-validate"; : > "$ARGV_LOG"
+# --- 6. outside macOS: nothing runs -----------------------------------------
+: > "$ARGV_LOG"
 out="$(FAKE_UNAME=Linux run start --watch "$SESSION")"; rc=$?
 [[ $rc -eq 0 && "$out" == "unsupported" ]] && ok "Linux: unsupported, exit 0" || no "Linux (got: rc=$rc '$out')"
-[[ ! -s "$ARGV_LOG" ]] && ok "Linux: caffeinate never ran" || no "Linux: caffeinate never ran"
-[[ ! -e "$TMPDIR/workflow-dev-validate" ]] && ok "Linux: no marker written" || no "Linux: no marker written"
-out="$(FAKE_UNAME=Linux run stop --watch "$SESSION")"
+out="$(FAKE_UNAME=Linux run stop --watch "$OTHER_SESSION")"
 [[ "$out" == "unsupported" ]] && ok "Linux: stop is unsupported too" || no "Linux: stop (got: '$out')"
+kill -0 "$OTHER_CAF" 2>/dev/null && ok "Linux: stop touches nothing" || no "Linux: stop touches nothing"
 
-# --- 10. macOS with no caffeinate in PATH ------------------------------------
+# --- 7. macOS with no caffeinate in PATH ------------------------------------
 NOCAF="$TMP/nocaf"
 mkdir -p "$NOCAF"
-for tool in bash ps awk sed head tr kill basename dirname mkdir mv rm chmod mktemp cat find nohup; do
+for tool in bash ps awk sed tr kill basename dirname pgrep pkill id nohup; do
   p="$(command -v "$tool" 2>/dev/null)" && [[ "$p" == /* ]] && ln -sf "$p" "$NOCAF/$tool"
 done
 ln -sf "$TMP/bin/uname" "$NOCAF/uname"
 out="$(PATH="$NOCAF" "$NOCAF/bash" "$SCRIPT" start --watch "$SESSION")"; rc=$?
 [[ $rc -eq 0 && "$out" == "unsupported" ]] && ok "no caffeinate: unsupported, exit 0" || no "no caffeinate (got: rc=$rc '$out')"
+[[ ! -s "$ARGV_LOG" ]] && ok "unsupported: caffeinate never ran" || no "unsupported: caffeinate never ran"
 
-# --- 11. no session to watch -------------------------------------------------
+# --- 8. no session to watch -------------------------------------------------
 out="$(KEEP_AWAKE_SESSION_COMM=no-such-session-process run start)"; rc=$?
 [[ $rc -eq 0 && "$out" == "no-session" ]] && ok "no session: no-session, exit 0" || no "no session (got: rc=$rc '$out')"
-[[ ! -s "$ARGV_LOG" ]] && ok "no session: caffeinate never ran" || no "no session: caffeinate never ran"
+sleep 0 & DEAD=$!; wait "$DEAD" 2>/dev/null
 out="$(CLAUDE_PID="$DEAD" KEEP_AWAKE_SESSION_COMM=no-such-session-process run start)"
 [[ "$out" == "no-session" ]] && ok "a dead CLAUDE_PID is not a session" || no "a dead CLAUDE_PID (got: '$out')"
+[[ ! -s "$ARGV_LOG" ]] && ok "no session: caffeinate never ran" || no "no session: caffeinate never ran"
 
-# --- 12. CLAUDE_PID is the session; when it ends, caffeinate ends ------------
+# --- 9. CLAUDE_PID is the session; when it ends, caffeinate ends ------------
 sleep 300 & SESSION2=$!; PIDS+=("$SESSION2")
 out="$(CLAUDE_PID="$SESSION2" run start)"
 CAF3="${out#started }"; PIDS+=("$CAF3")
-[[ "$out" =~ ^started\ [0-9]+$ && -e "$MARKERS/$SESSION2.pid" ]] && ok "CLAUDE_PID is used as the session" || no "CLAUDE_PID is used as the session (got: '$out')"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ "$(tail -1 "$ARGV_LOG")" == "-i -w $SESSION2" ]] && break; sleep 0.1; done
+[[ "$out" =~ ^started\ [0-9]+$ && "$(tail -1 "$ARGV_LOG")" == "-i -w $SESSION2" ]] && ok "CLAUDE_PID is used as the session" || no "CLAUDE_PID is used as the session (got: '$out')"
 kill "$SESSION2"; wait "$SESSION2" 2>/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do kill -0 "$CAF3" 2>/dev/null || break; sleep 0.2; done
 kill -0 "$CAF3" 2>/dev/null && no "caffeinate ends with its session (-w)" || ok "caffeinate ends with its session (-w)"
 
-# --- 13. the ancestor walk finds the named session process -------------------
-# The test's own shell is an ancestor of the script; naming its command proves
-# the walk without depending on a Claude Code session being around.
+# --- 10. the ancestor walk finds the named session process ------------------
 SELF_COMM="$(ps -o comm= -p $$ | sed 's#.*/##; s/^-//')"
 out="$(KEEP_AWAKE_SESSION_COMM="$SELF_COMM" run status)"
 [[ "$out" == "not-running" ]] && ok "ancestor walk resolves a session" || no "ancestor walk resolves a session (got: '$out')"
-
-# --- 14. two starts at the same instant launch one caffeinate ---------------
-rm -rf "$TMPDIR/workflow-dev-validate"; : > "$ARGV_LOG"
-sleep 300 & SESSION3=$!; PIDS+=("$SESSION3")
-run start --watch "$SESSION3" > "$TMP/r1" & J1=$!
-run start --watch "$SESSION3" > "$TMP/r2" & J2=$!
-wait "$J1"; wait "$J2"
-for f in "$TMP/r1" "$TMP/r2"; do p="$(awk '{print $2}' "$f")"; [[ -n "$p" ]] && PIDS+=("$p"); done
-sleep 0.5
-[[ "$(wc -l < "$ARGV_LOG" | tr -d ' ')" == "1" ]] && ok "parallel starts launch a single caffeinate" || no "parallel starts launch a single caffeinate (launched $(wc -l < "$ARGV_LOG" | tr -d ' '); got: $(cat "$TMP/r1") / $(cat "$TMP/r2"))"
-[[ "$(sort "$TMP/r1" "$TMP/r2" | awk '{print $1}' | tr '\n' ' ')" == "running started " ]] && ok "one parallel start says started, the other running" || no "parallel start answers (got: $(cat "$TMP/r1") / $(cat "$TMP/r2"))"
-[[ "$(run stop --watch "$SESSION3")" =~ ^stopped ]] && ok "stop after parallel starts ends it" || no "stop after parallel starts ends it"
-[[ ! -e "$MARKERS/$SESSION3.lock" ]] && ok "the lock is released" || no "the lock is released"
-
-# --- 15. a lock left by a dead holder does not block -------------------------
-mkdir -p "$MARKERS/$SESSION3.lock"
-out="$(run start --watch "$SESSION3")"
-p="${out#started }"; PIDS+=("$p")
-[[ "$out" =~ ^started\ [0-9]+$ ]] && ok "a stale lock is taken over" || no "a stale lock is taken over (got: '$out')"
-run stop --watch "$SESSION3" >/dev/null
-
-count_ours() {
-  ps -U "$(id -u)" -o command= | grep -c -- "caffeinate -i -w $1\$"
-}
-
-# --- 16. a stale lock from a dead holder, then parallel starts ---------------
-sleep 0 & GONE=$!; wait "$GONE" 2>/dev/null
-for loop in 1 2 3 4 5; do
-  mkdir -p "$MARKERS/$SESSION3.lock"; printf '%s\n' "$GONE" > "$MARKERS/$SESSION3.lock/pid"
-  for k in 1 2 3 4; do run start --watch "$SESSION3" > "$TMP/p$k" 2>&1 & eval "J$k=\$!"; done
-  rcs=""
-  for k in 1 2 3 4; do eval "wait \$J$k"; rcs="$rcs$?"; p="$(awk '{print $2}' "$TMP/p$k")"; is_num='^[0-9]+$'; [[ "$p" =~ $is_num ]] && PIDS+=("$p"); done
-  sleep 0.3
-  [[ "$(count_ours "$SESSION3")" == "1" && "$rcs" == "0000" ]] && ok "dead-holder lock + 4 parallel starts: one caffeinate, all exit 0 ($loop)" || no "dead-holder lock + parallel starts ($loop): $(count_ours "$SESSION3") alive, exits $rcs, out: $(cat "$TMP"/p1 "$TMP"/p2 "$TMP"/p3 "$TMP"/p4 | tr '\n' '|')"
-  run stop --watch "$SESSION3" >/dev/null
-  sleep 0.3
-  [[ "$(count_ours "$SESSION3")" == "0" ]] && ok "then stop leaves none alive ($loop)" || no "then stop leaves none alive ($loop)"
-  [[ ! -e "$MARKERS/$SESSION3.lock.takeover" ]] && ok "no takeover guard left behind ($loop)" || no "no takeover guard left behind ($loop)"
-done
-
-# --- 17. a caffeinate with our arguments that we did not save is not ours ---
-caffeinate -i -w "$SESSION3" & HUMANS=$!; PIDS+=("$HUMANS")
-sleep 0.3
-out="$(run stop --watch "$SESSION3")"
-[[ "$out" == "not-running" ]] && ok "stop names nothing it did not save" || no "stop names nothing it did not save (got: '$out')"
-kill -0 "$HUMANS" 2>/dev/null && ok "a same-argument caffeinate it did not start is left alone" || no "a same-argument caffeinate it did not start is left alone"
-kill "$HUMANS" 2>/dev/null; wait "$HUMANS" 2>/dev/null
-
-# --- 18. a lock held by a live call is reported, not waited on forever -------
-bash -c "sleep 300; : autonomous-keep-awake" 2>/dev/null & HOLDER=$!; PIDS+=("$HOLDER")
-mkdir -p "$MARKERS/$SESSION3.lock"; printf '%s\n' "$HOLDER" > "$MARKERS/$SESSION3.lock/pid"
-start_s=$SECONDS
-run start --watch "$SESSION3" >"$TMP/out18" 2>"$TMP/err18"; rc=$?
-[[ $rc -eq 1 && -s "$TMP/err18" && ! -s "$TMP/out18" ]] && ok "held lock: exit 1 with a reason" || no "held lock (got: rc=$rc out=$(cat "$TMP/out18"))"
-(( SECONDS - start_s <= 8 )) && ok "held lock: gives up within the bound" || no "held lock: gives up within the bound ($((SECONDS - start_s))s)"
-[[ -d "$MARKERS/$SESSION3.lock" ]] && ok "someone else's live lock is not removed" || no "someone else's live lock is not removed"
-rm -rf "$MARKERS/$SESSION3.lock"
-
-# --- 19. leftovers of a killed takeover, and a reused holder PID ------------
-mkdir -p "$MARKERS/$SESSION3.lock" "$MARKERS/$SESSION3.lock.takeover"
-printf '%s\n' "$GONE" > "$MARKERS/$SESSION3.lock/pid"
-printf '%s\n' "$GONE" > "$MARKERS/$SESSION3.lock.takeover/pid"
-out="$(run start --watch "$SESSION3")"; p="${out#started }"; PIDS+=("$p")
-[[ "$out" =~ ^started\ [0-9]+$ && ! -e "$MARKERS/$SESSION3.lock.takeover" ]] && ok "a dead takeover guard does not block the session" || no "a dead takeover guard (got: '$out')"
-run stop --watch "$SESSION3" >/dev/null
-mkdir -p "$MARKERS/$SESSION3.lock"; printf '%s\n' "$OTHER" > "$MARKERS/$SESSION3.lock/pid"
-# OTHER is a plain `sleep`: as a holder it reads as a PID reused by another
-# program, so the lock is stale.
-out="$(run start --watch "$SESSION3")"; p="${out#started }"; PIDS+=("$p")
-[[ "$out" =~ ^started\ [0-9]+$ ]] && ok "a holder PID reused by another program is stale" || no "a reused holder PID (got: '$out')"
-kill -0 "$OTHER" 2>/dev/null && ok "the process that reused the PID is untouched" || no "the process that reused the PID is untouched"
-run stop --watch "$SESSION3" >/dev/null
-mkdir -p "$MARKERS/$SESSION3.lock"; printf '0\n' > "$MARKERS/$SESSION3.lock/pid"
-out="$(run start --watch "$SESSION3")"; p="${out#started }"; PIDS+=("$p")
-[[ "$out" =~ ^started\ [0-9]+$ ]] && ok "a holder PID of 0 is stale" || no "a holder PID of 0 (got: '$out')"
-run stop --watch "$SESSION3" >/dev/null
-
-# --- 20. a lock and a guard both left empty by killed calls -----------------
-mkdir -p "$MARKERS/$SESSION3.lock" "$MARKERS/$SESSION3.lock.takeover"
-out="$(run start --watch "$SESSION3")"; rc=$?; p="${out#started }"; PIDS+=("$p")
-[[ $rc -eq 0 && "$out" =~ ^started\ [0-9]+$ ]] && ok "empty lock + empty guard clear on their own" || no "empty lock + empty guard (got: rc=$rc '$out')"
-run stop --watch "$SESSION3" >/dev/null
-[[ ! -e "$MARKERS/$SESSION3.lock" && ! -e "$MARKERS/$SESSION3.lock.takeover" ]] && ok "nothing left behind after the takeover" || no "nothing left behind after the takeover"
-
-# --- 21. an untrusted marker directory is refused, nothing is killed ---------
-rm -rf "$TMPDIR/workflow-dev-validate"
-mkdir -p "$MARKERS"; chmod 700 "$TMPDIR/workflow-dev-validate"; chmod 777 "$MARKERS"
-printf '%s\n' "$OTHER" > "$MARKERS/$SESSION.pid"
-run stop --watch "$SESSION" >/dev/null 2>"$TMP/err"; rc=$?
-[[ $rc -eq 1 && -s "$TMP/err" ]] && ok "untrusted marker dir: exit 1 with a reason" || no "untrusted marker dir (got: rc=$rc)"
-kill -0 "$OTHER" 2>/dev/null && ok "untrusted marker dir: nothing killed" || no "untrusted marker dir: nothing killed"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

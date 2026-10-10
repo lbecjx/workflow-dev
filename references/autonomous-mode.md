@@ -244,16 +244,19 @@ point, and it records nothing in Decisions.
 
 - **Start.** Run `"$PLUGIN_ROOT"/scripts/autonomous-keep-awake.sh start` right
   after the `Autonomous mode: on` row is written, whether `init` wrote it or the
-  human asked mid-conversation. `implement` also runs it when it detects the
-  mode, because a run resumed in a new session lost its old `caffeinate` with
-  the old session. `start` is idempotent: one `caffeinate` per session.
+  human asked mid-conversation. `implement` runs it again when it detects the
+  mode (a run resumed in a new session lost its old `caffeinate` with the old
+  session) and at the start of every task group (one that died mid-run comes
+  back). `start` is safe to repeat: it answers `running` when this session's
+  `caffeinate` is alive and launches a new one when it is not.
 - **Stop.** Run `"$PLUGIN_ROOT"/scripts/autonomous-keep-awake.sh stop` when the
   run ends, in every form: the end-of-run report, any stop listed in "Chaining"
   (a finding, a block, a quality-gate FAIL it cannot fix, an ambiguous AC, a
   stop the human asked for), whenever the run waits on the human (the
-  model-tiering question, a commit hook's ask), and when the row becomes
+  model-tiering question), and when the row becomes
   `Autonomous mode: off` or is removed. A run that goes on after such a wait
-  starts it again.
+  starts it again. The pre-autonomous checkpoint is not such a wait: the human
+  is there, and the run goes on right after it, so `caffeinate` stays on.
 - **Notices.** Tell the human what happened in one line, in the conversation's
   language (`references/user-language.md`). The script prints one status word;
   the line says what it means to the human:
@@ -264,7 +267,8 @@ point, and it records nothing in Decisions.
   | `stopped <pid>` | `caffeinate` (PID) is closed; the Mac sleeps normally again |
   | `not-running` (on stop) | it was already gone; nothing to close (not an error) |
   | `unsupported` | not macOS (or no `caffeinate`): skipped |
-  | `no-session`, or exit 1 | no session to tie it to, an untrusted marker directory, or a busy lock: skipped |
+  | `no-session` | no Claude Code session to tie it to: skipped |
+  | `unknown` | `pgrep` failed; nothing launched or ended, the run goes on |
 
   None of them stops or delays the run.
 - **Flags: `caffeinate -i -w <session pid>`, and only those.** `-i` stops idle
@@ -274,10 +278,16 @@ point, and it records nothing in Decisions.
   lock) are never used. `-w` ties `caffeinate` to the Claude Code session
   (`$CLAUDE_PID`), so a closed or crashed session never leaves the Mac awake for
   good.
-- **Only its own.** The script saves the PID it launched, and `stop` ends only
-  that PID, and only while its command line is still exactly `caffeinate -i -w
-  <session pid>` (a reused PID is left alone). Never `killall caffeinate`: the
-  human's own `caffeinate` stays untouched, even one with the same arguments.
+- **Only its own.** No PID file and no lock: the session PID in the command
+  line is the identity. `start` looks for this user's `caffeinate -i -w
+  <session pid>` with `pgrep`, and `stop` ends it with `pkill` on that same
+  exact command line, so another session's `caffeinate` and the human's own
+  (`caffeinate -t …`) stay untouched. Never `killall caffeinate`. `start` is one
+  sequential step of the run, so two simultaneous calls are out of scope. Only
+  the exact `caffeinate` executable the script launches matches, by its full
+  path; a process that merely names caffeinate, or one the human starts as
+  plain `caffeinate …`, is never this session's. If `pgrep` fails (any exit
+  but 0 or 1), the script says `unknown` and launches or ends nothing.
 - **Limits.** `caffeinate` does not stop the sleep that comes from closing a
   laptop lid with no external display. Linux (`systemd-inhibit`) is out of
   scope; there the script says `unsupported`.
