@@ -59,9 +59,16 @@ shorten that data to fit. Do not let it wrap.
 These stay as they are, in any language:
 
 - Text the harness writes: permission prompts, tool names, tool errors.
-- Text a plugin script prints and the harness shows unchanged, such as a hook's
-  `permissionDecisionReason`. A script cannot know the language of the
-  conversation.
+- Text a plugin script prints and the harness shows unchanged, with one
+  exception: the commit hooks' permission dialogs. Those follow the
+  conversation's language through `scripts/hook-language.sh`, which reads the
+  user's recent messages, then Claude Code's `language` setting, then
+  `language` in `.workflow-dev/config.json`. The limits that remain: they ship
+  ten languages (en, es, fr, pt, de, it, zh, ja, ko, ru) and fall back to
+  English for any other; the technical detail in the marker-directory note
+  stays English; a `language` set in managed settings or through `--settings`
+  is invisible to a hook; and the language is a best guess from the user's
+  words, so a message that mixes languages can land on either.
 - Technical terms, code, file paths, commands, and exact error strings.
 - Recorded values that other skills read: Decisions rows such as
   `Autonomous mode: on`, canonical Status and Resolution values, story IDs. Show

@@ -42,6 +42,7 @@ Context splits into two files:
 1. Check for `.workflow-dev/config.json` at the project root.
 2. **Exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (create `.gitignore` if the project has none, add the line if it's missing). If `false`, leave `.gitignore` untouched — the folder is meant to be tracked. Don't ask again either way.
 3. **Doesn't exist** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Persist the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` to match. In autonomous mode, don't ask: use `{ "gitignored": true }` and record it as an inferred decision (`../SKILL.md` Phase 0).
+4. **Every run:** set `"language"` in `.workflow-dev/config.json` to the ISO 639-1 code of the conversation's language, keeping the other keys — `../SKILL.md` Phase 0 step 4 owns the rule.
 
 If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 

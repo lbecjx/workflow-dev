@@ -189,6 +189,15 @@ case "$NOTE" in
   *) no "the note carries the reason (got: $NOTE)" ;;
 esac
 [[ -z "$(marker_trust_note '')" ]] && ok "no reason → no note" || no "no reason → no note (got: $(marker_trust_note ''))"
+ES_WRAP=' (No se puede confiar en el directorio de marcadores: %s.)'
+case "$(marker_trust_note 'the store is group- or world-writable' "$ES_WRAP")" in
+  " (No se puede confiar en el directorio de marcadores: the store is group- or world-writable.)") ok "a translated wrapper is used, the reason unchanged" ;;
+  *) no "a translated wrapper is used (got: $(marker_trust_note 'x' "$ES_WRAP"))" ;;
+esac
+[[ "$(marker_trust_note 'r' '')" == "$(marker_trust_note 'r')" ]] && ok "an empty wrapper keeps the English one" || no "an empty wrapper keeps the English one"
+[[ -z "$(marker_trust_note '' "$ES_WRAP")" ]] && ok "no reason → no note, in any language" || no "no reason → no note, in any language"
+SAFE_ES="$(marker_trust_note "$(printf 'p"q\\r\ts')" "$ES_WRAP")"
+case "$SAFE_ES" in *'"'*|*'\'*|*$'\t'*) no "a translated note is still sanitized" ;; *) ok "a translated note is still sanitized" ;; esac
 
 # A reason is built from `$TMPDIR`, and hook mode embeds the note in a JSON
 # string — so a quote, a backslash, or any control character must not survive.

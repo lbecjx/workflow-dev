@@ -70,6 +70,11 @@ source "$HERE/command-match.sh"
 # other three scripts and validate/SKILL.md's Step 6 (WD-0027).
 # shellcheck source=marker-dir.sh
 source "$HERE/marker-dir.sh"
+# The language of the dialog text, and the text itself — one owner, shared with
+# pre-commit-validate-check.sh. It only picks the words: every decision below is
+# made before it is asked, so no language can turn a deny into anything else.
+# shellcheck source=hook-language.sh
+source "$HERE/hook-language.sh"
 
 COMMAND=$(command_from_payload "$INPUT")
 
@@ -98,14 +103,12 @@ MSG_FLAG='(-[A-Za-z]*m[A-Za-z]*|--message|--body)'
 
 if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
   if [[ "$VERDICT" == "real" ]]; then
-    ATTRIBUTION_REASON="This commit/PR contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule, no exceptions). Every commit and PR here is attributed to the human alone. Remove the attribution and re-run."
-    emit block "$ATTRIBUTION_REASON"
+    emit block "$(hook_msg "$(hook_language "$INPUT")" attribution_deny)"
   else
     # `maybe`: the command could be a commit/PR wrapped in `bash -c`, `eval`
     # and the like, or merely mention one. An ambiguous command must not be
     # refused on a guess, so this asks instead of denying.
-    ATTRIBUTION_ASK_REASON="This command may be a commit/PR (it is wrapped in something the hook cannot read) and it contains AI/agent/LLM attribution or co-authorship (validate Part 12.3 — hard rule). If it is a commit/PR, remove the attribution before running it; every commit and PR here is attributed to the human alone."
-    emit notify "$ATTRIBUTION_ASK_REASON"
+    emit notify "$(hook_msg "$(hook_language "$INPUT")" attribution_ask)"
   fi
 fi
 
@@ -241,7 +244,8 @@ MARKER_TRUST_REASON="$(marker_chain_reason "$MARKER_DIR")"
 
 [[ -z "$MARKER_TRUST_REASON" && -f "$MARKER_FILE" ]] && quiet
 
-REVIEW_REASON="This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh."
+HOOK_LANG="$(hook_language "$INPUT")"
+REVIEW_REASON="$(hook_msg "$HOOK_LANG" review_ask)"
 # `marker_trust_note` owns the wording and the JSON-safe quoting of the reason.
-REVIEW_REASON="$REVIEW_REASON$(marker_trust_note "$MARKER_TRUST_REASON")"
+REVIEW_REASON="$REVIEW_REASON$(marker_trust_note "$MARKER_TRUST_REASON" "$(hook_msg "$HOOK_LANG" trust_note)")"
 emit notify "$REVIEW_REASON"

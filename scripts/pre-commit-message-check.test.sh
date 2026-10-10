@@ -44,7 +44,11 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 export TMPDIR="$TMP/tmpdir"
-mkdir -p "$TMPDIR"
+# The dialog text follows the tester's Claude Code `language` setting
+# (hook-language.sh), so a throwaway HOME keeps every case on the English
+# default; the last section sets a language on purpose.
+export HOME="$TMP/home"
+mkdir -p "$TMPDIR" "$HOME"
 
 # The review ask belongs to a workflow-dev project, so the hook looks for
 # .workflow-dev/context in its working directory. Run it from a throwaway project
@@ -398,6 +402,54 @@ chmod 700 "$TMPDIR/workflow-dev-validate"
 # blocks with the very same on-disk state the review path just refused.
 [[ "$(status "$ATTR")" == "block" ]] && ok "the attribution deny is untouched by the directory check" || no "the attribution deny is untouched by the directory check"
 unmark
+
+# --- the dialog speaks the conversation's language ---------------------------
+# Only the words change: the attribution deny stays a deny in every language and
+# in the English fallback, with no way around it.
+SPANISH_TRANSCRIPT="$TMP/es.jsonl"
+jq -cn '{type:"user",message:{role:"user",content:"¿Puedes revisar el plan y decirme qué falta?"}}' > "$SPANISH_TRANSCRIPT"
+with_transcript() { printf '%s' "$1" | jq -c --arg p "$2" '. + {transcript_path: $p}'; }
+
+ES_ATTR_JSON="$(hook "$(with_transcript "$ATTR" "$SPANISH_TRANSCRIPT")")"
+case "$ES_ATTR_JSON" in
+  *'"permissionDecision":"deny"'*"Este commit/PR contiene atribución"*"Part 12.3"*) ok "Spanish conversation → the attribution deny is in Spanish and still denies" ;;
+  *) no "Spanish conversation → the attribution deny is in Spanish and still denies (got: $ES_ATTR_JSON)" ;;
+esac
+printf '%s' "$ES_ATTR_JSON" | jq -e . >/dev/null 2>&1 && ok "…and is valid JSON" || no "…and is valid JSON"
+
+ES_MAYBE_JSON="$(hook "$(with_transcript "$MAYBE_ATTR" "$SPANISH_TRANSCRIPT")")"
+case "$ES_MAYBE_JSON" in
+  *'"permissionDecision":"ask"'*"Este comando puede ser un commit/PR"*) ok "Spanish conversation → the wrapped-attribution ask is in Spanish" ;;
+  *) no "Spanish conversation → the wrapped-attribution ask is in Spanish (got: $ES_MAYBE_JSON)" ;;
+esac
+
+ES_CLEAN_JSON="$(hook "$(with_transcript "$CLEAN" "$SPANISH_TRANSCRIPT")")"
+case "$ES_CLEAN_JSON" in
+  *'"permissionDecision":"ask"'*"no pasó la revisión de Git History Disclosure"*) ok "Spanish conversation → the review ask is in Spanish" ;;
+  *) no "Spanish conversation → the review ask is in Spanish (got: $ES_CLEAN_JSON)" ;;
+esac
+printf '%s' "$ES_CLEAN_JSON" | jq -e . >/dev/null 2>&1 && ok "…and is valid JSON" || no "…and is valid JSON"
+
+# The deny is global: in a repo without workflow-dev, Claude Code's setting is
+# what reaches it when there is no transcript.
+mkdir -p "$HOME/.claude"
+printf '{"language":"spanish"}' > "$HOME/.claude/settings.json"
+case "$( cd "$PLAIN_DIR" && printf '%s' "$ATTR" | bash "$SCRIPT" )" in
+  *'"permissionDecision":"deny"'*"Este commit/PR contiene atribución"*) ok "no workflow-dev, language setting spanish → Spanish deny" ;;
+  *) no "no workflow-dev, language setting spanish → Spanish deny" ;;
+esac
+printf '{"language":"esperanto"}' > "$HOME/.claude/settings.json"
+[[ "$(status "$ATTR")" == "block" ]] && ok "a language with no text → still a deny" || no "a language with no text → still a deny"
+case "$(plain "$ATTR")" in
+  *"This commit/PR contains AI/agent/LLM attribution"*) ok "…in English" ;;
+  *) no "…in English (got: $(plain "$ATTR"))" ;;
+esac
+printf '{"language":' > "$HOME/.claude/settings.json"
+case "$(hook "$(with_transcript "$ATTR" "$TMP/missing.jsonl")")" in
+  *'"permissionDecision":"deny"'*"This commit/PR contains AI/agent/LLM attribution"*) ok "missing transcript + malformed setting → English deny" ;;
+  *) no "missing transcript + malformed setting → English deny" ;;
+esac
+rm -f "$HOME/.claude/settings.json"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))
