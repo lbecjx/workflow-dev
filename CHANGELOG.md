@@ -14,7 +14,7 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## 1.42.0
+## 1.43.0
 
 - The story cost now includes the plugin evals `validate` runs. Their cases
   spend in child processes outside the session, so `validate` records each
@@ -24,6 +24,16 @@ All notable changes to this plugin are documented here. Format loosely follows
   stage, and `.usage/.index.json` adds it to the total (new field `suite_usd`).
 - An eval that left no result adds no amount and marks the total `≥`. A result
   is never counted twice.
+
+## 1.42.0
+
+- `validate` checks acceptance-criteria coverage (Part 14). A `wd-judge`
+  sub-agent, given only the ACs and the changed files, gives each AC the change
+  claims a verdict with `file:line` evidence. A confirmed NOT COVERED fails the
+  gate and PARTIAL warns. It runs in the reduced set too, and proposes Progress
+  updates without editing the story; `save` applies them.
+- `implement` marks the task group In Progress in every mode, so `validate`
+  knows which ACs the change claims.
 
 ## 1.41.0
 

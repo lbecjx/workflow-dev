@@ -38,7 +38,7 @@ binding is local.
 | Role | Class | Hint shown at setup | What runs under it |
 |------|-------|--------------------|--------------------|
 | `wd-operator` | `operator` | Runs the procedure — a fast model is enough | Mechanical, checklist work: Verification, Git history disclosure, Scope, CI/CD, Code quality, Testing, the inline checks, and `summarize-changes`' Part 12 review. |
-| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Algorithmic Integrity. |
+| `wd-judge` | `judge` | Decides contested calls — strongest reasoning suggested | Judgment work: Security, Architecture, Algorithmic Integrity, AC Coverage (`validate` Part 14). |
 | `wd-adversary` | `judge` | Finds the input that breaks it — strongest reasoning suggested | Adversarial Correctness (`validate` Part 11): the hunt + verify pair. Split from `wd-judge` so its model can be bound on its own. |
 | `wd-architect` | `judge` | Researches and designs the plan — strongest reasoning suggested | Research and planning: `init`'s research sub-agents and the drafting of `plan`'s task groups. Split from `wd-judge` because studying a repo and designing a plan is not ruling on a change — its model can be bound on its own. |
 
@@ -80,7 +80,7 @@ user's binding.
 ### `wd-judge`
 
 **description:**
-> workflow-dev's judgment sub-agent role (Security, Architecture, Algorithmic Integrity).
+> workflow-dev's judgment sub-agent role (Security, Architecture, Algorithmic Integrity, AC Coverage).
 
 **body:**
 ```
@@ -89,8 +89,9 @@ you a scoped brief: the changed files, the diff, the relevant rules, and the
 story's acceptance criteria.
 
 Your value is reasoning a checklist cannot do — whether a change is *actually*
-exploitable, coupled, or reproducible, not just plausibly so. Report what you
-can defend: findings with file, line, and the reasoning that makes them hold,
+exploitable, coupled, or reproducible, not just plausibly so, and whether it
+actually meets an acceptance criterion rather than merely naming it. Report
+what you can defend: findings with file, line, and the reasoning that makes them hold,
 and mark anything you could not settle as needing testing rather than
 asserting it. Do not pad a finding to seem thorough, and do not defer a real one
 to avoid a hard call.
