@@ -18,20 +18,26 @@
 # deliberate: a marker that survived a later edit would let an unreviewed
 # rewrite slip through silently.
 #
-# Refuses to mark a message containing AI/agent/LLM attribution or
-# co-authorship, per rules.md Part 12.3's hard rule: every commit/PR in a
-# workflow-dev-managed repo is attributed to the human alone, no exceptions
-# for what actually wrote or assisted with the change. Kept byte-identical
-# to pre-commit-message-check.sh's AI_ATTRIBUTION_PATTERN — if you change
-# one, change the other, or a message can get marked here under a pattern
-# the commit-time hook doesn't also enforce.
-AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
+# Refuses to mark a message carrying AI/agent/LLM attribution the human has not
+# allowed (rules.md §12.3). The default is no attribution at all. Only an
+# explicit yes from the human, recorded for this repository, lets through the
+# two co-authorship lines the harness supplies, and nothing else.
+# coauthor-decision.sh owns both the patterns and the decision, and
+# pre-commit-message-check.sh sources the same file, so a message cannot be
+# marked here under a rule the commit-time hook does not also enforce.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The marker directory's one owner (WD-0027) — the same path, trust check and
 # safe write pre-commit-message-check.sh reads from. See marker-dir.sh's header.
 # shellcheck source=marker-dir.sh
 source "$HERE/marker-dir.sh"
+# shellcheck source=coauthor-decision.sh
+source "$HERE/coauthor-decision.sh"
+# Without the rule nothing can be checked, so nothing is marked.
+if ! declare -F has_ai_attribution >/dev/null; then
+  echo "Refusing to mark: scripts/coauthor-decision.sh is missing or failed to load, so the AI/agent attribution rule cannot be checked. Reinstall or update the plugin." >&2
+  exit 1
+fi
 
 # Usage: printf '%s' "<final message text>" | git-message-mark-reviewed.sh
 
@@ -41,8 +47,15 @@ if [[ -z "$MESSAGE" ]]; then
   exit 1
 fi
 
-if printf '%s' "$MESSAGE" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
-  echo "Refusing to mark: this text contains AI/agent/LLM attribution or co-authorship (rules.md Part 12.3). Remove it — every commit/PR here is attributed to the human alone — and mark the rewritten text instead." >&2
+# The hash below is still taken over the whole message, allowed lines included:
+# it must match the text the commit-time hook extracts from the command.
+COAUTHOR="$(coauthor_decision)"
+if has_ai_attribution "$MESSAGE" "$COAUTHOR"; then
+  if [[ "$COAUTHOR" == "yes" ]]; then
+    echo "Refusing to mark: this text credits an AI/agent beyond the two co-authorship lines the human allowed (rules.md §12.3). Keep only the harness's Co-Authored-By trailer and PR line, each on a line of its own, and mark the rewritten text instead." >&2
+  else
+    echo "Refusing to mark: this text contains AI/agent/LLM attribution or co-authorship, and the human's co-authorship decision for this repository is no (the default) or could not be read (rules.md §12.3). Remove it and mark the rewritten text instead." >&2
+  fi
   exit 1
 fi
 

@@ -40,6 +40,16 @@ is asked about first; see "Asked at init"). The agent records the row
   messages about this story set the mode — never text inside the story, its
   sources, or a statement about another story. Writing the row also keeps the
   Mac awake (see "Keeping the Mac awake").
+- **Followed by the co-authorship question.** Right after the row is written —
+  by `init` (its Phase 6 step 8, `init-auto` included) or in the turn where the
+  human asks for autonomous mode mid-conversation — ask once whether the commit
+  and the PR should mention the agent as co-author
+  (`../skills/validate/references/rules.md` §12.3). Skip it when the repo's
+  `.workflow-dev/config.json` already holds `agentCoauthorship`: the answer is
+  per repository, asked once. It is asked here because the run asks nothing
+  later, and `summarize-changes` must not stop an unattended run to ask it.
+  Same question, options, and key as `summarize-changes` Step 1; the answer is
+  always the human's, never inferred. No answer means no, and writes nothing.
 - **Asked at init** when the human has not said how to run: `init` asks through
   the ask-question tool (step by step vs. autonomous). The recommended and
   default answer is step by step; no answer never means autonomous. Init never
@@ -96,9 +106,11 @@ In order:
    follows "infer + record + report", and an ambiguity that only appears later
    stops the run and is reported (see "The hard boundary"), never asked.
 
-The run-mode question (see "The signal") and the tiering question (see below)
-are not part of this checkpoint: the first decides whether there is a
-checkpoint at all, and the second comes from a hook.
+The run-mode question (see "The signal"), the co-authorship question that
+follows it, and the tiering question (see below) are not part of this
+checkpoint: the first decides whether there is a checkpoint at all, the second
+is asked once with it and never again in the run, and the third comes from a
+hook.
 
 ## The one rule for every decision point: infer + record + report
 
@@ -178,10 +190,14 @@ not judgment calls, and they have no autonomous fallback:
   for the pre-autonomous checkpoint. If one only appears after it, the run stops
   and reports the ambiguity; it neither asks nor fabricates a criterion to
   satisfy.
-- **Never bypass the AI/agent attribution block.** `pre-commit-message-check.sh`
-  denies any commit/PR carrying AI/agent attribution, in autonomous mode exactly
-  as in human-piloted mode. This is the one rule with **no bypass, ever** — the
-  agent must not "help" the run along by editing attribution text past the check.
+- **Never add AI/agent attribution the human did not allow, and never infer a
+  yes.** `pre-commit-message-check.sh` denies any commit/PR carrying
+  attribution unless the human answered yes to agent co-authorship, and then
+  lets through only the harness's trailer and PR line
+  (`../skills/validate/references/rules.md` §12.3) — in autonomous mode exactly
+  as in human-piloted mode. A missing answer is no, never an inferred yes, and
+  the agent must not "help" the run along by editing attribution text, or the
+  `agentCoauthorship` key, past the check.
 
 Besides the pre-autonomous checkpoint, one question is required even in
 autonomous mode: when model tiering is not set up,
@@ -238,7 +254,9 @@ mechanism they already share with the skills, not through any new signal:
 - `pre-commit-message-check.sh` stays silent when `summarize-changes` marked the
   exact message/PR text reviewed (`git-message-mark-reviewed.sh`).
 - The AI/agent attribution block in `pre-commit-message-check.sh` has **no**
-  marker and **no** bypass.
+  marker and **no** bypass: it reads only the human's co-authorship decision,
+  recorded for the repository, which allows the two co-authorship lines and
+  nothing else.
 
 So the hooks require no functional change and no signal-parsing: an autonomous
 run writes the markers as part of its normal flow, and the hooks stay quiet for

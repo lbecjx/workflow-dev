@@ -109,7 +109,7 @@ story's Decisions table, and carry it into the end-of-run report. Never skip the
 record step — a decision taken for the human with no written trace is the one
 failure this mode must not have. The hard boundary in `autonomous-mode.md`
 (never push a protected branch, never merge, never skip the adversarial pass,
-never invent ACs, never bypass the attribution block) still applies to every
+never invent ACs, never add AI/agent attribution the human did not allow) still applies to every
 inference, with no fallback.
 
 ### Step 5: Task group complete → validate (per the story's validation mode)

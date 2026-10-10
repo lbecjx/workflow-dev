@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.46.0
+
+- The commit and PR can credit the agent as co-author if you say yes; you are
+  asked once per repo (kept in `.workflow-dev/config.json`, changed when you
+  ask), and the default (no attribution) is unchanged.
+- With yes, only the harness's `Co-Authored-By` trailer and PR attribution
+  line are allowed; any other phrase crediting an AI is still refused.
+- The attribution dialogs, in every language, now name the repo's decision
+  instead of a rule with no exceptions.
+
 ## 1.45.0
 
 - workflow-dev speaks a short line, once per event, only when it needs you or

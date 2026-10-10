@@ -23,13 +23,16 @@
 #   string alone is easy to read past in an auto-accept session, so this
 #   makes the human (or the agent acting for them) actually confront the
 #   question at the moment it matters.
-# - AI/agent/LLM attribution (Part 12.3's hard rule) is not a judgment
-#   call, so it's checked separately and **denied outright** — the only
-#   rule in this file that is — regardless of whether the text carries a
-#   reviewed-marker. `git-message-mark-reviewed.sh` already refuses to
-#   mark text containing it, so reaching this point means that step got
-#   bypassed somehow; deny is the backstop for that, not the first line
-#   of defense.
+# - AI/agent/LLM attribution (Part 12.3) is not a judgment call, so it's
+#   checked separately and **denied outright** — the only rule in this file
+#   that is — regardless of whether the text carries a reviewed-marker. The
+#   one exception is the human's own: an explicit yes to agent co-authorship,
+#   recorded for this repository, lets through the two co-authorship lines the
+#   harness supplies and nothing else (coauthor-decision.sh owns the patterns
+#   and the decision). `git-message-mark-reviewed.sh` already refuses to mark
+#   text the decision does not allow, so reaching this point means that step
+#   got bypassed somehow; deny is the backstop for that, not the first line of
+#   defense.
 #
 # Message extraction is best-effort, not a real shell parser. It reads a quoted
 # body after git's `-m` / `--message` (also inside a combined short-flag cluster
@@ -75,6 +78,10 @@ source "$HERE/marker-dir.sh"
 # made before it is asked, so no language can turn a deny into anything else.
 # shellcheck source=hook-language.sh
 source "$HERE/hook-language.sh"
+# The attribution patterns and the human's co-authorship decision — one owner,
+# shared with git-message-mark-reviewed.sh so the two cannot drift apart.
+# shellcheck source=coauthor-decision.sh
+source "$HERE/coauthor-decision.sh"
 
 COMMAND=$(command_from_payload "$INPUT")
 
@@ -87,12 +94,14 @@ VERDICT="${SCAN%% *}"
 PR_VERDICT="${SCAN##* }"
 [[ "$VERDICT" == "no" ]] && quiet
 
-# Kept byte-identical to git-message-mark-reviewed.sh's AI_ATTRIBUTION_PATTERN
-# — if you change one, change the other, or a message could get marked
-# reviewed under a pattern this hook doesn't also enforce. Checked against
-# the whole raw command, not just the extracted body below, so it still
-# catches attribution even if heredoc/-m extraction fails for some reason.
-AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copilot|gemini|codex))|(generated (with|by)[^.]*(claude|copilot|chatgpt|anthropic))|🤖|(claude\.ai)|(claude\.com/claude-code)|(anthropic\.com)|(ai-generated)|(ai-assisted)|(written (with|by) (an )?(ai|llm)\b)'
+# The attribution rule lives in coauthor-decision.sh. When it could not be
+# loaded, a commit/PR is refused rather than waved through: before the rule moved
+# there it was inline, and a missing file must not turn the deny off.
+if ! declare -F has_ai_attribution >/dev/null; then
+  # `real` is refused; `maybe` (wrapped, may not be a commit at all) is asked.
+  [[ "$VERDICT" == "real" ]] || emit notify "workflow-dev cannot check this command for AI/agent attribution: scripts/coauthor-decision.sh is missing or failed to load. If it is a commit/PR, make sure it credits no AI, or reinstall the plugin."
+  emit block "workflow-dev cannot check this commit/PR for AI/agent attribution: scripts/coauthor-decision.sh is missing or failed to load. Reinstall or update the plugin."
+fi
 
 # The flag that carries a message and the quoted text after it: git's `-m` /
 # `--message` (alone or in a combined short-flag cluster such as `-qm` / `-am`)
@@ -101,7 +110,33 @@ AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copil
 # quiet" side on purpose (see the extraction comment below).
 MSG_FLAG='(-[A-Za-z]*m[A-Za-z]*|--message|--body)'
 
-if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
+# Denies (or, for `maybe`, asks) when $1 carries attribution the human's
+# co-authorship decision does not allow. The decision is only read when the text
+# carries attribution at all, once per run, and only for a plain `git commit` /
+# `gh pr create|edit` (coauthor_command_plain): anything that could reach another
+# repository (`cd`, `bash -c`, `git -C`, `gh -R`, …) is held to the default no,
+# because the decision belongs to the repository of this working directory.
+COAUTHOR=""
+# The decision is read from this process's directory. When the payload names a
+# different working directory for the command, the decision read here may belong
+# to another repository than the one the command acts on, so the yes does not
+# apply. No `cwd` in the payload (older Claude Code) leaves this directory as
+# the answer.
+same_cwd() {
+  local want here
+  want=$(printf '%s' "$INPUT" | { command -v jq >/dev/null 2>&1 && jq -r '.cwd // empty' 2>/dev/null; } )
+  [[ -n "$want" ]] || return 0
+  want=$(cd "$want" 2>/dev/null && pwd -P) || return 1
+  here=$(pwd -P)
+  [[ "$want" == "$here" ]]
+}
+check_attribution() {
+  has_ai_attribution "$1" no || return 0
+  if [[ -z "$COAUTHOR" ]]; then
+    COAUTHOR=no
+    coauthor_command_plain "$COMMAND" && same_cwd && COAUTHOR="$(coauthor_decision)"
+  fi
+  has_ai_attribution "$1" "$COAUTHOR" || return 0
   if [[ "$VERDICT" == "real" ]]; then
     emit block "$(hook_msg "$(hook_language "$INPUT")" attribution_deny)"
   else
@@ -110,12 +145,17 @@ if printf '%s' "$COMMAND" | grep -qiE "$AI_ATTRIBUTION_PATTERN"; then
     # refused on a guess, so this asks instead of denying.
     emit notify "$(hook_msg "$(hook_language "$INPUT")" attribution_ask)"
   fi
-fi
+}
+
+# Checked against the whole raw command, not just the extracted body below, so
+# it is still caught when heredoc/-m extraction fails.
+check_attribution "$COMMAND"
 
 # Everything below is the Part 12 review ask, which belongs to a workflow-dev
 # project: this plugin is installed per user, so without this it would question
 # every commit and PR in every repo on the machine. The attribution rule above is
-# deliberately not behind this gate; it stays as it was. Same test, from the same
+# deliberately not behind this gate: outside a workflow-dev project there is no
+# config, so the decision is no and attribution is denied as it always was. Same test, from the same
 # working directory, as pre-commit-validate-check.sh.
 [[ -d ".workflow-dev/context" ]] || quiet
 
@@ -214,6 +254,10 @@ if [[ -z "$BODY" ]]; then
 fi
 
 [[ -n "$BODY" ]] || quiet
+
+# A body read from a file (`-F`, `--body-file`, `$(cat FILE)`) never appears in
+# the raw command, so the check above cannot see it.
+check_attribution "$BODY"
 
 # For a PR, the reviewed text is title+description concatenated — same
 # convention summarize-changes/SKILL.md uses when marking it
