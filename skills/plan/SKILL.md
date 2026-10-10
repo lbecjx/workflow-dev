@@ -151,7 +151,9 @@ Task Group 3: Tests  [mechanical | judgment]
 Validates: AC #Z
 ```
 
-Ask: "Approve this plan, or adjust something?"
+Ask: "Approve this plan, or adjust something?" Asked in plain text, it ends the
+turn waiting on the human, so arm the attention sound first with kind `need`
+(`references/attention-alert.md` at the plugin root, "How to arm").
 
 **This is its own moment.** Ask for approval on its own — do **not** bundle it
 with Step 5's two one-time questions in one prompt. The human must be able to

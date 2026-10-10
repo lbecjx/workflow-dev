@@ -14,6 +14,17 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.45.0
+
+- workflow-dev speaks a short line, once per event, only when it needs you or
+  finished something for you to review; it stays silent otherwise, in CI and in
+  non-interactive sessions.
+- The lines ship in a public-domain voice and are configured with
+  `WORKFLOW_DEV_ATTENTION` and `WORKFLOW_DEV_ATTENTION_SOUND` in your Claude
+  Code settings `env`; the README shows how to drop generic alerts.
+- The first story on a machine asks once which output plays the alerts (such
+  as the built-in speakers) and how loud, and keeps the answer for every repo.
+
 ## 1.44.0
 
 - The commit and PR hooks write their permission dialogs in the conversation's

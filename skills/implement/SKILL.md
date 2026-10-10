@@ -228,6 +228,12 @@ After successful validation (or, in autonomous mode, a FAIL capped under
   comes after the save so the save's spend lands on this task group's line. The
   next task group's end continues the same run, so each line is that group's
   spend.
+- Last, when this hands control back to the human (the task group is closed and
+  the next move is theirs), arm the attention sound
+  (`references/attention-alert.md` at the plugin root): kind `passed` when this
+  task group's `validate` ran and passed, `done` when it was deferred, `fail`
+  when the step stops on an error it cannot fix. Not in autonomous mode, where
+  the run chains on and arms only at its end or a stop.
 
 ## Principles
 

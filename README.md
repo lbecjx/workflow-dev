@@ -86,6 +86,84 @@ This plugin also ships hooks that keep the workflow above easy to follow — non
 - **`PostToolUse`** (after a real `gh pr create` / `gh pr edit` succeeds) — reminds you of the PR's full URL, so it gets relayed as plain text instead of staying buried in a Markdown link label. `gh pr edit` whose own output carries no URL falls back to a read-only `gh pr view --json url`.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — has the agent ask you one question about the agent roles before the skill goes on: bind them to models, or keep the default for this story or this repo.
 - **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — tells you, at most once per session per version, when a newer copy of this plugin is on GitHub (with the update command) or already on disk and only needs a session restart. Purely informational: it never asks, blocks, or denies.
+- **`Stop`**, **`PreToolUse`** (before an `AskUserQuestion`) and **`Notification`** (a permission prompt) — play the attention sounds below when workflow-dev needs you; **`UserPromptSubmit`** drops a sound armed by a turn you interrupted. They only play a sound: they never ask, block, or deny.
+
+## Attention sound
+
+workflow-dev speaks only when it needs you, with a short line that tells you what is waiting before you look at the screen:
+
+| You hear | When |
+|---|---|
+| "I need your input." | plan approval, the adversarial-depth choice in `validate`, any question asked through the ask-question tool in a workflow-dev project |
+| "Hello? Are you there?" … "I need your input." | the same question in the middle of an autonomous run, when you are likely away |
+| "I need your permission." | a permission prompt |
+| "Ready to commit." | the commit message or PR text is ready for your yes |
+| "Pull request created!" | the PR was just opened |
+| "Task completed." | a task group closed in `implement`, a stand-alone `manual-qa` report with every check passing |
+| "Validation passed." | `validate` passed |
+| "Something went wrong." | `validate` failed, a manual check failed, or an autonomous run stopped on a problem |
+| a fanfare, then "Congrats! Story complete." | the story is done |
+
+It stays quiet the rest of the time: no sound after each response, while it waits idle, or while a task group is still running. Each event sounds once, even if you take a while to answer. It never sounds in CI or in a non-interactive session (`claude -p`).
+
+The sounds ship with the plugin in [`assets/`](./assets/). The voice is Piper's `en_GB-cori-high`, trained from scratch on public-domain LibriVox recordings and published as public domain; the fanfare is the plugin's own synthesis. [`assets/make-attention-sounds.py`](./assets/make-attention-sounds.py) regenerates them and records exactly how. They play with `afplay` on macOS and `paplay` or `aplay` on Linux, so they do not depend on your terminal's bell; with no player they fall back to the bell. Windows is not supported yet: there you get the terminal bell at most.
+
+**Configure it in one place:** the `env` block of your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "env": {
+    "WORKFLOW_DEV_ATTENTION_SOUND": "/Users/you/Sounds/ding.wav",
+    "WORKFLOW_DEV_ATTENTION": "on"
+  }
+}
+```
+
+- `WORKFLOW_DEV_ATTENTION` — set it to `off` (or `0`, `false`, `no`) to turn the sound off.
+- `WORKFLOW_DEV_ATTENTION_SOUND` — the path to one file to play for every event instead of the bundled lines. A path that is not a readable file falls back to the bundled sounds.
+
+Restart Claude Code after changing settings. To hear a sound, run `scripts/attention-alert.sh play <kind>` from the installed plugin's folder, with `need`, `away`, `permission`, `commit`, `pr`, `done`, `passed`, `fail` or `story`.
+
+### Where and how loud
+
+The first story you start on a machine asks two questions, once, and remembers the answers for every repo on that machine:
+
+- **Where the alerts play:** your machine's own speakers (it suggests them by name, such as "MacBook Pro Speakers"), so you hear them even with a headset on, or the default output you are using.
+- **How loud:** Low (25%), Medium (50%), High (75%) or Full (100%) of that output's volume.
+
+The answers live in `~/.workflow-dev/attention.json`. Change them later from the installed plugin's folder:
+
+```sh
+scripts/attention-alert.sh devices                         # list outputs
+scripts/attention-alert.sh set-device "MacBook Pro Speakers"   # or: set-device default
+scripts/attention-alert.sh set-volume 50                   # 0-100
+```
+
+`WORKFLOW_DEV_ATTENTION_DEVICE` and `WORKFLOW_DEV_ATTENTION_VOLUME` in settings `env` override the saved answers. On macOS, playing on a chosen output uses a small helper compiled once with `swiftc` (Xcode Command Line Tools); without it, the alerts play on the default output. On Linux the choice goes to `paplay --device` or `aplay -D`. If the chosen output is not connected, the alerts play on the default output.
+
+### Keep only workflow-dev's sound
+
+If you set up a generic alert in Claude Code, it sounds after every response and drowns this one out. To keep only workflow-dev's sound, remove from the `hooks` block of `~/.claude/settings.json`:
+
+- a `Stop` hook that plays a sound (for example `afplay … &`): it fires at the end of every response;
+- a `Notification` hook that plays a sound, or at least its `idle_prompt` matcher: it fires whenever Claude Code waits, whether or not anything needs you.
+
+Before:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff &" }] }
+    ],
+    "Notification": [
+      { "matcher": "idle_prompt", "hooks": [{ "type": "command", "command": "afplay /System/Library/Sounds/Ping.aiff &" }] }
+    ]
+  }
+}
+```
+
+After: delete both entries (and the `hooks` block, if nothing else is left in it). If your terminal also rings its bell on every notification, turn that off in the terminal's own settings.
 
 ## Naming tools
 

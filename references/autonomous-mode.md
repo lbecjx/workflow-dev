@@ -272,6 +272,13 @@ point, and it records nothing in Decisions.
   `Autonomous mode: off` or is removed. A run that goes on after such a wait
   starts it again. The pre-autonomous checkpoint is not such a wait: the human
   is there, and the run goes on right after it, so `caffeinate` stays on.
+- **The attention sound goes with it.** Each `stop` above that hands control
+  back to the human — the end-of-run report, a stop listed in "Chaining", a wait
+  on the human — also arms the attention sound, right after the `stop`, with the
+  kind `references/attention-alert.md` ("In autonomous mode") gives: `story` for
+  a finished story, `fail` for a stop on a problem. These are the only points an
+  autonomous run arms; a task group that chains on stays silent. Turning the row
+  `off` is the human's own move, so it arms nothing.
 - **Notices.** Tell the human what happened in one line, in the conversation's
   language (`references/user-language.md`). The script prints one status word;
   the line says what it means to the human:
@@ -333,6 +340,9 @@ can audit, containing:
    counted, reusing WD-0037's checkpoint mechanism.
 5. **Keeping the Mac awake** — whether `caffeinate` was on (its PID) and when it
    was closed, or that it was skipped and why (see "Keeping the Mac awake").
+
+The report is a hand-back, so the attention sound is armed with the `stop`
+that closes `caffeinate` (see "Keeping the Mac awake").
 
 ## The PR boundary
 
