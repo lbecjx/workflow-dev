@@ -161,6 +161,12 @@ session) is not recorded. This is the story's closing cost, totalled from its
 durable ledger, so it is correct even after the sessions that produced it are
 gone. `PLUGIN_ROOT` resolves as `git-message-mark-reviewed.sh` above does.
 
+Last, arm the attention sound (`references/attention-alert.md` at the plugin
+root): kind `commit` when the hand-back waits on the human's permission to
+commit or open the PR, kind `pr` right after a real `gh pr create` succeeded and
+its URL was handed back. Not when nested in `implement` or in autonomous mode:
+the outer run arms when it hands back.
+
 ## Principles
 
 - **One skill, three outputs** — commit message, PR title, and PR

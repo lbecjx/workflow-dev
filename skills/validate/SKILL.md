@@ -193,6 +193,9 @@ complete**:
   no answer — or autonomous mode (`references/autonomous-mode.md` at the plugin
   root) — → **no-repro**, except the batched/story-end pass, which uses §11.0's
   recommended depth; never silently escalate to complete on your own.
+  Asked in plain text, the question ends the turn waiting on the human: arm the
+  attention sound first with kind `need` (`references/attention-alert.md` at
+  the plugin root).
 - **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
 
 **Depth is about confidence, not cost — and `verify` is never dropped.**
@@ -437,6 +440,11 @@ Every run ends here, full or reduced, PASS or FAIL, after everything above.
    `model-tiering-check.sh --role-models` (WD-0025's reader); this skill only
    renders it. The total is summed from the ledger, so it stays correct across
    sessions, even after the session is deleted (WD-0037).
+3. Last, arm the attention sound (`references/attention-alert.md` at the plugin
+   root): kind `passed` on PASS, `fail` on FAIL or on a manual-QA FAIL/BLOCKED.
+   The verdict, any manual QA it ran, and the commit/PR offer are now the
+   human's to review. **Skip this when `validate` was invoked by `implement`**
+   (that run arms when it hands back) and in autonomous mode.
 
 ## Principles
 

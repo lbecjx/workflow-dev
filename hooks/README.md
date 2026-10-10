@@ -81,4 +81,34 @@ the Free Software Foundation, either version 3 of the License, or
   when the context arrives, so an agent that ignores it runs the skill without the
   question. A single live run (a new scratch repo, `init`) showed the agent reading
   the question file and asking before any of `init`'s steps, with no error line.
+- **The attention sounds play only when workflow-dev needs the human** (WD-0052).
+  `scripts/attention-alert.sh` is registered four times, and each entry only
+  ever plays a sound — it prints nothing, never asks or denies, and exits 0:
+  - `Stop` → `--stop`. A plain `Stop` fires after every response, which is the
+    noise these sounds replace, so it plays only when a skill ran
+    `attention-alert.sh arm <kind>` before ending the turn, and it plays that
+    kind (the rule for when, and which kind, is
+    `../references/attention-alert.md`). The arm is one file per session in the
+    marker store; `--stop` consumes it with one `mv`, so the next `Stop` is
+    silent again.
+  - `PreToolUse` matcher `AskUserQuestion` → `--ask` ("I need your input."), and
+    `Notification` matcher `permission_prompt` → `--notify` ("I need your
+    permission."): both are real "blocked on you" moments, and both play only
+    in a workflow-dev project (`.workflow-dev/context` in the payload's `cwd` or
+    a parent), since a hook cannot see which skill asked.
+  - `UserPromptSubmit` → `--prompt` drops the session's arm: a turn the human
+    interrupts ends without a `Stop`, and its arm must not sound at the end of
+    the next, ordinary response.
+  - `idle_prompt` is deliberately not registered: it fires after any response,
+    blocked or not.
+  - One event, one sound: every play drops the session's arm, and an ask
+    followed within 5 s by a permission prompt counts as one event. Any other
+    pair — two asks, a prompt then an ask, an armed `Stop` right after a
+    prompt — is two events, and both sound.
+  - `Stop` and `UserPromptSubmit` run after every response in every project, so
+    with nothing armed they return before starting any external process.
+  - One limit a command hook cannot close: Claude Code runs a session's `Stop`
+    hooks side by side and tells none of them what the others decided. If
+    another plugin's `Stop` hook blocks the stop, the turn goes on after the
+    sound already played; it came early, never twice.
 - Naming a capability instead of a tool: `../references/harness-tools.md`.

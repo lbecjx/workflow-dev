@@ -128,8 +128,12 @@ evidence — evidence or it didn't happen.
 Then **return control to the caller's next step** (on validate's PASS path,
 that is validate's closing — the offer to draft the commit message/PR). Do not
 commit, and do not offer the commit yourself; `validate` owns that. Run on its
-own, record this run's end and show its line as the last step
-(`references/run-cost.md`, `--stage manual-qa`).
+own, record this run's end and show its line
+(`references/run-cost.md`, `--stage manual-qa`), then, as the last step, arm the
+attention sound (`references/attention-alert.md` at the plugin root): kind
+`done` when every AC is PASS, `fail` when any is FAIL or BLOCKED. The report is
+the human's to review. Nested in `validate`, or in autonomous mode,
+don't arm — the outer run does when it hands back.
 
 ## Principles
 

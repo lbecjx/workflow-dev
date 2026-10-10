@@ -181,6 +181,10 @@ show its line (`references/run-cost.md`, `--stage save`), unless it is nested
 — so this is the checkpoint that most often survives a session that is later
 deleted.
 
+Last, when Step 5 just wrote `Implementation Status: Done`, arm the attention
+sound with kind `story` (`references/attention-alert.md` at the plugin root):
+the whole story is complete. In autonomous mode, the run's end arms instead.
+
 ## Classification rules
 
 **Repo-level** = true for every story in this repo; useful even on an unrelated feature.

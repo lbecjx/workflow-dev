@@ -269,6 +269,12 @@ In autonomous mode, this phase is the pre-autonomous checkpoint: follow
 `references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
 checkpoint", instead of the steps above.
 
+**First story on this machine — where and how loud the alerts play.** In both
+modes, while the human is still here: when `attention-alert.sh device` answers
+`unset`, ask the two one-time questions of `references/attention-alert.md` (at
+the plugin root), "First story on a machine", and save the answers. Never ask
+again once a choice is saved, on this machine, in any repo.
+
 ### Close the run's cost
 
 The last step of `init`, once the story file holds the human's answers (or the
