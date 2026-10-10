@@ -33,6 +33,10 @@ source "$HERE/command-match.sh"
 # this path inline again; see marker-dir.sh's header.
 # shellcheck source=marker-dir.sh
 source "$HERE/marker-dir.sh"
+# The language of the dialog text, and the text itself — one owner, shared with
+# pre-commit-message-check.sh. Only a fixed code ever comes back from it.
+# shellcheck source=hook-language.sh
+source "$HERE/hook-language.sh"
 
 COMMAND=$(command_from_payload "$INPUT")
 
@@ -97,17 +101,20 @@ if [[ -z "$MARKER_TRUST_REASON" && -f "$MARKER_FILE" ]]; then
     STATUS=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$MARKER_FILE" | sed -E 's/.*: *"(.*)"/\1/')
     [[ -z "$STATUS" ]] && STATUS="validated"
     if [[ "$STATUS" == "deferred" ]]; then
-      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Validation deferred for this task group, as planned — will run once at story end."}}'
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"%s"}}' "$(hook_msg "$(hook_language "$INPUT")" validate_deferred)"
       exit 0
     fi
     exit 0
   fi
 fi
 
-REMINDER="This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate."
+# Resolved only once a dialog is certain, so the transcript is never read for a
+# command that stays silent.
+HOOK_LANG="$(hook_language "$INPUT")"
+REMINDER="$(hook_msg "$HOOK_LANG" validate_unrecorded)"
 # An untrusted directory is a reason to ask *and say why*, not to stay quiet: the
 # marker read above was skipped, so there may well be a matching marker that was
 # ignored. `marker_trust_note` owns the wording and the JSON-safe quoting.
-REMINDER="$REMINDER$(marker_trust_note "$MARKER_TRUST_REASON")"
+REMINDER="$REMINDER$(marker_trust_note "$MARKER_TRUST_REASON" "$(hook_msg "$HOOK_LANG" trust_note)")"
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}' "$REMINDER"
 exit 0

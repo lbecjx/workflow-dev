@@ -14,6 +14,15 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.44.0
+
+- The commit and PR hooks write their permission dialogs in the conversation's
+  language: English, Spanish, French, Portuguese, German, Italian, Chinese,
+  Japanese, Korean or Russian. They read it from the user's recent messages,
+  then Claude Code's `language` setting, then `"language"` in
+  `.workflow-dev/config.json`, which `init` now records. Any other language
+  gets English, and the language never changes a decision.
+
 ## 1.43.0
 
 - The story cost now includes the plugin evals `validate` runs. Their cases

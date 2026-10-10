@@ -115,6 +115,8 @@ Each generated file carries a hash of the role registry, so a later run — or t
 
 **Keeping the default model.** There is no machine-wide opt-out: either you bind the agents once, or you keep the default per repo or per story. For a repo, set `"tiering": "default"` in `.workflow-dev/config.json`; for a story, add a `Tiering: default model` row to its Decisions. The reminder's question offers both, and records the one you pick. A `~/.workflow-dev/tiering.json` left by an older version is ignored.
 
+**Dialogs in your language.** The commit and PR hooks write their permission dialogs in the language you write in: English, Spanish, French, Portuguese, German, Italian, Chinese, Japanese, Korean or Russian (any other language gets English). When they can't tell from the conversation, they use Claude Code's `language` setting, then `"language"` in `.workflow-dev/config.json`, which `init` records for you.
+
 ## Installation
 
 ```

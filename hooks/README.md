@@ -24,6 +24,30 @@ the Free Software Foundation, either version 3 of the License, or
   itself and not on a command that only mentions one. It answers `real`, `maybe`
   (wrapped in `bash -c`, `eval` and similar) or `no`. `maybe` is treated as `real`
   by the reminders, which only ask; the attribution block never denies on it.
+- Both commit/PR hooks word their permission dialog in the conversation's
+  language (WD-0048). Claude Code shows `permissionDecisionReason` as is, and an
+  `additionalContext` beside an `ask` reaches the agent only after the dialog,
+  so the script finds the language itself, through `scripts/hook-language.sh`.
+  The first of these that answers decides:
+  1. the user's newest typed messages in the transcript — the first line of
+     each, cut short, and on it the words before a colon first, since a pasted
+     log or error follows them; agent notifications and compaction summaries do
+     not count. The scan has a hard 2 s budget: a hook that outlives its own
+     timeout does not block the call, so a slow scan must never cost the
+     attribution deny;
+  2. Claude Code's `language` setting (`.claude/settings.local.json` and
+     `.claude/settings.json` under `CLAUDE_PROJECT_DIR`, then
+     `~/.claude/settings.json`);
+  3. `"language"` in the project's `.workflow-dev/config.json`, which `init`
+     writes on every run;
+  4. English.
+
+  Ten languages ship: English, Spanish, French, Portuguese, German, Italian,
+  Chinese, Japanese, Korean and Russian (the last four told apart by their
+  script); any other language gets English. Adding one is one place in
+  `scripts/hook-language.sh` (its header says what to add). The
+  language changes only the words, never the decision: the attribution deny
+  stays a deny in every language.
 - After a real `gh pr create`/`gh pr edit` succeeds, `scripts/post-pr-url-check.sh`
   hands back the PR's full URL (WD-0024). It reads
   `tool_response.exit_code`/`stdout` from the `PostToolUse` payload and stays
