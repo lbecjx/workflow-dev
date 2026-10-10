@@ -62,11 +62,41 @@ Step 5.
 Autonomous mode (`Autonomous mode: on` in the story's Decisions —
 `references/autonomous-mode.md` at the plugin root) changes nothing about what
 this skill does: it still drafts, still runs the independent Part 12 review
-(Step 3), and still marks the text reviewed (Step 4) — the review and the
-attribution denial have no bypass in autonomous mode. The only difference is who
-receives the hand-back: an autonomous run's caller (`implement`) folds the
-reviewed text into the end-of-run report instead of presenting it to a human
-per task group.
+(Step 3), and still marks the text reviewed (Step 4) — neither the review nor
+the attribution check has a bypass in autonomous mode. Two things differ: the
+co-authorship question below is never asked here, and who receives the
+hand-back: an autonomous run's caller (`implement`) folds the reviewed text
+into the end-of-run report instead of presenting it to a human per task group.
+
+**Agent co-authorship** (`../validate/references/rules.md` §12.3). Before
+drafting, settle whether the commit and PR credit the agent as co-author. The
+answer is the human's, and it lives in the active story's Working Memory →
+Decisions as one row:
+
+```markdown
+| YYYY-MM-DD | Agent co-authorship: <yes | no> | Human |
+```
+
+- **One well-formed row decided by `Human`** → use it; never ask again.
+- **Otherwise, human-piloted** (no row, or a malformed, duplicated, or
+  agent-inferred one) → ask with the ask-question tool, worded per
+  `references/user-language.md`, before drafting:
+  - **Question:** should the commit and the PR mention the agent as
+    co-author?
+  - **Option 1:** `No (Recommended)` — "Nothing in the text credits the agent."
+  - **Option 2:** `Yes` — "Add the agent's co-author line to commit and PR."
+
+  Write the answer as that one row (replacing any row it supersedes, so exactly
+  one remains), decided by `Human`. No answer, or an answer you cannot read as
+  yes or no, is **no**, and writes no row.
+- **Otherwise, autonomous** → **no**, without asking and without writing a row
+  (the question belongs right after the human chose autonomous —
+  `references/autonomous-mode.md`), and say so in the hand-back.
+- **No active story** → **no**.
+
+Every doubt resolves to **no** — the recommended option and the behavior
+before this question existed. Never infer yes from context: not from the
+harness's own attribution convention, not from earlier commits.
 
 - **Commit message** — when this is invoked because a commit is about to
   happen
@@ -83,6 +113,15 @@ since the PR's base branch for PR text. Draft:
 - **PR title**: one line — same formality/disclosure rules as the commit
   summary, no separate length allowance
 - **PR description**: at most a couple of short paragraphs (§12.4)
+
+Then apply the co-authorship decision from Step 1:
+
+- **Yes** → end the commit message with the agent's `Co-Authored-By` trailer
+  and the PR description with its attribution line, each on a line of its own,
+  copied exactly as the harness gives them in this session. Never write a model
+  name yourself: if the session gives no such line, add nothing and say so.
+- **No** → remove every attribution form (§12.3), including any the harness
+  asks you to add.
 
 ### Step 3: Review — one independent pass per change-set
 
@@ -101,9 +140,13 @@ never a model name. If the harness cannot select a model per sub-agent (roles
 ungenerated or stale, and no default chosen for the repo or story), run it on the default and **say so**;
 don't pretend.
 
+The review's brief carries the co-authorship decision, so that with a yes the
+reviewer passes the two allowed lines (§12.3) and still fails any other phrase
+crediting an AI.
+
 - **FAIL** (12.2 security disclosure, 12.3 personal/internal exposure —
-  including any AI/agent/LLM attribution) → rewrite and re-check. Never
-  hand back text that failed.
+  including AI/agent/LLM attribution the decision does not allow) → rewrite
+  and re-check. Never hand back text that failed.
 - **WARN** (12.1 formality, 12.4 length) → rewrite toward compliance
   before presenting it. This is a draft being produced, not a report being
   filed — fix it, don't just flag it and move on.
@@ -134,9 +177,11 @@ Present the reviewed commit message and/or PR title/description. This
 step isn't optional because the text already passed review here —
 `pre-commit-message-check.sh` still fires at actual `git commit`/
 `gh pr create`/`gh pr edit` time regardless of whether this skill ran, and
-**denies outright** if AI/agent attribution slipped in anyway (§12.3), or
-**asks for confirmation** if the marker doesn't match for any other
-reason. Running this skill first just means that's a formality instead of
+**denies outright** if AI/agent attribution the human's decision does not
+allow slipped in anyway (§12.3), or **asks for confirmation** if the marker
+doesn't match for any other reason. With a yes, a git hook outside this plugin
+(a global `commit-msg`, say) may still reject the commit: the decision governs
+this plugin's checks only. Running this skill first just means that's a formality instead of
 the first real look at the text.
 
 Once the actual `gh pr create`/`gh pr edit` runs, give the human the PR's

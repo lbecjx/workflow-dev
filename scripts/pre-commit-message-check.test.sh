@@ -451,5 +451,75 @@ case "$(hook "$(with_transcript "$ATTR" "$TMP/missing.jsonl")")" in
 esac
 rm -f "$HOME/.claude/settings.json"
 
+# --- 11: the human's co-authorship decision ---------------------------------
+# A yes recorded in the active story lets through the harness's trailer and PR
+# line, as whole lines, and nothing else; every other state denies as before.
+# The story is found through the branch, so the project becomes a git repo here.
+git -C "$PROJ" init -q 2>/dev/null && git -C "$PROJ" checkout -q -b wd-0099-coauthor
+coauthor_story() {
+  printf '# WD-0099: a story\n\n### Decisions\n| Date | Decision | Decided by |\n|---|---|---|\n%s\n\n### Implementation Status: In Progress\n' \
+    "$1" > "$PROJ/.workflow-dev/context/WD-0099.md"
+}
+YES_ROW='| 2026-10-10 | Agent co-authorship: yes | Human |'
+TRAILER='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+PRLINE='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
+COMMIT_MSG="$(printf 'Add a thing\n\n%s' "$TRAILER")"
+HEREDOC_COMMIT="$(mk "$(printf 'git commit -m "$(cat <<'"'"'EOF'"'"'\n%s\nEOF\n)"' "$COMMIT_MSG")")"
+QUOTED_COMMIT="$(mk "$(printf 'git commit -m "%s"' "$COMMIT_MSG")")"
+PR_YES="$(mk "$(printf 'gh pr create --title "Add a thing" --body "Summary.\n\n%s"' "$PRLINE")")"
+PHRASE_COMMIT="$(mk "$(printf 'git commit -m "AI-generated change\n\n%s"' "$TRAILER")")"
+TAIL_COMMIT="$(mk "$(printf 'git commit -m "x\n\n%s and more"' "$TRAILER")")"
+ELSEWHERE_COMMIT="$(mk "$(printf 'git -C /other commit -m "%s"' "$COMMIT_MSG")")"
+MAYBE_YES="$(mk "$(printf 'bash -c '"'"'git commit -m "%s"'"'"'' "$COMMIT_MSG")")"
+expect_word() { [[ "$2" == "$3" ]] && ok "$1" || no "$1 (got: $2)"; }
+
+coauthor_story "$YES_ROW"
+expect_word "yes: the trailer in a heredoc is not denied (review ask instead)" "$(status "$HEREDOC_COMMIT")" notify
+# A multi-line quoted body is past what the review extraction reads, so these
+# are silent rather than asked about — the point is that neither is denied.
+expect_word "yes: the trailer closing a -m quote is not denied" "$(status "$QUOTED_COMMIT")" ok
+expect_word "yes: the PR line in --body is not denied" "$(status "$PR_YES")" ok
+expect_word "yes: an attribution phrase in the body → block" "$(status "$PHRASE_COMMIT")" block
+expect_word "yes: the trailer with more text on its line → block" "$(status "$TAIL_COMMIT")" block
+expect_word "yes: git -C another repo with the trailer → block" "$(status "$ELSEWHERE_COMMIT")" block
+case "$(plain "$MAYBE_YES")" in
+  *"Part 12.3"*) no "yes: a wrapped commit with the trailer is not asked about attribution" ;;
+  *) ok "yes: a wrapped commit with the trailer is not asked about attribution" ;;
+esac
+mark "$COMMIT_MSG"
+expect_word "yes: the reviewed message with the trailer → ok" "$(status "$QUOTED_COMMIT")" ok
+unmark
+in_plain_quoted() { word_of "$(in_plain_hook "$QUOTED_COMMIT")"; }
+expect_word "yes in this project, but run from another directory → block" "$(in_plain_quoted)" block
+
+CD_MSG="$(printf 'Let cd work in hooks\n\nRun cd scripts, pass --repo.\n\n%s' "$TRAILER")"
+CD_COMMIT="$(mk "$(printf 'git commit -m "$(cat <<'"'"'EOF'"'"'\n%s\nEOF\n)"' "$CD_MSG")")"
+expect_word "yes: a message that mentions cd / --repo is not denied" "$(status "$CD_COMMIT")" notify
+GHREPO_PR="$(mk "$(printf 'GH_REPO=o/r gh pr create --title "T" --body "$(cat <<'"'"'EOF'"'"'\nSummary.\n\n%s\nEOF\n)"' "$PRLINE")")"
+expect_word "yes: a PR aimed at another repo through GH_REPO → block" "$(status "$GHREPO_PR")" block
+printf 'AI-generated change\n\n%s' "$TRAILER" > "$PROJ/msg-phrase.txt"
+expect_word "yes: a body read from a file with a credit phrase → block" "$(status "$(mk 'git commit -F msg-phrase.txt')")" block
+printf 'Add a thing\n\n%s' "$TRAILER" > "$PROJ/msg-trailer.txt"
+expect_word "yes: a body read from a file with only the trailer is not denied" "$(status "$(mk 'git commit -F msg-trailer.txt')")" notify
+
+# The rule's helper missing: the hook refuses instead of waving attribution through.
+NOHELPER="$TMP/nohelper"
+mkdir -p "$NOHELPER"
+cp "$HERE/pre-commit-message-check.sh" "$HERE/command-match.sh" "$HERE/marker-dir.sh" "$NOHELPER/"
+nohelper() { word_of "$( ( cd "$PROJ" && printf '%s' "$1" | bash "$NOHELPER/pre-commit-message-check.sh" 2>/dev/null ) )"; }
+expect_word "coauthor-decision.sh missing: a commit with the trailer → block" "$(nohelper "$QUOTED_COMMIT")" block
+expect_word "coauthor-decision.sh missing: an unrelated command → ok" "$(nohelper "$OTHER")" ok
+
+coauthor_story '| 2026-10-10 | Agent co-authorship: no | Human |'
+expect_word "no: a body read from a file with the trailer → block" "$(status "$(mk 'git commit -F msg-trailer.txt')")" block
+expect_word "no: the trailer → block" "$(status "$QUOTED_COMMIT")" block
+expect_word "no: the PR line → block" "$(status "$PR_YES")" block
+expect_word "no: a wrapped commit with the trailer → notify" "$(status "$MAYBE_YES")" notify
+coauthor_story ''
+expect_word "no decision: the trailer → block" "$(status "$QUOTED_COMMIT")" block
+coauthor_story '| 2026-10-10 | Agent co-authorship: yes | Agent (inferred) |'
+expect_word "a yes the agent inferred: the trailer → block" "$(status "$QUOTED_COMMIT")" block
+rm -f "$PROJ/.workflow-dev/context/WD-0099.md"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

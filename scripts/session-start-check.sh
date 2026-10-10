@@ -28,65 +28,11 @@ REASON=$(printf '%s' "$INPUT" | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
-# Read the Implementation Status *property*, deterministically — never scan the
-# section body for the phrase. Every file init writes carries a paragraph under
-# the heading that itself contains "In Progress" ("Set to **In Progress** at
-# creation, always — …"), so a body scan reports a finished story as active: a
-# Done story listed as resumable, which is the greeting being wrong whenever
-# more than one story was ever init'd (WD-0032). The property has two shapes,
-# both real: the value on the heading line ("### Implementation Status: In
-# Progress"), and — when the heading is bare — the value on the immediately-
-# following non-empty line as a status assignment ("**Status:** In Progress").
-# Only that heading line, or that one following "Status:" line, is read. Lines
-# inside a fenced code block are not the property at all: this very bug is
-# documented by quoting the heading in a fence, so a context file whose
-# description carries that quote would otherwise have the example read as its
-# status — the same false positive, one layer up. Fences are matched by type and
-# length (a ``` fence is closed only by ```, never by ~~~), so a fenced example
-# cannot be shut early by content that merely looks like a delimiter; an
-# unclosed fence runs to EOF, as CommonMark says, and then the file has no
-# readable status — the conservative answer, not a wrong one. Any other line
-# (the template paragraph, prose) is not a status value. Tolerant to how init
-# paraphrased the heading, intolerant to the body around it.
-is_in_progress() {
-  awk '
-    /^[[:space:]]*(```|~~~)/ {
-      delim = $0
-      sub(/^[[:space:]]*/, "", delim)
-      ch = substr(delim, 1, 1)
-      len = 0
-      while (substr(delim, len + 1, 1) == ch) len++
-      if (!fence) { fence = ch; flen = len; next }
-      if (ch == fence && len >= flen) { fence = ""; next }
-      next
-    }
-    fence { next }
-    /^#+[[:space:]].*[Ii]mplementation Status/ {
-      line = $0
-      sub(/^[^:]*:[[:space:]]*/, "", line)
-      # An inline value only counts when there is one; a bare heading written
-      # with a trailing colon ("## Implementation Status:") has its value on the
-      # next line, and reading the empty string as the value would drop a
-      # genuinely In Progress story.
-      if (line != $0 && line != "") {
-        print (line ~ /In Progress/) ? "yes" : "no"
-        exit
-      }
-      want = 1
-      next
-    }
-    want && /^[[:space:]]*$/ { next }
-    want {
-      line = $0
-      sub(/^[[:space:]]*[*]*/, "", line)
-      rest = line
-      sub(/^[[:space:]]*[Ss]tatus[*]*:[[:space:]]*[*]*/, "", line)
-      if (line == rest) { print "no"; exit }
-      print (line ~ /In Progress/) ? "yes" : "no"
-      exit
-    }
-  ' "$1" | grep -q "^yes$"
-}
+# Story candidates, is_in_progress and has_code have one owner, shared with
+# the commit/PR attribution decision.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=active-story.sh
+source "$HERE/active-story.sh"
 
 # $1 = the reminder text, wrapped in the JSON Claude Code's SessionStart reads.
 # The text may span lines (the candidate table below does); JSON cannot carry a
@@ -123,16 +69,6 @@ words() {
     | awk 'length($0) >= 3 && $0 !~ /^(feat|fix|chore|wip|main|master|head|dev|develop|the|and|for|with)$/' | sort -u
 }
 
-# Does branch $1 carry story code $2 (WD-0021 in wd-0021-foo or feat/WD-0021)?
-# Case-insensitive, bounded so WD-21 never matches WD-215. One definition, used
-# for the active story and for the table's Branch column, so the two cannot
-# disagree about what "carries the code" means.
-has_code() {
-  local CODE_RE
-  CODE_RE=$(printf '%s' "$2" | sed 's/[][\.*^$+?(){}|/]/\\&/g')
-  printf '%s' "$1" | grep -qiE "(^|[^A-Za-z0-9])${CODE_RE}([^0-9]|$)"
-}
-
 # The reminder for a story that is the active one — the three wordings this
 # hook always had, unchanged.
 remind_for() {
@@ -155,13 +91,10 @@ remind_for() {
   exit 0
 }
 
-# Candidates: every story file still In Progress on our own clock. Done and
-# Won't Do are closed on our side, and the section 1.1 Story `Status` only
-# mirrors the source ticket — a different clock, not read here.
 CANDIDATES=()
 while IFS= read -r STORY_FILE; do
-  is_in_progress "$STORY_FILE" && CANDIDATES+=("$STORY_FILE")
-done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md" | sort)
+  CANDIDATES+=("$STORY_FILE")
+done < <(story_candidates "$CONTEXT_DIR")
 
 [[ ${#CANDIDATES[@]} -gt 0 ]] || exit 0
 

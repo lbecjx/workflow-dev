@@ -23,9 +23,10 @@ The workflow is human-piloted by default and stays that way — see [What this i
 Autonomous mode removes the per-step confirmations, not the guardrails:
 
 - **It never overrides a story you set to step by step.** If the story already has `Autonomous mode: off`, starting it autonomously makes `init` say so and ask once; no answer keeps it step by step.
+- **It asks about co-authorship right away.** Right after you choose autonomous, it asks once whether the commit and PR should mention the agent as co-author, so the run never has to stop for it later. No answer means no.
 - **It asks only once, and only what blocks.** At the end of `init`, before going autonomous, it tells you it is checking for questions that could block the run, infers what it can, and asks only what it cannot settle (an ambiguous acceptance criterion, say), or tells you there is nothing to ask. From then on it asks nothing.
 - **Decisions are inferred, recorded, and reported.** Each decision point the human would normally answer is resolved with an explicit rule, written to the story's Decisions table, and surfaced in an end-of-run report. Nothing is silently skipped.
-- **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never bypasses the AI/agent attribution block — the one rule with no bypass, autonomous or not.
+- **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never adds AI/agent attribution you did not allow — autonomous or not.
 - **The quality gate is load-bearing.** A blocking finding stops the run; it is never downgraded to a warning so the run can continue.
 - **It keeps the Mac awake, and only while it works.** When the run goes autonomous it starts `caffeinate -i` on its own (no question) and tells you, and it closes it when the run ends or stops. Only idle sleep is blocked: the screen still turns off and locks. `caffeinate` is tied to the Claude Code session, so a closed session never leaves the Mac awake, and other `caffeinate` processes (another session's, or your own with other arguments) are left alone. Closing a laptop lid with no external display still sleeps the Mac. Outside macOS the step is skipped (Linux is out of scope).
 - **It drafts, it never opens the PR.** The commit message and PR text are drafted and marked reviewed, then handed to you in the report. `git commit` and `gh pr create` remain your call.
@@ -74,13 +75,13 @@ workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usag
 
 ## Hooks
 
-This plugin also ships hooks that keep the workflow above easy to follow — none of them act on their own (they ask first), with one hard exception: AI/agent attribution in a commit or PR message is blocked outright.
+This plugin also ships hooks that keep the workflow above easy to follow — none of them act on their own (they ask first), with one hard exception: AI/agent attribution in a commit or PR message is blocked outright, unless you said yes to agent co-authorship for the story.
 
 - **`SessionStart`** — suggests the right next skill (`resume`, `plan`, `implement`...) based on the active story's real state, at the start of a new session.
 - **`PreCompact`** — warns before context gets compacted if there's an in-progress story, since decisions made purely in conversation (no file changes) can otherwise be lost.
 - **`UserPromptSubmit` / `PostToolUse`** — reminds you to `/workflow-dev:save` when there are pending changes to persist.
 - **`PreToolUse`** (before a real `git commit`) — asks you to confirm `/workflow-dev:validate` passed on the current changes, or lets a deliberate deferral through with a visible note.
-- **`PreToolUse`** (before a real `git commit` / `gh pr create` / `gh pr edit`) — in a workflow-dev project, asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution, in any repo.
+- **`PreToolUse`** (before a real `git commit` / `gh pr create` / `gh pr edit`) — in a workflow-dev project, asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution, in any repo. The one exception is yours: when you answered yes to agent co-authorship for the active story, the harness's `Co-Authored-By` trailer and PR attribution line pass, each on its own line, and nothing else does. `summarize-changes` asks that question once per story (or `init` asks it when you choose autonomous mode); no answer, or any doubt, means no. A git hook of your own outside this plugin may still reject the commit.
 
   "Real" means the command itself, not a command that mentions one: an `echo`, a `grep`, a heredoc that writes about a commit, `git commit-tree` and the like stay silent. `git -C <dir> commit`, `git -c k=v commit` and a commit after other commands are caught. When a command is wrapped where it cannot be read (`bash -c`, `eval`), it asks rather than guessing, and never blocks.
 - **`PostToolUse`** (after a real `gh pr create` / `gh pr edit` succeeds) — reminds you of the PR's full URL, so it gets relayed as plain text instead of staying buried in a Markdown link label. `gh pr edit` whose own output carries no URL falls back to a read-only `gh pr view --json url`.

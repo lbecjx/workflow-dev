@@ -48,6 +48,10 @@ the Free Software Foundation, either version 3 of the License, or
   `scripts/hook-language.sh` (its header says what to add). The
   language changes only the words, never the decision: the attribution deny
   stays a deny in every language.
+- The attribution block reads one thing besides the command: the human's
+  co-authorship decision in the active story (`scripts/coauthor-decision.sh`,
+  shared with `git-message-mark-reviewed.sh`). Only an explicit yes lets the
+  harness's trailer and PR line through; any doubt is no.
 - After a real `gh pr create`/`gh pr edit` succeeds, `scripts/post-pr-url-check.sh`
   hands back the PR's full URL (WD-0024). It reads
   `tool_response.exit_code`/`stdout` from the `PostToolUse` payload and stays
@@ -68,7 +72,7 @@ the Free Software Foundation, either version 3 of the License, or
   skills already write — `validate`'s diff marker and `summarize-changes`'
   reviewed-message marker — not through any signal the hooks parse. The
   AI/agent attribution block in `pre-commit-message-check.sh` has no marker and
-  no bypass, so it
+  no bypass beyond the human's own co-authorship answer, so it
   blocks in autonomous mode exactly as it does in a human-piloted one. See
   `../references/autonomous-mode.md`.
 - **The model-tiering reminder has the agent ask; it neither asks nor blocks**

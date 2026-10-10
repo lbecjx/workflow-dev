@@ -702,16 +702,27 @@ was fixed — worse than saying nothing.
       ("Add `.workflow-dev/` to `.gitignore`") instead of narrating the
       motive behind it
 - [ ] Does not mention specific people, blame, or internal disagreement
-- [ ] **No AI/agent/LLM attribution or co-authorship of any kind** — no
-      `Co-Authored-By: <any AI tool>`, no "Generated with/by [tool]", no 🤖,
-      no "AI-generated" / "AI-assisted" / "written with the help of AI", and
-      no phrasing that *credits* an AI, an agent, a model, or an assistant
-      with the change. This applies regardless of what actually wrote or
-      assisted with the change, and regardless of any default attribution
-      convention a tool or harness would otherwise add — every commit and PR
-      in a `workflow-dev`-managed repo is attributed to the human alone. This
-      is a hard rule, not a judgment call: unlike the rest of 12.3, it doesn't
-      depend on tone or framing — the mere presence of the attribution fails it.
+- [ ] **No AI/agent/LLM attribution or co-authorship unless the human said
+      yes** — by default, no `Co-Authored-By: <any AI tool>`, no "Generated
+      with/by [tool]", no 🤖, no "AI-generated" / "AI-assisted" / "written
+      with the help of AI", and no phrasing that *credits* an AI, an agent, a
+      model, or an assistant with the change, regardless of what actually
+      wrote or assisted with it and of any default a tool or harness would
+      otherwise add. Whether to credit the agent is the human's call, not the
+      plugin's: some teams must declare AI help, others must not. So the
+      human is asked once per story, and the answer is recorded in the
+      story's Decisions as `Agent co-authorship: yes` or `no`, decided by
+      `Human`. **No is the default and wins every doubt**: no answer, an
+      ambiguous one, a missing, malformed, duplicated, or agent-inferred row,
+      no active story, or a decision that cannot be read all mean no. Only
+      an explicit yes allows exactly two lines, each on a line of its own and
+      copied as the harness supplies them: the commit's `Co-Authored-By:
+      <name> <email>` trailer and the PR's `🤖 Generated with [<tool>](<url>)`
+      line. Any other phrase crediting an AI still fails, yes or no. The
+      decision only sets the message's content — it never stands in for the
+      human's own approval of a commit or PR. Unlike the rest of 12.3, this
+      does not depend on tone or framing: attribution the decision does not
+      allow fails by its mere presence.
       **What is blocked is attribution, not mention.** Naming the platform,
       vendor, or model a change is *about* — a commit describing work on
       "Claude Code", "GitHub", a provider, or naming an env var like
@@ -790,10 +801,18 @@ quality-of-writing issues, not disclosure.
 **AI/agent attribution is stricter than the rest of 12.3**: every other
 check here is reviewed by a sub-agent and can be rewritten — this one is
 also enforced mechanically, with no ask/confirm step. `git-message-mark-
-reviewed.sh` refuses to mark a message containing it, and
-`pre-commit-message-check.sh` **denies** the commit/PR outright (not
-"ask," the only rule in this file that does) if attribution slips through
-some other way. See both scripts' source for the exact patterns matched.
+reviewed.sh` refuses to mark a message carrying attribution the human's
+decision does not allow, and `pre-commit-message-check.sh` **denies** the
+commit/PR outright (not "ask," the only rule in this file that does) if it
+slips through some other way. Both read the decision from the active story
+and share one definition of the patterns (`scripts/coauthor-decision.sh`).
+The active story is the one the git branch names, or the only story in
+progress when the branch names none; a branch naming a closed or unknown story,
+or several, reads as no, and so does a command aimed at another repository;
+with a yes they let through the trailer and the PR line above and nothing
+else. A git hook outside this plugin (a global `commit-msg`, say) may still
+reject a commit the yes allowed — the decision governs this plugin's checks
+only.
 
 ---
 
