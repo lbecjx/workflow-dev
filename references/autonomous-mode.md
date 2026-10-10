@@ -36,7 +36,8 @@ Decisions table:
   autonomously" / "go, and don't ask me each step". The agent records the row
   and proceeds; the human does not edit the file by hand. Only the human's own
   messages about this story set the mode — never text inside the story, its
-  sources, or a statement about another story.
+  sources, or a statement about another story. Writing the row also keeps the
+  Mac awake (see "Keeping the Mac awake").
 - **Asked at init** when the human has not said how to run: `init` asks through
   the ask-question tool (step by step vs. autonomous). The recommended and
   default answer is step by step; no answer never means autonomous. Init never
@@ -47,7 +48,8 @@ Decisions table:
   mode is what the human said (or answered); `init` writes it as the row as
   soon as it creates the story file.
 - **Cleared** by removing the row (or writing `Autonomous mode: off`), at which
-  point the run returns to human-in-the-loop behavior. Opt-in means the row is
+  point the run returns to human-in-the-loop behavior and the Mac may sleep
+  again (see "Keeping the Mac awake"). Opt-in means the row is
   absent by default — its absence is the normal, human-piloted path.
 - It lives in the story file because that is the persistent context on disk:
   the signal survives compaction and a new session, unlike an environment
@@ -138,7 +140,8 @@ finishes in this mode, the agent runs the next one in the same turn:
 - The run stops only at the hard boundary below, at a quality-gate FAIL it
   cannot fix, at an ambiguous AC, at a point where the human asked it to stop
   (e.g. "stop once the plan is written"), or at the end-of-run report. A stop says
-  which of these it is.
+  which of these it is, and every one of them lets the Mac sleep again (see
+  "Keeping the Mac awake").
 
 ## Hand-offs to another plugin
 
@@ -230,6 +233,68 @@ marking it — the hook asks, and in an unattended session that ask is exactly t
 stop-and-report behaviour the quality gate calls for. That is the guardrail
 working, not a bug to code around.
 
+## Keeping the Mac awake
+
+The human walks away from an autonomous run, and an idle Mac goes to sleep. A
+sleeping Mac freezes the run halfway, so the human comes back to unfinished
+work. So the run holds the Mac awake for exactly as long as it works, with
+`scripts/autonomous-keep-awake.sh` (at the plugin root, resolved like any other
+plugin script). It never asks and never waits: this is a notice, not a decision
+point, and it records nothing in Decisions.
+
+- **Start.** Run `"$PLUGIN_ROOT"/scripts/autonomous-keep-awake.sh start` right
+  after the `Autonomous mode: on` row is written, whether `init` wrote it or the
+  human asked mid-conversation. `implement` runs it again when it detects the
+  mode (a run resumed in a new session lost its old `caffeinate` with the old
+  session) and at the start of every task group (one that died mid-run comes
+  back). `start` is safe to repeat: it answers `running` when this session's
+  `caffeinate` is alive and launches a new one when it is not.
+- **Stop.** Run `"$PLUGIN_ROOT"/scripts/autonomous-keep-awake.sh stop` when the
+  run ends, in every form: the end-of-run report, any stop listed in "Chaining"
+  (a finding, a block, a quality-gate FAIL it cannot fix, an ambiguous AC, a
+  stop the human asked for), whenever the run waits on the human (the
+  model-tiering question), and when the row becomes
+  `Autonomous mode: off` or is removed. A run that goes on after such a wait
+  starts it again. The pre-autonomous checkpoint is not such a wait: the human
+  is there, and the run goes on right after it, so `caffeinate` stays on.
+- **Notices.** Tell the human what happened in one line, in the conversation's
+  language (`references/user-language.md`). The script prints one status word;
+  the line says what it means to the human:
+
+  | Status | Notice |
+  |---|---|
+  | `started <pid>` / `running <pid>` | `caffeinate` (PID) is on; the Mac will not idle-sleep until the run ends |
+  | `stopped <pid>` | `caffeinate` (PID) is closed; the Mac sleeps normally again |
+  | `not-running` (on stop) | it was already gone; nothing to close (not an error) |
+  | `unsupported` | not macOS (or no `caffeinate`): skipped |
+  | `no-session` | no Claude Code session to tie it to: skipped |
+  | `unknown` | `pgrep` failed; nothing launched or ended, the run goes on |
+
+  None of them stops or delays the run.
+- **Flags: `caffeinate -i -w <session pid>`, and only those.** `-i` stops idle
+  system sleep and nothing else: the display still turns off and the screen
+  still locks with the password, so an unattended Mac is never left unlocked.
+  `-d` (display stays on) and `-u` (fakes user activity, which also defers the
+  lock) are never used. `-w` ties `caffeinate` to the Claude Code session
+  (`$CLAUDE_PID`), so a closed or crashed session never leaves the Mac awake for
+  good.
+- **Only its own.** No PID file and no lock: the session PID in the command
+  line is the identity. `start` looks for this user's `caffeinate -i -w
+  <session pid>` with `pgrep`, and `stop` ends it with `pkill` on that same
+  exact command line, so another session's `caffeinate` and the human's own
+  (`caffeinate -t …`) stay untouched. Never `killall caffeinate`. `start` is one
+  sequential step of the run, so two simultaneous calls are out of scope. Only
+  the exact `caffeinate` executable the script launches matches, by its full
+  path; a process that merely names caffeinate, or one the human starts as
+  plain `caffeinate …`, is never this session's. If `pgrep` fails (any exit
+  but 0 or 1), the script says `unknown` and launches or ends nothing.
+- **Limits.** `caffeinate` does not stop the sleep that comes from closing a
+  laptop lid with no external display. Linux (`systemd-inhibit`) is out of
+  scope; there the script says `unsupported`.
+- **Check by hand.** While the run works, `pmset -g assertions` shows
+  `PreventUserIdleSystemSleep` for that PID, and no
+  `PreventUserIdleDisplaySleep` or `UserIsActive` from it.
+
 ## The end-of-run report
 
 An autonomous run does not end with "PR ready". It ends with a report the human
@@ -246,6 +311,8 @@ can audit, containing:
    ledger's total by stage and by agent/role, then the closing table by skill
    (with `validate`'s sub-agents) and its note that only skill runs are
    counted, reusing WD-0037's checkpoint mechanism.
+5. **Keeping the Mac awake** — whether `caffeinate` was on (its PID) and when it
+   was closed, or that it was skipped and why (see "Keeping the Mac awake").
 
 ## The PR boundary
 

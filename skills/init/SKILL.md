@@ -208,6 +208,9 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    inferred so far (Phase 0, each REPO.md section saved without review in
    Phase 5, the ECOSYSTEM hand-off) as its own
    `Agent (inferred)` row.
+   Then, whether or not the row was rewritten: with the row `on`, start
+   keeping the Mac awake right away, without asking; with an `on` row turned
+   `off`, stop it (`references/autonomous-mode.md`, "Keeping the Mac awake").
 
 9. **Recommend a tier for the session's model** (WD-0050). The session's model
    is the orchestrator: it talks with the human, implements each task group, and

@@ -39,7 +39,7 @@ Executes the next task group from the story's plan section: loads every executio
 
 ### Step 1: Load context
 
-0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root). Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path.
+0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root). Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path. With the row present, start keeping the Mac awake (`references/autonomous-mode.md`, "Keeping the Mac awake"); it only reports `running` when this session's `caffeinate` is already alive.
 
 0b. **Record this run's start** — once per invocation, however many task groups
    it then runs (`references/run-cost.md` at the plugin root,
@@ -70,7 +70,9 @@ Ask: "Starting with Task Group N?"
 
 In autonomous mode, skip this ask — continue with the next task group. Record
 that the task group was started (a normal progress-table update, no separate
-decision to log).
+decision to log). Also run the keep-awake `start` again at the start of every
+task group, so a `caffeinate` that died mid-run is relaunched
+(`references/autonomous-mode.md`, "Keeping the Mac awake").
 
 ### Step 3: Execute tasks — one at a time
 
@@ -135,6 +137,8 @@ When all tasks in the group are done:
 `references/autonomous-mode.md`): a FAIL here does not let the run continue to a
 commit/PR. Fix and re-validate; if the finding cannot be fixed, stop and report
 it — never downgrade a blocking finding to a warning so the run can keep going.
+Stopping also lets the Mac sleep again (`references/autonomous-mode.md`,
+"Keeping the Mac awake").
 
 1. Show completion summary.
 
@@ -180,8 +184,9 @@ it — never downgrade a blocking finding to a warning so the run can keep going
    message, then suggest it to the human. Update plan progress in
    story.md. In autonomous mode, do not suggest — `summarize-changes`
    marks the text reviewed, and the run continues to the next task group
-   (or, after the last one, to the end-of-run report); the human sees the
-   drafted text in that report, not per task group.
+   (or, after the last one, to the end-of-run report, which first lets the
+   Mac sleep again — `references/autonomous-mode.md`, "Keeping the Mac
+   awake"); the human sees the drafted text in that report, not per task group.
 
    This isn't handled inline here on purpose: drafting-and-reviewing the
    commit message is a distinct action from validating the diff, and
