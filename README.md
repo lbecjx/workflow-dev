@@ -23,7 +23,7 @@ Progress is tracked as you go. Decisions and discoveries are saved with `/workfl
 
 - Claude Code.
 - `gh` (GitHub CLI), if you want the agent to open pull requests.
-- MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. A local Markdown story needs none.
+- MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. Don't use them, or would rather not? Try [`local-backlog`](https://github.com/lbecjx/local-backlog): describe what you want built and you have a structured story in your repo in seconds, ready to hand to `init`. No account, no setup.
 - `jq`, recommended.
 
 **Platform.** workflow-dev was built, used day to day and tested on macOS. It has not been tested on Windows or Linux.
@@ -46,7 +46,7 @@ It drops the per-step confirmations, not the guardrails:
 - **It has hard limits.** It never pushes a protected branch, never merges, never skips the adversarial check when it would run, never invents acceptance criteria, and never credits the AI unless you allowed it.
 - **A blocking finding is never downgraded** to a warning to keep the run going.
 - **It keeps your Mac awake only while it works.** The screen still turns off and locks.
-- **It never commits or opens the PR.** It drafts the commit message and PR text; `git commit` and `gh pr create` stay yours.
+- **It stops before committing.** It drafts the commit message and PR text; it commits or opens the PR only after your yes.
 
 At the end you get a report: what it did, every decision it made for you, what it left for you, and the story's [cost](#story-cost).
 
