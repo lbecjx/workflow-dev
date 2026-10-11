@@ -1,0 +1,8 @@
+{% for section, category_data in sections.items() %}
+{% for category in definitions %}
+{% for text in category_data.get(category, {}) %}
+- {{ text }}
+{% endfor %}
+{% endfor %}
+{% endfor %}
+{{ "\n" }}

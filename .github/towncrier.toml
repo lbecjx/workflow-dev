@@ -1,0 +1,34 @@
+# Release notes for this repo's own releases (dogfooding only; not part of the plugin).
+# towncrier 26.9.0 is the version this was checked with; `ignore` needs 24.7 or later.
+# Run from the repo root: towncrier build --config .github/towncrier.toml --dir .
+# `directory` and `template` are relative to --dir (the repo root), not to this file.
+
+[tool.towncrier]
+directory = "changes"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## {version}"
+underlines = ["", "", ""]
+template = ".github/towncrier-template.md.jinja"
+ignore = [".gitkeep"]
+
+# The order here is the order of the bullets inside a release.
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "feat"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fix"
+name = "Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "misc"
+name = "Misc"
+showcontent = true

@@ -1,0 +1,66 @@
+# Cuts a release from the release notes waiting in changes/ every time main moves.
+# .github/scripts/release.sh picks the version (breaking: major, feat: minor,
+# otherwise patch), writes CHANGELOG.md and plugin.json, commits and tags; this
+# job then pushes the commit and the tag and publishes the GitHub release.
+#
+# One run at a time (concurrency below): two merges close together queue up and
+# the second run sees what the first one left. When the push of a run is rejected
+# because main moved meanwhile, that run fails and nothing reached the remote; the
+# merge that moved main started its own run, which releases everything.
+#
+# The push of the release commit starts this workflow again. That second run finds
+# no notes in changes/ and ends without doing anything, which is how the loop stops.
+#
+# Set up by hand on the remote, since a workflow file cannot do it:
+#   1. Create a secret RELEASE_TOKEN: a fine-grained personal access token (or a
+#      GitHub App token) with Contents: read and write on this repository.
+#   2. If main is protected, let only the account behind that token bypass the
+#      branch protection. Pull requests from people keep going through the
+#      changelog-check status, so it must stay required for them.
+# A push made with the default GITHUB_TOKEN would not start any other workflow
+# (the tests would not run on the release commit), which is why the secret is used.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+# Both the push and the release use RELEASE_TOKEN, so the default token needs no more than a read.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'lbecjx/workflow-dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          fetch-depth: 0
+      - name: Install towncrier
+        # Keep this pin equal to the one in tests.yml and .github/towncrier.toml.
+        run: |
+          python3 -m venv "$RUNNER_TEMP/towncrier"
+          "$RUNNER_TEMP/towncrier/bin/pip" install towncrier==26.9.0
+          echo "$RUNNER_TEMP/towncrier/bin" >> "$GITHUB_PATH"
+      - name: Cut the release
+        id: release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          .github/scripts/release.sh
+      - name: Push the release commit and its tag
+        if: steps.release.outputs.released == 'true'
+        run: git push origin HEAD:main --follow-tags
+      - name: Publish the GitHub release
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NOTES_FILE: ${{ steps.release.outputs.notes_file }}
+        run: gh release create "v$VERSION" --title "$VERSION" --notes-file "$NOTES_FILE"
