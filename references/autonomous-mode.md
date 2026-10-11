@@ -106,7 +106,10 @@ In order:
    follows "infer + record + report", and an ambiguity that only appears later
    stops the run and is reported (see "The hard boundary"), never asked.
 
-The run-mode question (see "The signal"), the co-authorship question that
+The alerts question of `init` (`attention-alert.md`, "Alerts for this story")
+is asked here while the human is present, and never blocks: with no answer the
+run takes the saved output, else the default output, turns the alerts on (with the `start` sound) and records it. The
+run-mode question (see "The signal"), the co-authorship question that
 follows it, and the tiering question (see below) are not part of this
 checkpoint: the first decides whether there is a checkpoint at all, the second
 is asked once with it and never again in the run, and the third comes from a
