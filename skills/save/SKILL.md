@@ -182,9 +182,17 @@ show its line (`references/run-cost.md`, `--stage save`), unless it is nested
 — so this is the checkpoint that most often survives a session that is later
 deleted.
 
-Last, when Step 5 just wrote `Implementation Status: Done`, arm the attention
-sound with kind `story` (`references/attention-alert.md` at the plugin root):
-the whole story is complete. In autonomous mode, the run's end arms instead.
+Last, arm the attention sound (`references/attention-alert.md` at the plugin
+root), with one kind at most. Arm nothing when this save is nested (Step 1:
+another skill's run is open, or a hook asked for it after a compaction) or runs
+in autonomous mode, where the run's end arms instead. Otherwise:
+
+- Step 5 just wrote `Implementation Status: Done` → `story`: the whole story is
+  complete. This is the only sound, so `saved` is never armed after it.
+- Step 5 wrote anything else, and this save is the human's own request to save
+  → `saved`: the context is on disk and the control is theirs again.
+- Step 5 wrote nothing (the human declined, or there was nothing to save) →
+  nothing.
 
 ## Classification rules
 

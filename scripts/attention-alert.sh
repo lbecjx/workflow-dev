@@ -14,7 +14,7 @@
 # response, so the human learns to ignore them; these are worth trusting only
 # because they stay quiet the rest of the time.
 #
-# Nine sounds, one per meaning (assets/attention-<kind>.wav):
+# Ten sounds, one per meaning (assets/attention-<kind>.wav):
 #
 #   need        "I need your input."        a question waits on the human
 #   away        "Hello? Are you there?" … "I need your input."
@@ -25,6 +25,7 @@
 #   done        "Task completed."           something is ready to review
 #   passed      "Validation passed."        the quality gate passed
 #   fail        "Something went wrong."     a check failed, or the run is stuck
+#   saved       "Context saved."            a save the human asked for finished
 #   story       fanfare + "Congrats! Story complete."
 #
 #   attention-alert.sh play [kind]   play one now (default need; also a preview)
@@ -110,10 +111,10 @@ usage() {
   exit 2
 }
 
-# `need` for anything that is not one of the nine kinds (see the header).
+# `need` for anything that is not one of the ten kinds (see the header).
 alert_kind() {
   case "${1:-}" in
-    need|away|permission|commit|pr|done|passed|fail|story) printf '%s' "$1" ;;
+    need|away|permission|commit|pr|done|passed|fail|saved|story) printf '%s' "$1" ;;
     *) printf 'need' ;;
   esac
 }
