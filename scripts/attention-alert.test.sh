@@ -355,10 +355,10 @@ for anchor in skills/plan/SKILL.md skills/validate/SKILL.md skills/implement/SKI
   grep -q 'attention-alert.md' "$ROOT/$anchor" && ok "$anchor points at the arm rule" || no "$anchor points at the arm rule"
 done
 [[ "$(grep -c 'attention-alert.md' "$ROOT/skills/validate/SKILL.md")" -ge 2 ]] && ok "validate arms at the depth question and at its end" || no "validate arms at the depth question and at its end"
-for kind in need away permission commit pr done passed fail story; do
+for kind in need away permission commit pr done passed fail saved story; do
   grep -q "| \`$kind\` |" "$DOC" && ok "the reference documents kind $kind" || no "the reference documents kind $kind"
 done
-for pair in "skills/plan/SKILL.md:need" "skills/validate/SKILL.md:passed" "skills/validate/SKILL.md:fail" "skills/implement/SKILL.md:done" "skills/manual-qa/SKILL.md:done" "skills/summarize-changes/SKILL.md:commit" "skills/summarize-changes/SKILL.md:pr" "skills/save/SKILL.md:story" "references/autonomous-mode.md:story"; do
+for pair in "skills/plan/SKILL.md:need" "skills/validate/SKILL.md:passed" "skills/validate/SKILL.md:fail" "skills/implement/SKILL.md:done" "skills/manual-qa/SKILL.md:done" "skills/summarize-changes/SKILL.md:commit" "skills/summarize-changes/SKILL.md:pr" "skills/save/SKILL.md:story" "skills/save/SKILL.md:saved" "references/autonomous-mode.md:story"; do
   grep -q "kind.*\`${pair##*:}\`\|\`${pair##*:}\`" "$ROOT/${pair%%:*}" && ok "${pair%%:*} arms ${pair##*:}" || no "${pair%%:*} arms ${pair##*:}"
 done
 grep -q 'First story on a machine' "$ROOT/skills/init/SKILL.md" && grep -q 'attention-alert.sh device' "$ROOT/skills/init/SKILL.md" \
@@ -393,13 +393,26 @@ reset; run "$TMP/mac" Darwin -- play bogus >/dev/null
 reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_SOUND=$TMP/snd dir/my sound.wav" -- play story >/dev/null
 [[ "$(played)" == "afplay $TMP/snd dir/my sound.wav" ]] && ok "a custom sound replaces every kind" || no "custom sound for story (got: $(cat "$LOG"))"
 mkdir -p "$TMP/t" "$PROJ"
-for pair in "need:need" "commit:commit" "pr:pr" "done:done" "passed:passed" "fail:fail" "story:story" ":need" "nonsense:need"; do
+for pair in "need:need" "commit:commit" "pr:pr" "done:done" "passed:passed" "fail:fail" "saved:saved" "story:story" ":need" "nonsense:need"; do
   armk="${pair%%:*}"; want="${pair##*:}"
   new_sid; reset
   run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SID" -- arm ${armk:+"$armk"}
   hook --stop "$(payload "$SID" "$PROJ")"
   [[ "$(played)" == *"/assets/attention-$want.wav" ]] && ok "arm '${armk}' then Stop plays $want" || no "arm '${armk}' then Stop (got: $(cat "$LOG"))"
 done
+# One arm file per session: the last arm wins, so a turn that arms two kinds
+# plays one sound, never both (WD-0067).
+for pair in "saved story:story" "story saved:saved"; do
+  first="${pair%% *}"; rest="${pair#* }"; second="${rest%%:*}"; want="${rest##*:}"
+  new_sid; reset
+  run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SID" -- arm "$first"
+  run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SID" -- arm "$second"
+  hook --stop "$(payload "$SID" "$PROJ")"
+  [[ "$(played)" == *"/assets/attention-$want.wav" && "$(wc -l < "$LOG" | tr -d ' ')" == 1 ]] \
+    && ok "arm $first then $second plays only $want" || no "arm $first then $second (got: $(cat "$LOG"))"
+done
+reset; run "$TMP/mac" Darwin -- play saved >/dev/null
+[[ "$(played)" == *"/assets/attention-saved.wav" ]] && ok "play saved plays the saved sound" || no "play saved (got: $(cat "$LOG"))"
 new_sid; reset
 mkdir -p "$TMP/t/workflow-dev-validate/attention"; chmod 700 "$TMP/t/workflow-dev-validate" "$TMP/t/workflow-dev-validate/attention"
 printf 'armed\n' > "$TMP/t/workflow-dev-validate/attention/armed-$SID"

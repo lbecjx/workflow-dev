@@ -14,6 +14,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.47.0
+
+- `/workflow-dev:save` now says "Context saved." when a save you asked for
+  finishes, so you can walk away or carry on without looking at the screen.
+- It stays quiet when the save was automatic (after a compaction, or inside
+  `implement`), during an autonomous run, or when there was nothing to save.
+- When a save closes the story you hear only the fanfare, never both sounds.
+
 ## 1.46.1
 
 - The README now opens with what the plugin gives you, a quick start, and the

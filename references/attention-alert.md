@@ -35,6 +35,7 @@ before looking at the screen:
 | `done` | "Task completed." | finished work is ready to review |
 | `passed` | "Validation passed." | the quality gate passed |
 | `fail` | "Something went wrong." | a check failed, or the run is stuck |
+| `saved` | "Context saved." | a save the human asked for finished |
 | `story` | fanfare, then "Congrats! Story complete." | the whole story is done |
 
 ## Who plays them
@@ -78,7 +79,12 @@ Arm only when the turn ends **and** the next move is the human's:
 | `validate`'s verdict: FAIL; a `manual-qa` report with a FAIL or BLOCKED AC; any step that stops on an error it cannot fix | `fail` |
 | the commit message or PR text handed back, waiting for the human's yes | `commit` |
 | the PR was just opened and its URL handed back | `pr` |
+| `save` finished a save the human asked for, and wrote something | `saved` |
 | the story is complete: `save` just wrote `Implementation Status: Done` | `story` |
+
+A turn arms one kind. When `save` writes `Implementation Status: Done` it arms
+`story` and never `saved`; the last arm wins, so arming both would drop the
+fanfare.
 
 Do **not** arm:
 
@@ -89,7 +95,10 @@ Do **not** arm:
   execution, and a sound there is the noise this replaces.
 - **when the skill is nested in another skill's run** (`manual-qa` inside
   `validate`, `validate` or `summarize-changes` inside `implement`). The outer
-  run arms when it hands back.
+  run arms when it hands back. A `save` that a hook asked for after a
+  compaction is nested too: only a save the human asked for arms `saved`.
+- **when `save` wrote nothing.** Declining the summary, or nothing to save, hands
+  back no news.
 
 ## In autonomous mode
 

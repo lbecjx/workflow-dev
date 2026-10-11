@@ -121,6 +121,7 @@ workflow-dev speaks only when it needs you, with a short line that tells you wha
 | "Task completed." | a task group closed in `implement`, a stand-alone `manual-qa` report with every check passing |
 | "Validation passed." | `validate` passed |
 | "Something went wrong." | `validate` failed, a manual check failed, or an autonomous run stopped on a problem |
+| "Context saved." | a save you asked for finished |
 | a fanfare, then "Congrats! Story complete." | the story is done |
 
 It stays quiet the rest of the time: not after every response, and not in CI or a non-interactive session (`claude -p`). Each event sounds once.
