@@ -1,14 +1,32 @@
 # workflow-dev
 
-A human-piloted, agent-executed development workflow for [Claude Code](https://code.claude.com). Bootstraps a persistent per-project context from Jira, Confluence, and GitHub via MCP — or from a local Markdown file when no issue tracker is available — then decomposes it into a task plan, executes it with enforced quality rules, and runs a multi-dimensional quality gate before every commit.
+Guardrails for agent-driven development in [Claude Code](https://code.claude.com). You pilot and the agent executes, and every step leaves something you can check: each story's context stays on disk through compaction and new sessions, a quality gate runs before every commit, and you see what each story cost.
 
-Working on a side project, freelancing, or just prefer to keep everything local? [`local-backlog`](https://github.com/lbecjx/local-backlog) keeps your stories as plain Markdown right next to your code — no cloud account, no subscription, nothing to sync. It is a Claude Code plugin too, and the two are built to work together: `init` picks up any local `.md` file as its story source out of the box.
+No issue tracker? Pair it with [`local-backlog`](https://github.com/lbecjx/local-backlog) ([more below](#recommended-alongside-this-plugin)).
 
-Context survives compaction and new sessions. Mechanical state (plan progress, files touched) is kept current automatically as work proceeds; decisions, discoveries, and progress notes are saved **on request** — never automatically, and never without your review.
+## Quick start
 
-## Save point
+```
+/plugin marketplace add lbecjx/claude-plugins
+/plugin install workflow-dev@lbecjx
+```
 
-`save` tracks how far the last save read, so a later save only reads what is genuinely new. The position is stored per story in `.workflow-dev/context/.compaction-state/<STORY>.json`: the session transcript the hooks recorded, plus a line count into it. When no transcript is known, `save` says so rather than reporting "nothing unsaved".
+1. **`/workflow-dev:init <story>`**: a Jira link or ID, or the path to a Markdown file. It reads the story, its linked docs and your repo, and writes the context the work runs on. It asks once whether to run the story step by step or [autonomously](#autonomous-mode-opt-in).
+2. **`/workflow-dev:plan`**: splits the story's acceptance criteria into ordered task groups. Nothing starts until you approve them.
+3. **`/workflow-dev:implement`**: runs the next task group one task at a time and explains each change.
+4. **`/workflow-dev:validate`**: checks the change before you commit (security, tests, architecture, acceptance-criteria coverage and an adversarial pass).
+5. **`/workflow-dev:summarize-changes`**: drafts the commit message and PR text. Nothing is committed until you say yes.
+
+Progress is tracked as you go. Decisions and discoveries are saved with `/workflow-dev:save`, and never without your review. In a new session, `/workflow-dev:resume` picks the story up where you left it.
+
+## Requirements
+
+- Claude Code.
+- `gh` (GitHub CLI), if you want the agent to open pull requests.
+- MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. A local Markdown story needs none.
+- `jq`, recommended.
+
+**Platform.** workflow-dev was built, used day to day and tested on macOS. It has not been tested on Windows or Linux.
 
 ## What this is not
 
@@ -18,29 +36,27 @@ Context survives compaction and new sessions. Mechanical state (plan progress, f
 
 ## Autonomous mode (opt-in)
 
-The workflow is human-piloted by default and stays that way — see [What this is not](#what-this-is-not). For a story you want to run end-to-end without approving each step, there is an **opt-in** autonomous mode: tell the agent "ve autónomo" / "run this autonomously", pick it when `init` asks how the story should run, or start the story with `/workflow-dev:init-auto <story>` (same input as `init`) — and it records `Autonomous mode: on` in the story's Decisions (the row lives in the story file, so it survives new sessions and `resume` shows it) and runs `init → plan → implement → validate → summarize` without pausing between tasks.
+Step by step is the default, and stays that way. For a story you want run end to end, start it with `/workflow-dev:init-auto <story>`, pick autonomous when `init` asks, or tell the agent "run this autonomously". It then goes through `init → plan → implement → validate → summarize` without stopping between steps.
 
-Autonomous mode removes the per-step confirmations, not the guardrails:
+It drops the per-step confirmations, not the guardrails:
 
-- **It never overrides a story you set to step by step.** If the story already has `Autonomous mode: off`, starting it autonomously makes `init` say so and ask once; no answer keeps it step by step.
-- **It asks about co-authorship right away.** Right after you choose autonomous, if the repo has no answer yet, it asks once whether the commit and PR should mention the agent as co-author, so the run never has to stop for it later. No answer means no.
-- **It asks only once, and only what blocks.** At the end of `init`, before going autonomous, it tells you it is checking for questions that could block the run, infers what it can, and asks only what it cannot settle (an ambiguous acceptance criterion, say), or tells you there is nothing to ask. From then on it asks nothing.
-- **Decisions are inferred, recorded, and reported.** Each decision point the human would normally answer is resolved with an explicit rule, written to the story's Decisions table, and surfaced in an end-of-run report. Nothing is silently skipped.
-- **A hard boundary always applies.** It never pushes a protected branch, never merges, never skips the adversarial pass when it would run, never invents acceptance criteria, and never adds AI/agent attribution you did not allow — autonomous or not.
-- **The quality gate is load-bearing.** A blocking finding stops the run; it is never downgraded to a warning so the run can continue.
-- **It keeps the Mac awake, and only while it works.** When the run goes autonomous it starts `caffeinate -i` on its own (no question) and tells you, and it closes it when the run ends or stops. Only idle sleep is blocked: the screen still turns off and locks. `caffeinate` is tied to the Claude Code session, so a closed session never leaves the Mac awake, and other `caffeinate` processes (another session's, or your own with other arguments) are left alone. Closing a laptop lid with no external display still sleeps the Mac. Outside macOS the step is skipped (Linux is out of scope).
-- **It drafts, it never opens the PR.** The commit message and PR text are drafted and marked reviewed, then handed to you in the report. `git commit` and `gh pr create` remain your call.
+- **It asks only before it starts, and only what would block it.** That means an ambiguous acceptance criterion, say, and whether commits may credit the agent as co-author when the repo has no answer yet. After that it asks nothing.
+- **It never overrides a story you set to step by step.** It asks you first.
+- **Every decision it makes for you is written down,** with its reason, and listed in the final report.
+- **It has hard limits.** It never pushes a protected branch, never merges, never skips the adversarial check when it would run, never invents acceptance criteria, and never credits the AI unless you allowed it.
+- **A blocking finding is never downgraded** to a warning to keep the run going.
+- **It keeps your Mac awake only while it works.** The screen still turns off and locks.
+- **It never commits or opens the PR.** It drafts the commit message and PR text; `git commit` and `gh pr create` stay yours.
 
-At the end it reports what it did, every decision it made for you (with the inferred reason), what it deferred, and the story's closing cost report (see [Story cost](#story-cost)). Full rules in [`references/autonomous-mode.md`](./references/autonomous-mode.md).
+At the end you get a report: what it did, every decision it made for you, what it left for you, and the story's [cost](#story-cost).
 
 ## Story cost
 
-workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usage/<STORY-ID>.json`), so a story's cost survives across sessions and after a session's transcript is deleted.
+Know what each story cost. workflow-dev adds up what its own skills spend on a story, including the plugin evals `validate` runs. The total carries across sessions, even after you close one. Chat outside the workflow's skills is not counted.
 
-- **What is measured.** Only the spend of workflow-dev skill runs made for the story. Each story skill (`init`, `plan`, `implement`, `validate`, `save`, `resume`, `refresh`, `manual-qa`, `summarize-changes`) records a checkpoint when it starts and another when it finishes; a run costs end minus start. Chat between skills is not counted, even when it is about the story, and neither is another story worked on in the same session. A skill run inside another (`validate` → `manual-qa`) is part of the outer run, and a skill of another story run in the middle of one is taken out of it, so nothing is counted twice. A run is exact only when Claude Code's exact figure is there at both ends; otherwise it is priced from the table. `help`, `setup-models` and `usage` record nothing.
-- **The marks.** `≈` means the figure is estimated from a price table, because Claude Code only writes its exact cost now and then. `≥` means the real cost is at least the figure: an estimate (they run low), a step with no price, a sub-agent whose output was logged incomplete, or an **open run**, a skill that started and never recorded its end. Its spend is lost and never guessed.
-- **During the work.** Each checkpoint prints the run's spend and the story's running total. `/workflow-dev:usage` prints the story's report at any time: total, tokens, by stage, by session, by agent/role with each one's model, and the configured role→model binding.
-- **At the close.** `summarize-changes` ends with a **closing cost report**: one row per skill (runs, cost, `≈`/`≥`), each row whose runs had sub-agents (`validate`, or `implement` when validate ran inside it) split by sub-agent with its model, the total, and a note that usage outside skill runs is not recorded, so the real spend of the sessions can be higher:
+- **As you go:** each step ends with a line showing what it cost and the story's running total.
+- **Any time:** `/workflow-dev:usage` shows the story's total and tokens, by stage, by session and by agent, with the model each agent ran on.
+- **At the close:** `summarize-changes` ends with a cost report, one row per skill:
 
   ```
   Closing cost report: PROJ-123
@@ -53,41 +69,43 @@ workflow-dev keeps a durable cost ledger per story (`.workflow-dev/context/.usag
         wd-operator            ≥$0.5354  models claude-haiku-4-5-20251001
     total                   3  ≈≥$43.5586
   ```
-- **For dashboards.** `.workflow-dev/context/.usage/.index.json` is a read-only summary of every story's cost that a status line can read without the plugin (`schema: "workflow-dev.usage/2"`: `total_usd`, `estimated`, `lower_bound`, `open_runs`, …). Contract in [`references/usage-api.md`](./references/usage-api.md).
+
+Some figures are estimates: `≈` marks an estimate and `≥` a minimum.
+
+**In your status line.** Every story's cost is also kept in a read-only summary that a status line or dashboard can read; see [`references/usage-api.md`](./references/usage-api.md).
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
-| `/workflow-dev:init` | Bootstraps persistent context for a story — from Jira, Confluence, GitHub, the repo, or a local `.md` file |
+| `/workflow-dev:init` | Reads the story (Jira, Confluence, GitHub or a local `.md` file) and your repo, and writes the context the work runs on |
 | `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
-| `/workflow-dev:plan` | Decomposes a story into ordered, validation-aware task groups |
-| `/workflow-dev:implement` | Executes the next task group under enforced coding standards, human-in-the-loop |
-| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, acceptance-criteria coverage, an adversarial correctness pass) before commit |
+| `/workflow-dev:plan` | Splits the story into ordered task groups for you to approve |
+| `/workflow-dev:implement` | Runs the next task group one task at a time, explaining each change |
+| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, acceptance-criteria coverage, an adversarial correctness pass) before commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
 | `/workflow-dev:resume` | Loads the persistent context at the start of a new session |
 | `/workflow-dev:refresh` | Checks every context source (Jira, Confluence, GitHub, the repo) for drift since the last save |
 | `/workflow-dev:setup-models` | Binds each agent role to a model Claude Code offers, so mechanical sub-agent work runs on a fast model and judgment work on a strong one (one-time setup) |
-| `/workflow-dev:usage` | Shows the active story's cost (its skill runs only) and tokens, totalled from its durable ledger across sessions |
+| `/workflow-dev:usage` | Shows the active story's cost and tokens, totalled across sessions ([Story cost](#story-cost)) |
 | `/workflow-dev:help` | Shows current status and suggests the next step |
 
-## Hooks
+## What you'll see along the way
 
-This plugin also ships hooks that keep the workflow above easy to follow — none of them act on their own (they ask first), with one hard exception: AI/agent attribution in a commit or PR message is blocked outright, unless you said yes to agent co-authorship for the repo.
+workflow-dev also watches for the moments a step is easy to forget. It asks; it never acts on its own. The one exception is crediting an AI in a commit or PR, which is blocked unless you allowed it.
 
-- **`SessionStart`** — suggests the right next skill (`resume`, `plan`, `implement`...) based on the active story's real state, at the start of a new session.
-- **`PreCompact`** — warns before context gets compacted if there's an in-progress story, since decisions made purely in conversation (no file changes) can otherwise be lost.
-- **`UserPromptSubmit` / `PostToolUse`** — reminds you to `/workflow-dev:save` when there are pending changes to persist.
-- **`PreToolUse`** (before a real `git commit`) — asks you to confirm `/workflow-dev:validate` passed on the current changes, or lets a deliberate deferral through with a visible note.
-- **`PreToolUse`** (before a real `git commit` / `gh pr create` / `gh pr edit`) — in a workflow-dev project, asks you to confirm the message passed the Git History Disclosure review; blocks outright on any AI/agent attribution, in any repo. The one exception is yours: when you answered yes to agent co-authorship for this repo (`"agentCoauthorship": "yes"` in `.workflow-dev/config.json`), the harness's `Co-Authored-By` trailer and PR attribution line pass, each on its own line, in a plain `git commit` / `gh pr create|edit` (no `cd`, `bash -c`, `git -C` or `gh -R` around it), and nothing else does. `summarize-changes` asks that question once per repo (or `init` asks it when you choose autonomous mode); to change the answer later, just tell the agent. No answer, or any doubt, means no. A git hook of your own outside this plugin may still reject the commit.
+- **At the start of a session:** the next skill to run, based on where the story really is.
+- **Before the context gets compacted:** a warning when a story is in progress, so decisions made only in chat are not lost.
+- **When something is unsaved:** a reminder to run `/workflow-dev:save`.
+- **Before a commit:** a check that `validate` passed on these exact changes, or a visible note when you chose to validate once at the end of the story.
+- **Before a commit or PR:** a check that the message went through review. Commits and PRs never credit an AI unless you said yes for that repo; `summarize-changes` asks you once, and you can change the answer by telling the agent.
+- **After a PR is opened:** its full URL, as plain text.
+- **When the agent roles are not set up:** one question before the skill goes on (see [Model tiering](#model-tiering)).
+- **When a new version is out:** a one-time note with the update command.
 
-  "Real" means the command itself, not a command that mentions one: an `echo`, a `grep`, a heredoc that writes about a commit, `git commit-tree` and the like stay silent. `git -C <dir> commit`, `git -c k=v commit` and a commit after other commands are caught. When a command is wrapped where it cannot be read (`bash -c`, `eval`), it asks rather than guessing, and never blocks.
-- **`PostToolUse`** (after a real `gh pr create` / `gh pr edit` succeeds) — reminds you of the PR's full URL, so it gets relayed as plain text instead of staying buried in a Markdown link label. `gh pr edit` whose own output carries no URL falls back to a read-only `gh pr view --json url`.
-- **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — has the agent ask you one question about the agent roles before the skill goes on: bind them to models, or keep the default for this story or this repo.
-- **`PreToolUse`** (before a `workflow-dev` skill runs) and **`UserPromptExpansion`** (when you type one directly) — tells you, at most once per session per version, when a newer copy of this plugin is on GitHub (with the update command) or already on disk and only needs a session restart. Purely informational: it never asks, blocks, or denies.
-- **`Stop`**, **`PreToolUse`** (before an `AskUserQuestion`) and **`Notification`** (a permission prompt) — play the attention sounds below when workflow-dev needs you; **`UserPromptSubmit`** drops a sound armed by a turn you interrupted. They only play a sound: they never ask, block, or deny.
+Questions and these dialogs come in the language you write in. The dialogs cover English, Spanish, French, Portuguese, German, Italian, Chinese, Japanese, Korean and Russian; any other language gets English.
 
 ## Attention sound
 
@@ -105,109 +123,50 @@ workflow-dev speaks only when it needs you, with a short line that tells you wha
 | "Something went wrong." | `validate` failed, a manual check failed, or an autonomous run stopped on a problem |
 | a fanfare, then "Congrats! Story complete." | the story is done |
 
-It stays quiet the rest of the time: no sound after each response, while it waits idle, or while a task group is still running. Each event sounds once, even if you take a while to answer. It never sounds in CI or in a non-interactive session (`claude -p`).
+It stays quiet the rest of the time: not after every response, and not in CI or a non-interactive session (`claude -p`). Each event sounds once.
 
-The sounds ship with the plugin in [`assets/`](./assets/). The voice is Piper's `en_GB-cori-high`, trained from scratch on public-domain LibriVox recordings and published as public domain; the fanfare is the plugin's own synthesis. [`assets/make-attention-sounds.py`](./assets/make-attention-sounds.py) regenerates them and records exactly how. They play with `afplay` on macOS and `paplay` or `aplay` on Linux, so they do not depend on your terminal's bell; with no player they fall back to the bell. Windows is not supported yet: there you get the terminal bell at most.
-
-**Configure it in one place:** the `env` block of your Claude Code settings (`~/.claude/settings.json`):
+**Turn it off or use your own sound** in the `env` block of `~/.claude/settings.json`, then restart Claude Code:
 
 ```json
 {
   "env": {
-    "WORKFLOW_DEV_ATTENTION_SOUND": "/Users/you/Sounds/ding.wav",
-    "WORKFLOW_DEV_ATTENTION": "on"
+    "WORKFLOW_DEV_ATTENTION": "off",
+    "WORKFLOW_DEV_ATTENTION_SOUND": "/Users/you/Sounds/ding.wav"
   }
 }
 ```
 
-- `WORKFLOW_DEV_ATTENTION` — set it to `off` (or `0`, `false`, `no`) to turn the sound off.
-- `WORKFLOW_DEV_ATTENTION_SOUND` — the path to one file to play for every event instead of the bundled lines. A path that is not a readable file falls back to the bundled sounds.
+`WORKFLOW_DEV_ATTENTION` set to `off` silences it. `WORKFLOW_DEV_ATTENTION_SOUND` plays one file of yours for every event instead of the spoken lines.
 
-Restart Claude Code after changing settings. To hear a sound, run `scripts/attention-alert.sh play <kind>` from the installed plugin's folder, with `need`, `away`, `permission`, `commit`, `pr`, `done`, `passed`, `fail` or `story`.
-
-### Where and how loud
-
-The first story you start on a machine asks two questions, once, and remembers the answers for every repo on that machine:
-
-- **Where the alerts play:** your machine's own speakers (it suggests them by name, such as "MacBook Pro Speakers"), so you hear them even with a headset on, or the default output you are using.
-- **How loud:** Low (25%), Medium (50%), High (75%) or Full (100%) of that output's volume.
-
-The answers live in `~/.workflow-dev/attention.json`. Change them later from the installed plugin's folder:
+**Where and how loud.** The first story you start on a machine asks where the alerts play (your own speakers, so you hear them even with a headset on, or the default output) and how loud. It remembers the answer for every repo. To change it, run from the installed plugin's folder:
 
 ```sh
-scripts/attention-alert.sh devices                         # list outputs
+scripts/attention-alert.sh devices                             # list outputs
 scripts/attention-alert.sh set-device "MacBook Pro Speakers"   # or: set-device default
-scripts/attention-alert.sh set-volume 50                   # 0-100
+scripts/attention-alert.sh set-volume 50                       # 0-100
 ```
 
-`WORKFLOW_DEV_ATTENTION_DEVICE` and `WORKFLOW_DEV_ATTENTION_VOLUME` in settings `env` override the saved answers. On macOS, playing on a chosen output uses a small helper compiled once with `swiftc` (Xcode Command Line Tools); without it, the alerts play on the default output. On Linux the choice goes to `paplay --device` or `aplay -D`. If the chosen output is not connected, the alerts play on the default output.
-
-### Keep only workflow-dev's sound
-
-If you set up a generic alert in Claude Code, it sounds after every response and drowns this one out. To keep only workflow-dev's sound, remove from the `hooks` block of `~/.claude/settings.json`:
-
-- a `Stop` hook that plays a sound (for example `afplay … &`): it fires at the end of every response;
-- a `Notification` hook that plays a sound, or at least its `idle_prompt` matcher: it fires whenever Claude Code waits, whether or not anything needs you.
-
-Before:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff &" }] }
-    ],
-    "Notification": [
-      { "matcher": "idle_prompt", "hooks": [{ "type": "command", "command": "afplay /System/Library/Sounds/Ping.aiff &" }] }
-    ]
-  }
-}
-```
-
-After: delete both entries (and the `hooks` block, if nothing else is left in it). If your terminal also rings its bell on every notification, turn that off in the terminal's own settings.
-
-## Naming tools
-
-The skills name the **capability** — "run a command", "ask the human", "read a file" — and let the session supply the tool, since tool names change between releases and MCP tool names depend on how each server was configured. The examples are in [`references/harness-tools.md`](./references/harness-tools.md).
+**Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
 ## Model tiering
 
-`workflow-dev` spawns sub-agents for four jobs: running a fixed checklist (Verification, the Part 12 text review), making a contested call (Security, Architecture, Algorithmic Integrity, AC Coverage), hunting adversarially for the input that breaks a change (Adversarial Correctness), and studying the story and the repo to draft the plan (`init`'s research, `plan`'s task groups). The plugin never names a model — it names **roles**, `wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`, and you bind each role to a model Claude Code actually offers:
+Put the heavy thinking on a strong model and the routine checks on a fast one, and choose which is which. workflow-dev's sub-agents run under four roles (`wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`), and you bind each role to a model once:
 
 ```
 /workflow-dev:setup-models
 ```
 
-Setup reads the live model list (from a configured gateway, or asks you), asks for a model per role (paged, with a hint that says what the role is for), and writes one agent file per role into your own config, `~/.claude/agents/<role>.md`. Its `model:` takes one of Claude Code's aliases, a full model ID, or `inherit`.
-
-Each generated file carries a hash of the role registry, so a later run — or the reminder hook — can tell a current binding from a stale one.
-
-**The Claude Code limit.** Claude Code routes a sub-agent to its own models. A non-Claude model per sub-agent needs a router or gateway in front of it, and that gateway is also the only way setup can *enumerate* models there (`GET <base>/v1/models`). Without one, setup asks you to type the name yourself — run `/model` to see it — rather than inventing a list. Documented as a fallback, not a promise.
-
-**Degrades honestly.** When a sub-agent's model can't be selected — the roles are unbound or stale and you haven't chosen the default for this repo or story — the workflow says so and runs everything on your default model. It never pretends the tiering happened.
-
-**Init self-heals.** Before `init` spawns its research sub-agents it runs this same check itself, and when the roles are missing or stale it walks you through setup **in the same session** before carrying on — no detour to a second command and back. Bindings current, and it says nothing. A run outside Claude Code or an unreadable role registry is reported and it proceeds on the default, as above. When the roles are unbound the hook has the agent put one question to you before the skill goes on, also in autonomous mode: configure the agents (`/workflow-dev:setup-models`, listed first), keep the default model for this story, or keep it for this repo. The two defaults are recorded where the hook reads them (the story's Decisions, or `tiering` in `.workflow-dev/config.json`) and silence the reminder; the skill goes on after you answer. The hook opens no dialog, so there is no "don't ask again" button. `init` also checks the roles itself (below) as a backstop. One caveat: an agents directory being created for the first time isn't picked up until you restart, so a first-time binding takes effect from the next session rather than the rest of this one — init says so when that applies.
-
-**The session's own model.** The session itself still talks with you and implements each task group, so `init` recommends a tier for it once per story, without asking: intermediate when `wd-architect`, `wd-judge` and `wd-adversary` are bound to a top-tier model (the heavy reasoning already runs there), top tier otherwise or when the story touches writes, concurrency or security, and never the fast tier. The agent infers which models fall in each tier, so a tier can hold several models, and it says nothing when the session already runs on one of them.
-
-**Updating.** Roles live in the plugin; your bindings live in your config, which a plugin update doesn't touch. When a release changes a role's definition the reminder flags the binding as stale, and re-running setup regenerates it while keeping the model you picked. The plugin ships no `agents/` directory of its own, deliberately: a plugin agent gets a namespaced name and can't carry your model.
-
-**Keeping the default model.** There is no machine-wide opt-out: either you bind the agents once, or you keep the default per repo or per story. For a repo, set `"tiering": "default"` in `.workflow-dev/config.json`; for a story, add a `Tiering: default model` row to its Decisions. The reminder's question offers both, and records the one you pick. A `~/.workflow-dev/tiering.json` left by an older version is ignored.
-
-**Dialogs in your language.** The commit and PR hooks write their permission dialogs in the language you write in: English, Spanish, French, Portuguese, German, Italian, Chinese, Japanese, Korean or Russian (any other language gets English). When they can't tell from the conversation, they use Claude Code's `language` setting, then `"language"` in `.workflow-dev/config.json`, which `init` records for you.
-
-## Installation
-
-```
-/plugin marketplace add lbecjx/claude-plugins
-/plugin install workflow-dev@lbecjx
-```
+- **Not set up yet?** The first time, it asks whether to set the roles up or keep your default model. Until you do, everything runs on your default model, and it tells you so.
+- **Keep the default model on purpose,** for a repo or a single story: pick that answer when it asks. For a repo, it is `"tiering": "default"` in `.workflow-dev/config.json`.
+- **Models outside Claude** need a gateway in front of Claude Code.
+- **Updates keep your choice.** If a release changes a role, it asks you to run `setup-models` again, and keeps the model you picked.
+- `init` also recommends a model for the session itself, once per story.
 
 ## Recommended alongside this plugin
 
-If you don't have a cloud-based issue/story tracker, we suggest also installing [`local-backlog`](https://github.com/lbecjx/local-backlog) — it creates and browses stories locally, in plain Markdown, with auto-incrementing codes. `/workflow-dev:init` natively accepts any local `.md` file as a story source, so anything `local-backlog` creates works as input here.
+Keep your backlog where your code is. [`local-backlog`](https://github.com/lbecjx/local-backlog) creates and browses stories as plain Markdown in your repo, with auto-incrementing codes: no cloud account, no subscription, nothing to sync. `/workflow-dev:init` takes any of its stories as they are.
 
-They're independent plugins, though — install either one on its own, or both; neither depends on the other.
+They're independent plugins: install either one on its own, or both.
 
 ## License
 
