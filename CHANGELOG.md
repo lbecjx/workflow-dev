@@ -14,6 +14,8 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+<!-- towncrier release notes start -->
+
 ## 1.49.1
 
 - The alerts no longer read any environment variable. `WORKFLOW_DEV_ATTENTION`

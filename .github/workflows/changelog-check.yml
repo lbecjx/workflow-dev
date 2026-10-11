@@ -1,0 +1,34 @@
+# A pull request must carry its own release note as a fragment in changes/
+# (changes/<story>.<feat|fix|breaking|misc>.md); it does not touch CHANGELOG.md
+# or the version in plugin.json, which the release job writes after the merge.
+# The label no-changelog skips the check.
+#
+# A renamed fragment counts as changed (the R in the filter), so renaming one to
+# another type or an invalid name is checked like a new one.
+#
+# core.quotePath=false keeps a name with accents readable, so it is still seen as
+# a path under changes/ and rejected instead of being skipped.
+#
+# Set up by hand on the remote, since a workflow file cannot do it:
+#   - create the no-changelog label;
+#   - make this check required on main, otherwise a red check blocks nothing.
+name: changelog-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  fragment:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the release note fragments of this pull request
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git -c core.quotePath=false diff --name-only --diff-filter=AMR "origin/$BASE_REF...HEAD" -- changes/ \
+            | .github/scripts/check-changes.sh
