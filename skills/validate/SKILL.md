@@ -245,8 +245,7 @@ files**, plus the Verification commands — a `verify`-only pass over the claime
 fix is enough. This is the difference between paying once and paying for the
 whole gate twice; the reflexive second full pass is exactly where a "small fix"
 turns into a second validation run. Each fix plus its re-check is one round:
-fix in proportion, and stop after the rounds §11.3 allows on the same
-finding.
+fix in proportion, and stop at the caps §11.3 sets on the fix rounds.
 
 ### Step 4: Collect and present results
 
