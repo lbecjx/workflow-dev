@@ -14,6 +14,13 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.46.1
+
+- The README now opens with what the plugin gives you, a quick start, and the
+  requirements: tested on macOS, not on Windows or Linux.
+- Each capability (autonomous mode, story cost, alerts, model roles) is
+  described by what you get and how to use it.
+
 ## 1.46.0
 
 - The commit and PR can credit the agent as co-author if you say yes; you are
