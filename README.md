@@ -14,7 +14,7 @@ No issue tracker? Pair it with [`local-backlog`](https://github.com/lbecjx/local
 1. **`/workflow-dev:init <story>`**: a Jira link or ID, or the path to a Markdown file. It reads the story, its linked docs and your repo, and writes the context the work runs on. It asks once whether to run the story step by step or [autonomously](#autonomous-mode-opt-in).
 2. **`/workflow-dev:plan`**: splits the story's acceptance criteria into ordered task groups. Nothing starts until you approve them.
 3. **`/workflow-dev:implement`**: runs the next task group one task at a time and explains each change.
-4. **`/workflow-dev:validate`**: checks the change before you commit (security, tests, architecture, acceptance-criteria coverage and an adversarial pass).
+4. **`/workflow-dev:validate`**: checks the change across several dimensions to make sure the story meets its quality bar, before you commit.
 5. **`/workflow-dev:summarize-changes`**: drafts the commit message and PR text. Nothing is committed until you say yes.
 
 Progress is tracked as you go. Decisions and discoveries are saved with `/workflow-dev:save`, and never without your review. In a new session, `/workflow-dev:resume` picks the story up where you left it.
@@ -82,7 +82,7 @@ Some figures are estimates: `≈` marks an estimate and `≥` a minimum.
 | `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
 | `/workflow-dev:plan` | Splits the story into ordered task groups for you to approve |
 | `/workflow-dev:implement` | Runs the next task group one task at a time, explaining each change |
-| `/workflow-dev:validate` | Runs a multi-dimensional quality gate (security, types, tests, architecture, algorithmic integrity, acceptance-criteria coverage, an adversarial correctness pass) before commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds |
+| `/workflow-dev:validate` | Checks the change across several dimensions to make sure the story meets its quality bar, before you commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
