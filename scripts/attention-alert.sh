@@ -46,8 +46,12 @@
 #
 # ## Configuration — one place: Claude Code's settings.json `env`
 #
-#   WORKFLOW_DEV_ATTENTION=off          off (also 0, false, no; any case)
 #   WORKFLOW_DEV_ATTENTION_SOUND=/path  play this one file for every event
+#
+# There is no on/off variable. Whether a story sounds is its `notifications`
+# entry in `.workflow-dev/config.json` and nothing else: a second, global
+# switch (WORKFLOW_DEV_ATTENTION=off, removed in WD-0072) silenced a story the
+# human had just turned on, with no sign of why. The variable is no longer read.
 #
 # Env vars, not `.workflow-dev/config.json`: that file is per project and often
 # gitignored, while a sound is a per-user preference, and the settings `env`
@@ -137,9 +141,6 @@ lower() {
 
 # 0 when the sound may play at all.
 alert_enabled() {
-  case "$(lower "${WORKFLOW_DEV_ATTENTION:-}")" in
-    off|0|false|no) return 1 ;;
-  esac
   case "$(lower "${CI:-}")" in
     ''|false|0) ;;
     *) return 1 ;;

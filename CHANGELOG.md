@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.49.1
+
+- `WORKFLOW_DEV_ATTENTION=off` no longer silences the alerts. Whether a story
+  sounds is its own choice, made when you start it; a second, global switch
+  could silence a story you had just turned on, with no sign of why. If you
+  still have that variable in your settings, remove it: the alerts of the
+  stories where you turn them on will now play.
+- `WORKFLOW_DEV_ATTENTION_SOUND` and `WORKFLOW_DEV_ATTENTION_DEVICE` keep
+  working. CI and non-interactive sessions stay silent.
+
 ## 1.49.0
 
 - The alerts are now per story. When you start a story, workflow-dev asks

@@ -130,18 +130,17 @@ It stays quiet the rest of the time: not after every response, and not in CI or 
 
 The first time, it explains why they help. Once you have turned them on, the next story suggests the output you used last (or lets you pick another), and says nothing else. Saying no keeps nothing: the next story asks again. The alerts play at the volume your system has for that output, so with the volume low or on mute you will not hear them. They need [`jq`](https://jqlang.org/) or `perl` installed (macOS and nearly every Linux already have `perl`); with neither, workflow-dev says so and carries on without alerts.
 
-**Turn it off or use your own sound** in the `env` block of `~/.claude/settings.json`, then restart Claude Code:
+**Use your own sound or output** in the `env` block of `~/.claude/settings.json`, then restart Claude Code:
 
 ```json
 {
   "env": {
-    "WORKFLOW_DEV_ATTENTION": "off",
     "WORKFLOW_DEV_ATTENTION_SOUND": "/Users/you/Sounds/ding.wav"
   }
 }
 ```
 
-`WORKFLOW_DEV_ATTENTION` set to `off` silences it. `WORKFLOW_DEV_ATTENTION_SOUND` plays one file of yours for every event instead of the spoken lines. `WORKFLOW_DEV_ATTENTION_DEVICE` forces the output (a name from `scripts/attention-alert.sh devices`, or `default`) whatever you chose for the story.
+To silence a story, say no when it asks whether to turn the alerts on; there is no global off switch. `WORKFLOW_DEV_ATTENTION_SOUND` plays one file of yours for every event instead of the spoken lines. `WORKFLOW_DEV_ATTENTION_DEVICE` forces the output (a name from `scripts/attention-alert.sh devices`, or `default`) whatever you chose for the story.
 
 **Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
