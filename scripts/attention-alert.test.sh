@@ -88,6 +88,7 @@ run() { # run <player dir> <os> [VAR=value ...] -- args
 }
 
 seed_entry() { printf '{"notifications":[{"storyId":"T-1","device":"default"}]}\n' > "${1:-$PROJ}/.workflow-dev/config.json"; }
+seed_device() { printf '{"notifications":[{"storyId":"T-1","device":"%s"}]}\n' "$1" > "${2:-$PROJ}/.workflow-dev/config.json"; }
 reset() { : > "$LOG"; rm -f "$TTY"; seed_entry; }
 wait_log() { local _; for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [[ -s "$LOG" ]] && return 0; sleep 0.05; done; return 1; }
 played() { wait_log && cat "$LOG"; }
@@ -128,12 +129,11 @@ expect_bell "Linux with no player rings the bell" "$TMP/none" Linux -- play
 expect_bell "Darwin without afplay rings the bell" "$TMP/pulse" Darwin -- play
 expect_bell "an unknown OS rings the bell" "$TMP/mac" FreeBSD -- play
 
-# --- 2. off, CI and non-interactive stay silent ---------------------------------
-for v in off OFF Off 0 false FALSE no No; do
-  expect_silent "WORKFLOW_DEV_ATTENTION=$v is off" "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION=$v" -- play
+# --- 2. CI and non-interactive stay silent; WORKFLOW_DEV_ATTENTION is not read ---
+for v in off OFF Off 0 false FALSE no No on; do
+  expect_play "WORKFLOW_DEV_ATTENTION=$v no longer changes anything" afplay "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION=$v" -- play
 done
-expect_play "WORKFLOW_DEV_ATTENTION=on plays" afplay "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION=on -- play
-expect_silent "off also silences the bell" "$TMP/none" Linux WORKFLOW_DEV_ATTENTION=off -- play
+expect_bell "WORKFLOW_DEV_ATTENTION=off does not silence the bell" "$TMP/none" Linux WORKFLOW_DEV_ATTENTION=off -- play
 expect_silent "CI=true is silent" "$TMP/mac" Darwin CI=true -- play
 expect_silent "CI=1 is silent" "$TMP/mac" Darwin CI=1 -- play
 expect_play "CI=false plays" afplay "$TMP/mac" Darwin CI=false -- play
@@ -141,23 +141,11 @@ expect_play "CI=0 plays" afplay "$TMP/mac" Darwin CI=0 -- play
 expect_silent "a non-interactive session (ATTENDED=0) is silent" "$TMP/mac" Darwin CLAUDE_CODE_SESSION_ATTENDED=0 -- play
 expect_play "an interactive session (ATTENDED=1) plays" afplay "$TMP/mac" Darwin CLAUDE_CODE_SESSION_ATTENDED=1 -- play
 
-# --- 3. a custom sound, only when it is a readable regular file --------------
+# --- 3. WORKFLOW_DEV_ATTENTION_SOUND is not read ----------------------------------
 mkdir -p "$TMP/snd dir"
 printf 'x' > "$TMP/snd dir/my sound.wav"
-printf 'x' > "$TMP/proj/-dash.wav"
 reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_SOUND=$TMP/snd dir/my sound.wav" -- play >/dev/null
-[[ "$(played)" == "afplay $TMP/snd dir/my sound.wav" ]] && ok "a custom sound with spaces is played as one argument" || no "custom sound with spaces (got: $(cat "$LOG"))"
-for bad in "$TMP/missing.wav" "$TMP/snd dir" ""; do
-  reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_SOUND=$bad" -- play >/dev/null
-  [[ "$(played)" == *"/assets/attention-need.wav" ]] && ok "custom sound '${bad##*/}' falls back to the bundled one" || no "custom sound '${bad##*/}' falls back (got: $(cat "$LOG"))"
-done
-if [[ "$(id -u)" != "0" ]]; then
-  printf 'x' > "$TMP/locked.wav"; chmod 000 "$TMP/locked.wav"
-  reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_SOUND=$TMP/locked.wav" -- play >/dev/null
-  [[ "$(played)" == *"/assets/attention-need.wav" ]] && ok "an unreadable custom sound falls back" || no "an unreadable custom sound falls back (got: $(cat "$LOG"))"
-fi
-reset; (cd "$PROJ" && env -i HOME="$TMP/home" PATH="$TMP/mac:$TMP/os:$SYS:$TMP/jq" FAKE_UNAME=Darwin WORKFLOW_DEV_ATTENTION_SOUND=-dash.wav /bin/bash "$SCRIPT" play >/dev/null)
-[[ "$(played)" == "afplay ./-dash.wav" ]] && ok "a path starting with - is passed as ./-…" || no "a leading-dash path (got: $(cat "$LOG"))"
+[[ "$(played)" == *"/assets/attention-need.wav" ]] && ok "a custom sound in the environment is ignored: the bundled one plays" || no "custom sound ignored (got: $(cat "$LOG"))"
 
 # --- 4. never in the way ------------------------------------------------------
 reset
@@ -306,8 +294,8 @@ hook_suite() {
 
   new_sid; reset
   arm_sid "$SID"; hook --stop "$(payload "$SID" "$PROJ")" WORKFLOW_DEV_ATTENTION=off
-  check "$tag off: an armed Stop is silent" 0
-  [[ ! -e "$STORE/armed-$SID" ]] && ok "$tag off: the arm is still consumed" || no "$tag off: the arm is still consumed"
+  check "$tag WORKFLOW_DEV_ATTENTION=off is not read: an armed Stop plays" 1
+  [[ ! -e "$STORE/armed-$SID" ]] && ok "$tag WORKFLOW_DEV_ATTENTION=off: the arm is consumed" || no "$tag WORKFLOW_DEV_ATTENTION=off: the arm is consumed"
   new_sid; reset
   arm_sid "$SID"; hook --stop "$(payload "$SID" "$PROJ")" CLAUDE_CODE_SESSION_ATTENDED=0
   check "$tag non-interactive: an armed Stop is silent" 0
@@ -410,7 +398,7 @@ reset; run "$TMP/mac" Darwin -- play done >/dev/null
 reset; run "$TMP/mac" Darwin -- play bogus >/dev/null
 [[ "$(played)" == *"/assets/attention-need.wav" ]] && ok "an unknown kind falls back to need" || no "unknown kind (got: $(cat "$LOG"))"
 reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_SOUND=$TMP/snd dir/my sound.wav" -- play story >/dev/null
-[[ "$(played)" == "afplay $TMP/snd dir/my sound.wav" ]] && ok "a custom sound replaces every kind" || no "custom sound for story (got: $(cat "$LOG"))"
+[[ "$(played)" == *"/assets/attention-story.wav" ]] && ok "a custom sound does not replace any kind" || no "custom sound for story (got: $(cat "$LOG"))"
 mkdir -p "$TMP/t" "$PROJ"
 for pair in "need:need" "commit:commit" "pr:pr" "done:done" "passed:passed" "fail:fail" "saved:saved" "story:story" ":need" "nonsense:need"; do
   armk="${pair%%:*}"; want="${pair##*:}"
@@ -483,17 +471,17 @@ EOF
   touch "$HELPER"
 }
 rm -rf "$H"
-reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_DEVICE=MacBook Pro Speakers" -- play done >/dev/null
+reset; seed_device "MacBook Pro Speakers"; run "$TMP/mac" Darwin -- play done >/dev/null
 [[ "$(played)" == "afplay "*"/assets/attention-done.wav" ]] && ok "with no helper the default output plays" || no "no helper fallback (got: $(cat "$LOG"))"
 fake_helper
-reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_DEVICE=MacBook Pro Speakers" -- play done >/dev/null
+reset; seed_device "MacBook Pro Speakers"; run "$TMP/mac" Darwin -- play done >/dev/null
 [[ "$(played)" == "helper MacBook Pro Speakers "*"/assets/attention-done.wav" ]] && ok "the chosen output plays through the helper" || no "helper play (got: $(cat "$LOG"))"
 [[ "$(run "$TMP/mac" Darwin -- suggest)" == "MacBook Pro Speakers" ]] && ok "suggest names the built-in output" || no "suggest (got: $(run "$TMP/mac" Darwin -- suggest))"
 [[ "$(run "$TMP/mac" Darwin -- devices | wc -l | tr -d ' ')" == 2 ]] && ok "devices lists every output" || no "devices"
-reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_DEVICE=Gone" -- play done >/dev/null
+reset; seed_device Gone; run "$TMP/mac" Darwin -- play done >/dev/null
 [[ "$(played)" == "afplay "*"/assets/attention-done.wav" ]] && ok "an unplugged output falls back to the default output" || no "unplugged fallback (got: $(cat "$LOG"))"
-reset; run "$TMP/mac" Darwin "WORKFLOW_DEV_ATTENTION_DEVICE=default" -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "WORKFLOW_DEV_ATTENTION_DEVICE=default plays on the default output" || no "env default (got: $(cat "$LOG"))"
+reset; seed_device default; run "$TMP/mac" Darwin -- play done >/dev/null
+[[ "$(played)" == "afplay "* ]] && ok "an entry with the default output plays on the default output" || no "entry default (got: $(cat "$LOG"))"
 reset; run "$TMP/mac" Darwin -- play done >/dev/null
 [[ "$(played)" == "afplay "* ]] && ok "with no device chosen the default output plays" || no "no device (got: $(cat "$LOG"))"
 # A retired machine file is never read: not its device, not its volume.
@@ -510,11 +498,11 @@ reset; run "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION_VOLUME=40 -- play done >/dev
 # Linux: the players take the output name directly.
 fake "$TMP/pulsedev" paplay 'for a in "$@"; do [[ "$a" == --device=Gone ]] && exit 1; done'
 fake "$TMP/alsadev" aplay 'for a in "$@"; do [[ "$a" == Gone ]] && exit 1; done'
-reset; run "$TMP/pulsedev" Linux WORKFLOW_DEV_ATTENTION_DEVICE=alsa_output.pci-0000.analog-stereo -- play done >/dev/null
+reset; seed_device alsa_output.pci-0000.analog-stereo; run "$TMP/pulsedev" Linux -- play done >/dev/null
 [[ "$(played)" == "paplay --device=alsa_output.pci-0000.analog-stereo "*"/attention-done.wav" ]] && ok "Linux paplay gets --device" || no "paplay device (got: $(cat "$LOG"))"
-reset; run "$TMP/alsadev" Linux WORKFLOW_DEV_ATTENTION_DEVICE=alsa_output.pci-0000.analog-stereo -- play done >/dev/null
+reset; seed_device alsa_output.pci-0000.analog-stereo; run "$TMP/alsadev" Linux -- play done >/dev/null
 [[ "$(played)" == "aplay -D alsa_output.pci-0000.analog-stereo "*"/attention-done.wav" ]] && ok "Linux aplay gets -D" || no "aplay device (got: $(cat "$LOG"))"
-reset; run "$TMP/pulsedev" Linux WORKFLOW_DEV_ATTENTION_DEVICE=Gone -- play done >/dev/null; sleep 0.3
+reset; seed_device Gone; run "$TMP/pulsedev" Linux -- play done >/dev/null; sleep 0.3
 [[ "$(tail -1 "$LOG")" == "paplay "*"/attention-done.wav" && "$(tail -1 "$LOG")" != *--device* ]] && ok "Linux falls back to the default output when the device fails" || no "paplay fallback (got: $(cat "$LOG"))"
 rm -rf "$H"
 
@@ -629,17 +617,19 @@ reset; gp -- play done >/dev/null
 mkdir -p "$TMP/nowf2"; reset; RUN_CWD="$TMP/nowf2" run "$TMP/mac" Darwin -- play done >/dev/null
 silent && ok "outside any workflow-dev project: silent" || no "no project (got: $(cat "$LOG"))"
 printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-for v in "WORKFLOW_DEV_ATTENTION=off" "CI=true" "CLAUDE_CODE_SESSION_ATTENDED=0"; do
+for v in "CI=true" "CLAUDE_CODE_SESSION_ATTENDED=0"; do
   reset; gp "$v" -- play done >/dev/null
   silent && ok "an entry does not override $v" || no "entry vs $v"
 done
-# the entry's output is used, the environment's wins, and a missing one falls back
+reset; gp WORKFLOW_DEV_ATTENTION=off -- play done >/dev/null
+[[ "$(played)" == "afplay "* ]] && ok "an entry and WORKFLOW_DEV_ATTENTION=off in the environment: it sounds" || no "entry vs off (got: $(cat "$LOG"))"
+# the entry's output is used, the environment is ignored, and a missing one falls back
 fake_helper
 printf '{"notifications":[{"storyId":"WD-0068","device":"MacBook Pro Speakers"}]}\n' > "$GP/.workflow-dev/config.json"
 reset; gp -- play done >/dev/null
 [[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-done.wav" ]] && ok "the entry's output plays through the helper" || no "entry device (got: $(cat "$LOG"))"
 reset; gp WORKFLOW_DEV_ATTENTION_DEVICE=default -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "WORKFLOW_DEV_ATTENTION_DEVICE wins over the entry's output" || no "env over entry (got: $(cat "$LOG"))"
+[[ "$(played)" == "helper MacBook Pro Speakers "* ]] && ok "WORKFLOW_DEV_ATTENTION_DEVICE is not read: the entry's output plays" || no "env ignored (got: $(cat "$LOG"))"
 printf '{"notifications":[{"storyId":"WD-0068","device":"Gone"}]}\n' > "$GP/.workflow-dev/config.json"
 reset; gp -- play done >/dev/null
 [[ "$(played)" == "afplay "* ]] && ok "an entry whose output is unplugged falls back to the default output" || no "entry gone (got: $(cat "$LOG"))"
@@ -741,7 +731,7 @@ printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$FP/.
 N=$((N + 1)); SIDF="f-$N"; reset
 RUN_CWD="$FP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDF" -- arm story >/dev/null
 printf '%s' "$(payload "$SIDF" "$FP")" | RUN_CWD="$FP" run "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION=off -- --stop >/dev/null
-sleep 0.2; [[ -z "$(fp -- entries)" ]] && ok "the story entry goes after the fanfare even with the alerts off" || no "entry kept with alerts off (got: $(fp -- entries))"
+sleep 0.2; [[ -z "$(fp -- entries)" ]] && ok "the story entry goes after the fanfare, WORKFLOW_DEV_ATTENTION=off in the environment or not" || no "entry kept (got: $(fp -- entries))"
 rm -rf "$FP" "$TMP/home" "$H"
 
 # --- 12e. adversarial-review fixes ---------------------------------------------
@@ -766,7 +756,9 @@ printf '{"notifications":[{"storyId":"WD-0068","device":"A"},{"storyId":"WD-0070
 reset; xp -- play start >/dev/null; silent && ok "play start with no output still goes through the gate" || no "play start gate"
 reset; xp -- play start "MacBook Pro Speakers" >/dev/null
 [[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-start.wav" ]] && ok "play start <output> sounds right after activating, on that output, whatever the branch" || no "play start output (got: $(cat "$LOG"))"
-reset; xp WORKFLOW_DEV_ATTENTION=off -- play start "MacBook Pro Speakers" >/dev/null; silent && ok "play start <output> still obeys off" || no "play start off"
+reset; xp WORKFLOW_DEV_ATTENTION=off -- play start "MacBook Pro Speakers" >/dev/null
+[[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-start.wav" ]] && ok "play start <output> sounds with WORKFLOW_DEV_ATTENTION=off in the environment" || no "play start off (got: $(cat "$LOG"))"
+reset; xp CI=true -- play start "MacBook Pro Speakers" >/dev/null; silent && ok "play start <output> still obeys CI" || no "play start CI"
 run "$TMP/mac" Darwin -- play done X >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "an output argument is only for play start (usage error)" || no "play done X usage"
 # writes: symlink, mode, empty file, directory, concurrency
 mkdir -p "$TMP/dot"; printf '{"x":1}\n' > "$TMP/dot/user.json"; chmod 644 "$TMP/dot/user.json"
