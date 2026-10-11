@@ -138,14 +138,14 @@ When all tasks in the group are done:
 
 **In autonomous mode the quality gate is load-bearing** (see
 `references/autonomous-mode.md`): a FAIL here does not let the run continue to a
-commit/PR. Fix and re-validate; if the finding still stands after the rounds
-`../validate/references/rules.md` §11.3 allows, record it as a known
+commit/PR. Fix and re-validate; if
+`../validate/references/rules.md` §11.3 caps the finding, record it as a known
 limitation and go on (point 4 below) — never downgrade a blocking
 finding to a warning so the run can keep going. Any other stop also lets the
 Mac sleep again (`references/autonomous-mode.md`, "Keeping the Mac awake").
 
 **Fixing a finding — in any mode** follows `../validate/references/rules.md`
-§11.3 (fix in proportion, and a cap on the rounds spent on the same finding).
+§11.3 (fix in proportion, and the caps on the fix rounds).
 
 1. Show completion summary.
 

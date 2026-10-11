@@ -221,8 +221,8 @@ and a bad commit. So:
   adversarial or algorithmic-integrity finding, a `.workflow-dev/` git-tracking
   drift — stops the run. The agent does not proceed to commit or PR; it fixes
   what it can and, if it cannot, reports and halts.
-- **The fix-round cap is the one exception to halting.** When a finding still
-  stands after the rounds `validate/references/rules.md` §11.3 allows, the run
+- **The fix-round cap is the one exception to halting.** When
+  `validate/references/rules.md` §11.3 caps a finding, the run
   does not iterate further and does not halt: it records the finding as a
   known limitation in the story's Discoveries, goes on with the remaining work,
   and lists it first under "What it deferred" in the end-of-run report. The

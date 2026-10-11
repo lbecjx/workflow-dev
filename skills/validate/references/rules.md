@@ -615,6 +615,20 @@ here.
   at the plugin root, "The quality gate is load-bearing"). Either way the
   verdict stays what it is: the cap stops the fixing, it never turns a FAIL
   into a PASS.
+- **A new finding after round 2 gets no rounds of its own.** A finding that
+  first appears in the re-check of a finding's second round, outside the code
+  that fix added or changed, is capped from the moment it is found. It is
+  reported like any other finding and its verdict stands, but it is not fixed
+  in this pass. With the human present, show it with the finding it came from
+  and ask how to go on. In autonomous mode, record it as a known limitation and
+  go on, the same as a capped finding above.
+- **At most 4 fix rounds per `validate` pass.** Count every round of every
+  finding in the pass. A new finding from a round-1 re-check still gets its
+  own 2 rounds, but all rounds together stop at 4. When the 4th round ends with
+  a finding still standing, stop fixing: every finding that stands is capped
+  and handled as under "At most 2 rounds per finding". A pass is one
+  `validate` run and the fix rounds that follow it; the story-end batched pass
+  is its own pass. This is what makes the fix-and-revalidate loop end.
 - **A judge-only eval failure is not a finding.** It opens no fix round and
   uses none of the cap: it is reported as judge-only and left there (§6.1).
 - **The cap carries across passes.** A finding the story file already records

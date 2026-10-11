@@ -14,6 +14,16 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.48.0
+
+- The fix-and-revalidate loop in `/workflow-dev:validate` now always ends. A
+  pass allows at most 4 fix rounds across all its findings, on top of the
+  existing 2 rounds per finding.
+- A new finding that first shows up while re-checking a fix's second round gets
+  no fix rounds of its own. It is still reported with its verdict. You decide
+  what to do with it; in an autonomous run it is recorded as a known limitation
+  and the run goes on.
+
 ## 1.47.0
 
 - `/workflow-dev:save` now says "Context saved." when a save you asked for
