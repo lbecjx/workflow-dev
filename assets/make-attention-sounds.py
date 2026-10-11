@@ -7,7 +7,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
 #
-# Generates the ten sounds scripts/attention-alert.sh plays (WD-0052).
+# Generates the eleven sounds scripts/attention-alert.sh plays (WD-0052, WD-0068).
 # Kept for provenance only: the .wav files are committed, and neither CI nor any
 # test runs this file, so the plugin never needs Python or a speech engine at
 # runtime.
@@ -23,6 +23,7 @@
 #   attention-fail.wav        "Something went wrong."    a check failed or the run is stuck
 #   attention-saved.wav       "Context saved."           a save you asked for finished
 #   attention-story.wav       fanfare + "Congrats! Story complete."   the story is done
+#   attention-start.wav       "Ok, let's start!"         the alerts were just turned on
 #
 # The voice is Piper's `en_GB-cori-high` (rhasspy/piper-voices on Hugging Face):
 # its MODEL_CARD states the dataset license as public domain (LibriVox
@@ -63,6 +64,7 @@ PHRASES = {
     "attention-fail": "Something went wrong.",
     "attention-saved": "Context saved.",
     "story-voice": "Congrats! Story complete.",
+    "attention-start": "Ok, let's start!",
 }
 
 # Rising fanfare: C5 E5 G5, then a held C major chord an octave up.
@@ -134,7 +136,7 @@ def main():
     # sounded wrong; two clips with a pause read as someone calling, then asking.
     pause = b"\0\0" * int(RATE * 0.45)
     write("attention-away", clips["away-call"] + pause + clips["attention-need"])
-    for name in ("attention-need", "attention-permission", "attention-commit", "attention-pr", "attention-done", "attention-passed", "attention-fail", "attention-saved"):
+    for name in ("attention-need", "attention-permission", "attention-commit", "attention-pr", "attention-done", "attention-passed", "attention-fail", "attention-saved", "attention-start"):
         write(name, clips[name])
     fanfare = b"".join(struct.pack("<h", int(round(x * 32767))) for x in fanfare_samples())
     gap = b"\0\0" * int(RATE * 0.05)

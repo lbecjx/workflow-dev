@@ -12,13 +12,13 @@
 // helper finds the output by its name (as System Settings shows it), and plays
 // the file there through AVAudioPlayer.currentDevice.
 //
-//   attention-play <device name> <file> [gain 0-1]   play, then exit 0
+//   attention-play <device name> <file>   play, then exit 0
 //   attention-play --list                 one output per line: <transport>\t<default>\t<name>
 //
 // Exit 1 when the device is not connected or the file cannot be played, so the
 // caller can fall back to `afplay` on the default output instead of staying
-// silent. scripts/attention-alert.sh compiles this once, with `swiftc`, when the
-// human picks a device; it is never compiled in a hook.
+// silent. scripts/attention-alert.sh compiles this once, with `swiftc`, when a device
+// is chosen; it is never compiled in a hook.
 
 import AVFoundation
 import CoreAudio
@@ -89,11 +89,10 @@ if args.count == 2 && args[1] == "--list" {
     }
     exit(0)
 }
-guard args.count == 3 || args.count == 4 else {
-    FileHandle.standardError.write("usage: attention-play <device name> <file> [gain 0-1] | --list\n".data(using: .utf8)!)
+guard args.count == 3 else {
+    FileHandle.standardError.write("usage: attention-play <device name> <file> | --list\n".data(using: .utf8)!)
     exit(2)
 }
-let gain = args.count == 4 ? min(max(Float(args[3]) ?? 1, 0), 1) : 1
 let wanted = args[1]
 guard let device = outputDevices().first(where: { stringProperty($0, kAudioObjectPropertyName) == wanted }),
       let uid = stringProperty(device, kAudioDevicePropertyDeviceUID),
@@ -101,7 +100,6 @@ guard let device = outputDevices().first(where: { stringProperty($0, kAudioObjec
     exit(1)
 }
 player.currentDevice = uid
-player.volume = gain
 guard player.play() else { exit(1) }
 Thread.sleep(forTimeInterval: player.duration + 0.2)
 exit(0)

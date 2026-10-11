@@ -37,6 +37,7 @@ before looking at the screen:
 | `fail` | "Something went wrong." | a check failed, or the run is stuck |
 | `saved` | "Context saved." | a save the human asked for finished |
 | `story` | fanfare, then "Congrats! Story complete." | the whole story is done |
+| `start` | "Ok, let's start!" | the alerts were just turned on for this story (played by `init` with `play start`, never armed) |
 
 ## Who plays them
 
@@ -114,41 +115,57 @@ in "Keeping the Mac awake". Arm exactly there, right after
 
 No per-step skill arms during the run.
 
-## First story on a machine — where and how loud
+## Alerts for this story
 
-The sounds play on the system's default output, which is often a headset the
-human takes off when they walk away. So the first `init` on a machine (its
-Phase 7, in either run mode, while the human is still there) asks two questions,
-once, and saves the answers for every repo on this machine. Resolve
-`PLUGIN_ROOT` as in "How to arm", then:
+The alerts are per story: a story sounds only while it has an entry in the
+repo's `.workflow-dev/config.json` (`notifications`), and no entry means no
+sound at all, `need` and `permission` included. `init` makes the entry (its
+Phase 7, in either run mode, while the human is still there), and the last
+output the human chose is kept in `~/.workflow-dev/config.json`, for the next
+story. Resolve `PLUGIN_ROOT` as in "How to arm", with the story ID known:
 
-1. `"$PLUGIN_ROOT"/scripts/attention-alert.sh device` — if it prints anything
-   but `unset`, a choice exists: ask nothing.
-2. `"$PLUGIN_ROOT"/scripts/attention-alert.sh suggest` — the machine's own
-   speakers (a built-in output), or nothing. On macOS the first call compiles a
-   small helper with `swiftc` (a few seconds).
-3. Ask, with the ask-question tool, worded per `references/user-language.md`:
-   - **Question:** this plugin speaks short alerts when it needs your
-     attention; where should they play?
-   - **Option 1** (only when step 2 named an output): `Speakers (<name>)
-     (Recommended)` — "Always these speakers, even with a headset on."
-   - **Option 2:** `Default output` — "Whatever output you are using."
-4. Ask, with the ask-question tool, in the same call:
-   - **Question:** how loud?
-   - Options, in this order: `Low (25%)`, `Medium (50%) (Recommended)`,
-     `High (75%)`, `Full (100%)` — each a share of that output's own volume.
-5. Save: `attention-alert.sh set-device "<name>"` (or `set-device default`) and
-   `attention-alert.sh set-volume <25|50|75|100>`. When `set-device` prints
-   `saved-default-output`, say in one line that this Mac cannot route to that
-   output yet (no `swiftc`), so the alerts play on the default output.
+1. `"$PLUGIN_ROOT"/scripts/attention-alert.sh prune` drops the entries of
+   stories that are no longer in progress.
+2. `"$PLUGIN_ROOT"/scripts/attention-alert.sh offer` prints the state on its
+   first line: `first`, `suggest<TAB><output>`, or `list`. The other lines are
+   the outputs (`recommended|-`, `default|-`, name), then `nospeaker` or
+   `default-only`. On macOS the first call compiles a small helper with `swiftc`
+   (a few seconds).
+3. State `first`: say first, in these two short sentences: *"Some processes take
+   minutes. Turn the alerts on and I'll tell you when something ends or when I
+   need you."* This message comes with every story until the human has turned
+   the alerts on once.
+4. Ask, with the ask-question tool, worded per `references/user-language.md`:
+   **Activate alerts for this story?** — `Yes (Recommended)` and `No`. Never
+   recommend turning them off, and never save a `No`: it holds for this story
+   only, and the next story asks again. On `No`, stop here.
+5. On `Yes`, pick the output:
+   - `suggest`: ask which output with `<output> (Suggested)` and
+     `Choose source`; `Choose source` goes on to the list.
+   - `list`, or `first`: ask **Which source will play them?** with the outputs,
+     the recommended one first and marked `(Recommended)`. The ask-question tool
+     takes four options at most: show the first three and leave the rest to
+     "Other", where the human types the name. End the question with two short
+     notes: *"Choose your speakers: when I call you, you may not have your
+     headphones on."* and *"With low volume or on mute, you won't hear me."*
+     With `nospeaker`, the first note becomes *"It will only sound in your
+     headphones: keep them on."*
+   - `default-only`: nothing can be chosen. Say in one line that this Mac plays
+     the alerts on the current output, and use `default` as the output.
+6. Save: `attention-alert.sh set-pref "<output>"`, then
+   `attention-alert.sh activate <STORY-ID> "<output>"`, then
+   `attention-alert.sh play start "<output>"`. If either save prints `unavailable` (no
+   `jq` or `perl`, or an unreadable `config.json`), say in one line that the
+   alerts need `jq` or `perl` and go on without them.
 
-In autonomous mode these two are part of the pre-autonomous checkpoint, not a
-blocking question about the story: with no answer, save `default` and `50`, and
-record them as `Agent (inferred)`. The human changes either later with the same
-two commands, or overrides them in settings `env`
-(`WORKFLOW_DEV_ATTENTION_DEVICE`, `WORKFLOW_DEV_ATTENTION_VOLUME`). A volume of
-`0` is accepted and silences the alerts; turning them off is
-`WORKFLOW_DEV_ATTENTION=off`.
+Keep every sentence the human reads to one or two short ones.
+
+In autonomous mode this is part of the pre-autonomous checkpoint, not a
+blocking question about the story: with no answer, use the saved output when
+`offer` said `suggest`, else the default output (`default`), run
+`attention-alert.sh activate <STORY-ID> "<output>"` and
+`attention-alert.sh play start "<output>"`, and record the choice as `Agent (inferred)`.
+Save no preference (`set-pref`) from that fallback: it is not the human's choice.
 
 ## Off, CI and unattended
 

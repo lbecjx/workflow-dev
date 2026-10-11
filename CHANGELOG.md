@@ -14,6 +14,26 @@ All notable changes to this plugin are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## 1.49.0
+
+- The alerts are now per story. When you start a story, workflow-dev asks
+  whether to turn them on for it and which audio output plays them: your
+  speakers first, since you may have taken your headphones off by the time it
+  calls you. A story without alerts is silent.
+- Turning them on is always the recommended answer. The first time, a short
+  message explains why; after you turn them on once, the next story suggests
+  the output you used last, if it is still connected.
+- Saying no keeps nothing: the next story asks again.
+- Turning them on plays "Ok, let's start!" so you hear that the sound works.
+- Removed: the volume setting (`set-volume`, `WORKFLOW_DEV_ATTENTION_VOLUME`)
+  and the one-time question per machine (`~/.workflow-dev/attention.json`).
+  Alerts play at the volume your system has for that output, and your old
+  choice is not migrated: the next story asks once.
+- The alerts need `jq` or `perl`. With neither, workflow-dev says so and carries
+  on without alerts.
+- A story's alerts end when its context says Done. The fanfare sounds even if
+  you changed branch before the end, and the story's entry is kept until then.
+
 ## 1.48.0
 
 - The fix-and-revalidate loop in `/workflow-dev:validate` now always ends. A

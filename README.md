@@ -24,7 +24,7 @@ Progress is tracked as you go. Decisions and discoveries are saved with `/workfl
 - Claude Code.
 - `gh` (GitHub CLI), if you want the agent to open pull requests.
 - MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. Don't use them, or would rather not? Try [`local-backlog`](https://github.com/lbecjx/local-backlog): describe what you want built and you have a structured story in your repo in seconds, ready to hand to `init`. No account, no setup.
-- `jq`, recommended.
+- `jq` (or `perl`, which you almost certainly have), recommended.
 
 **Platform.** workflow-dev was built, used day to day and tested on macOS. It has not been tested on Windows or Linux.
 
@@ -126,6 +126,10 @@ workflow-dev speaks only when it needs you, with a short line that tells you wha
 
 It stays quiet the rest of the time: not after every response, and not in CI or a non-interactive session (`claude -p`). Each event sounds once.
 
+**You choose per story.** When you start a story, workflow-dev asks whether to turn the alerts on for it, and which of your audio outputs plays them. Turning them on is the recommended answer, and your speakers come first: if the story takes minutes, you may have taken your headphones off by the time it calls you. A story without alerts is silent, questions and permission prompts included. When they are on, you hear "Ok, let's start!" right away, so you know the sound works.
+
+The first time, it explains why they help. Once you have turned them on, the next story suggests the output you used last (or lets you pick another), and says nothing else. Saying no keeps nothing: the next story asks again. The alerts play at the volume your system has for that output, so with the volume low or on mute you will not hear them. They need [`jq`](https://jqlang.org/) or `perl` installed (macOS and nearly every Linux already have `perl`); with neither, workflow-dev says so and carries on without alerts.
+
 **Turn it off or use your own sound** in the `env` block of `~/.claude/settings.json`, then restart Claude Code:
 
 ```json
@@ -137,15 +141,7 @@ It stays quiet the rest of the time: not after every response, and not in CI or 
 }
 ```
 
-`WORKFLOW_DEV_ATTENTION` set to `off` silences it. `WORKFLOW_DEV_ATTENTION_SOUND` plays one file of yours for every event instead of the spoken lines.
-
-**Where and how loud.** The first story you start on a machine asks where the alerts play (your own speakers, so you hear them even with a headset on, or the default output) and how loud. It remembers the answer for every repo. To change it, run from the installed plugin's folder:
-
-```sh
-scripts/attention-alert.sh devices                             # list outputs
-scripts/attention-alert.sh set-device "MacBook Pro Speakers"   # or: set-device default
-scripts/attention-alert.sh set-volume 50                       # 0-100
-```
+`WORKFLOW_DEV_ATTENTION` set to `off` silences it. `WORKFLOW_DEV_ATTENTION_SOUND` plays one file of yours for every event instead of the spoken lines. `WORKFLOW_DEV_ATTENTION_DEVICE` forces the output (a name from `scripts/attention-alert.sh devices`, or `default`) whatever you chose for the story.
 
 **Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
