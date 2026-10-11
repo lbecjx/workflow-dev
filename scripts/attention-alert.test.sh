@@ -371,7 +371,7 @@ if grep -rn 'attention-alert.sh play' "$ROOT/skills" "$ROOT/references" >/dev/nu
 # --- 8. every kind has a short bundled WAV -----------------------------------
 # Byte rate (offset 28) and data size (offset 40) of the canonical 44-byte header.
 le32() { od -An -tu4 -j "$2" -N 4 "$1" | tr -d ' '; }
-for kind in need away permission commit pr done passed fail story; do
+for kind in need away permission commit pr done passed fail saved story; do
   f="$ASSETS/attention-$kind.wav"
   hdr="$(head -c 12 "$f" 2>/dev/null | od -An -c | tr -d ' \n')"
   rate="$(le32 "$f" 28)"; size="$(le32 "$f" 40)"
