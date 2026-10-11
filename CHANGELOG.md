@@ -16,13 +16,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 ## 1.49.1
 
-- `WORKFLOW_DEV_ATTENTION=off` no longer silences the alerts. Whether a story
-  sounds is its own choice, made when you start it; a second, global switch
-  could silence a story you had just turned on, with no sign of why. If you
-  still have that variable in your settings, remove it: the alerts of the
-  stories where you turn them on will now play.
-- `WORKFLOW_DEV_ATTENTION_SOUND` and `WORKFLOW_DEV_ATTENTION_DEVICE` keep
-  working. CI and non-interactive sessions stay silent.
+- The alerts no longer read any environment variable. `WORKFLOW_DEV_ATTENTION`
+  (which silenced every story, even one you had just turned on, with no sign of
+  why), `WORKFLOW_DEV_ATTENTION_SOUND` and `WORKFLOW_DEV_ATTENTION_DEVICE` are
+  ignored. Whether a story sounds, and on which output, is what you chose when
+  you started it.
+- If you still have those variables in your settings, remove them: the alerts of
+  the stories where you turn them on will now play, on the output you chose.
+  CI and non-interactive sessions stay silent.
 
 ## 1.49.0
 

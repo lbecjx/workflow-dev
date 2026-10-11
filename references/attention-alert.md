@@ -169,10 +169,7 @@ Save no preference (`set-pref`) from that fallback: it is not the human's choice
 
 ## Off, CI and unattended
 
-Whether a story sounds is decided once, per story, by its entry in the repo's
-`config.json` (see "Alerts for this story"); no environment variable turns the
-alerts off. The human can swap the spoken lines for one file, or force the
-output, in Claude Code's settings `env` (`WORKFLOW_DEV_ATTENTION_SOUND`,
-`WORKFLOW_DEV_ATTENTION_DEVICE`; see the README). They are silent in CI and in
-a non-interactive session. Arm the same way regardless: the script decides
-whether anything plays.
+Whether a story sounds, and on which output, is decided once per story by its
+entry in the repo's `config.json` (see "Alerts for this story"). No environment
+variable changes it. The alerts are silent in CI and in a non-interactive
+session. Arm the same way regardless: the script decides whether anything plays.

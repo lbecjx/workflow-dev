@@ -44,20 +44,17 @@
 # human, never go silent. When to arm, and with which kind, is the skills' rule,
 # owned by references/attention-alert.md; this file only owns the mechanics.
 #
-# ## Configuration — one place: Claude Code's settings.json `env`
+# ## Configuration — none in the environment
 #
-#   WORKFLOW_DEV_ATTENTION_SOUND=/path  play this one file for every event
+# Whether a story sounds, and on which output, is its `notifications` entry in
+# `.workflow-dev/config.json` and nothing else (see "Alerts are per story"
+# below). No environment variable is read to switch the alerts off
+# (WORKFLOW_DEV_ATTENTION), to swap the sound (WORKFLOW_DEV_ATTENTION_SOUND) or
+# to force the output (WORKFLOW_DEV_ATTENTION_DEVICE): each of them was a second
+# control that could override the story's own, silencing or redirecting a story
+# the human had just turned on, with no sign of why. Removed in WD-0072.
 #
-# There is no on/off variable. Whether a story sounds is its `notifications`
-# entry in `.workflow-dev/config.json` and nothing else: a second, global
-# switch (WORKFLOW_DEV_ATTENTION=off, removed in WD-0072) silenced a story the
-# human had just turned on, with no sign of why. The variable is no longer read.
-#
-# Env vars, not `.workflow-dev/config.json`: that file is per project and often
-# gitignored, while a sound is a per-user preference, and the settings `env`
-# block reaches every hook process Claude Code starts.
-#
-# It is also silent, whatever the settings, in CI (`CI` set to anything but
+# It is silent, whatever the story says, in CI (`CI` set to anything but
 # `false`/`0`) and in a non-interactive session: Claude Code exports
 # `CLAUDE_CODE_SESSION_ATTENDED=1` to an interactive session and `0` under
 # `claude -p` (measured 2026-10-10). A missing variable (an older Claude Code)
@@ -148,22 +145,13 @@ alert_enabled() {
   [[ "${CLAUDE_CODE_SESSION_ATTENDED:-1}" != "0" ]]
 }
 
-# The file to play for a kind: the user's, when it is a readable regular file,
-# else the bundled one for that kind. A bad custom path falls back instead of
-# going silent, so a typo in settings never costs the human the alert. A path
-# starting with `-` gets a `./` so no player reads it as an option.
+# The bundled file for a kind.
 sound_file() {
-  local custom="${WORKFLOW_DEV_ATTENTION_SOUND:-}"
-  if [[ -n "$custom" && -f "$custom" && -r "$custom" ]]; then
-    [[ "$custom" == -* ]] && custom="./$custom"
-    printf '%s' "$custom"
-  else
-    local bundled
-    bundled="$PLUGIN_ROOT/assets/attention-$(alert_kind "$1").wav"
-    # A kind whose file is missing still calls the human, with the general line.
-    [[ -f "$bundled" ]] || bundled="$PLUGIN_ROOT/assets/attention-need.wav"
-    printf '%s' "$bundled"
-  fi
+  local bundled
+  bundled="$PLUGIN_ROOT/assets/attention-$(alert_kind "$1").wav"
+  # A kind whose file is missing still calls the human, with the general line.
+  [[ -f "$bundled" ]] || bundled="$PLUGIN_ROOT/assets/attention-need.wav"
+  printf '%s' "$bundled"
 }
 
 # The player for this OS, or nothing when there is none: afplay on macOS,
@@ -219,8 +207,7 @@ play_now() { # play_now <kind>
     ring_bell
     return 0
   fi
-  device="$(chosen_device)"
-  [[ -n "$device" ]] || device="$ACTIVE_DEVICE"
+  device="$ACTIVE_DEVICE"
   helper="$(helper_bin)"
   name="${player##*/}"
   # A chosen output is tried first; when it fails (unplugged, renamed, no
@@ -251,11 +238,8 @@ play_now() { # play_now <kind>
 # ## Where the sounds play
 #
 # `afplay` and friends play on the system's default output, which is often a
-# headset the human takes off when they walk away. So a named output can be
-# chosen:
-#
-#   WORKFLOW_DEV_ATTENTION_DEVICE    the output to use (settings `env`); empty or
-#                                    `default` is the system's default output
+# headset the human takes off when they walk away. So the story's entry names
+# the output to use; `default` is the system's default output.
 #
 # On macOS a chosen output needs scripts/attention-play.swift, compiled once with
 # `swiftc` into ~/.workflow-dev/bin/ — never in a hook. Without `swiftc` the
@@ -268,12 +252,6 @@ machine_dir() {
 
 helper_bin() {
   printf '%s/bin/attention-play' "$(machine_dir)"
-}
-
-# The output set by the environment, which wins over the story's own; empty
-# when it is not set.
-chosen_device() {
-  printf '%s' "${WORKFLOW_DEV_ATTENTION_DEVICE:-}"
 }
 
 # ## Alerts are per story
