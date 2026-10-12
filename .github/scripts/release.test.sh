@@ -15,56 +15,37 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/test-lib.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 RELEASE="$HERE/release.sh"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 
-pass=0
-fail=0
-ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
-no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
-check() { # $1 label, then a test command
-  local label="$1"
-  shift
-  if "$@"; then ok "$label"; else no "$label"; fi
-}
-
-export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-
-# A stand-in for towncrier: --draft prints status lines and the notes, --yes
-# removes the fragments and writes the section under the marker. STUB_FAIL=1
-# makes the draft fail.
+# A stand-in for towncrier: `build --yes` removes the fragments and writes the
+# section under the marker. STUB_FAIL=1 makes it fail at once; STUB_FAIL_AFTER=1
+# removes the fragments and then fails; STUB_NOHEAD=1 writes the heading with no
+# notes.
 STUB="$TMP/towncrier-stub"
 cat > "$STUB" <<'STUBEOF'
 #!/bin/bash
-mode=""; ver=""
+# `build --yes --version V`: writes the section under the marker and removes the
+# fragments. STUB_FAIL=1 fails; STUB_NOHEAD=1 writes the heading with no notes.
+ver=""
 while [ $# -gt 0 ]; do
-  case "$1" in
-    build) ;;
-    --draft) mode=draft ;;
-    --yes) mode=yes ;;
-    --version) ver="$2"; shift ;;
-  esac
+  [ "$1" = "--version" ] && { ver="$2"; shift; }
   shift
 done
+[ "${STUB_FAIL:-0}" = 1 ] && { echo "boom"; exit 1; }
 body=""
 for f in changes/*.md; do
   [ "$(basename "$f")" = ".gitkeep" ] && continue
   [ -f "$f" ] && body="$body- $(cat "$f")
 "
 done
-if [ "$mode" = draft ]; then
-  [ "${STUB_FAIL:-0}" = 1 ] && { echo "boom"; exit 1; }
-  [ "${STUB_NOHEAD:-0}" = 1 ] && { printf 'Loading template...\nDraft only\n'; exit 0; }
-  printf 'Loading template...\nDraft only\n\n## %s\n\n%s\n' "$ver" "$body"
-  exit 0
-fi
+[ "${STUB_NOHEAD:-0}" = 1 ] && body=""
 for f in changes/*.md; do
   [ "$(basename "$f")" = ".gitkeep" ] && continue
   git rm -q -f "$f"
 done
+[ "${STUB_FAIL_AFTER:-0}" = 1 ] && { echo "boom after removing the fragments"; exit 1; }
 V="$ver" B="$body" awk '{print} /towncrier release notes start/ {print ""; print "## " ENVIRON["V"]; print ""; printf "%s", ENVIRON["B"]}' CHANGELOG.md > CHANGELOG.new
 mv CHANGELOG.new CHANGELOG.md
 STUBEOF
@@ -89,9 +70,19 @@ commits_of() { git -C "$1" rev-list --count HEAD; }
 run_release() { # run_release <repo> [env assignments ...]
   local d="$1"
   shift
-  (cd "$d" && env TOWNCRIER="$STUB" GITHUB_OUTPUT="$d/out.txt" "$@" "$RELEASE" > "$d/run.log" 2>&1)
+  (cd "$d" && env TOWNCRIER="$STUB" GITHUB_OUTPUT="$d/out.txt" RUNNER_TEMP="$TMP/rt" "$@" "$RELEASE" $RELEASE_ARGS > "$d/run.log" 2>&1)
 }
+rolled_back() { # rolled_back <repo> <fragment>: everything is as it was at HEAD (fragment committed)
+  local d="$1" frag="$2"
+  [ "$(version_of "$d")" = 1.49.1 ] && [ -e "$d/changes/$frag" ] \
+    && [ -z "$(git -C "$d" tag)" ] && [ "$(commits_of "$d")" -eq 2 ] \
+    && [ -z "$(git -C "$d" status --porcelain -- . ':!out.txt' ':!run.log')" ]
+}
+no_branch() { ! git -C "$1" rev-parse -q --verify "refs/heads/$2" >/dev/null; }
 clean_tree() { [ -z "$(git -C "$1" status --porcelain -- . ':!out.txt' ':!run.log')" ]; }
+
+RELEASE_ARGS=""
+mkdir -p "$TMP/rt"
 
 echo "no fragments"
 R="$(mkrepo none)"
@@ -113,7 +104,7 @@ bump_case() { # bump_case <label> <expected> <file...>
   run_release "$d"; local rc=$?
   check "$label: exits 0" [ "$rc" -eq 0 ]
   check "$label: version is $want" [ "$(version_of "$d")" = "$want" ]
-  check "$label: tag v$want on HEAD" [ "$(git -C "$d" rev-parse "v$want^{commit}" 2>/dev/null)" = "$(git -C "$d" rev-parse HEAD)" ]
+  check "$label: no tag is created" [ -z "$(git -C "$d" tag)" ]
 }
 bump_case "fix only" 1.49.2 WD-1.fix.md
 bump_case "misc only" 1.49.2 WD-1.misc.md
@@ -136,18 +127,104 @@ check "plugin.json keeps its escaped dash" grep -q '\\u2014' "$R/.claude-plugin/
 check "plugin.json changes only the version" [ "$(git -C "$R" show HEAD~1:.claude-plugin/plugin.json | jq -S 'del(.version)')" = "$(jq -S 'del(.version)' "$R/.claude-plugin/plugin.json")" ]
 check "CHANGELOG keeps the older section" grep -qx '## 1.49.1' "$R/CHANGELOG.md"
 check "CHANGELOG has the new section" grep -qx '## 1.50.0' "$R/CHANGELOG.md"
-check "the tag is annotated, so push --follow-tags sends it" [ "$(git -C "$R" cat-file -t v1.50.0)" = tag ]
+check "no tag is created" [ -z "$(git -C "$R" tag)" ]
 check "output: released=true" grep -qx 'released=true' "$R/out.txt"
 check "output: version" grep -qx 'version=1.50.0' "$R/out.txt"
 NOTES="$(sed -n 's/^notes_file=//p' "$R/out.txt")"
 check "output: notes file holds the bullets" grep -q '^- Added a thing\.' "$NOTES"
 check "output: notes file has no heading" [ -z "$(grep '^## ' "$NOTES")" ]
 
+echo "the notes file survives whatever else writes to RUNNER_TEMP"
+NOTES1="$(sed -n 's/^notes_file=//p' "$R/out.txt")"
+R2="$(mkrepo samenotes)"
+note "$R2/changes/WD-9.feat.md" "Another feature, from another run."
+note "$R2/changes/WD-10.fix.md" "And its fix."
+git -C "$R2" add -A
+run_release "$R2"
+NOTES2="$(sed -n 's/^notes_file=//p' "$R2/out.txt")"
+check "two releases of the same version in one RUNNER_TEMP get different notes files" [ "$NOTES1" != "$NOTES2" ]
+check "the first notes file is intact" grep -q '^- Added a thing\.' "$NOTES1" && ! grep -q 'Another feature' "$NOTES1"
+check "the notes file does not end with blank lines" [ -n "$(tail -n1 "$NOTES1" | tr -d '[:space:]')" ]
+
 echo "a second run"
 run_release "$R"; rc=$?
 check "exits 0" [ "$rc" -eq 0 ]
 check "no new commit" [ "$(commits_of "$R")" -eq 2 ]
-check "no second tag" [ "$(git -C "$R" tag | wc -l | tr -d ' ')" -eq 1 ]
+check "still no tag" [ -z "$(git -C "$R" tag)" ]
+
+echo "--branch"
+RELEASE_ARGS="--branch"
+R="$(mkrepo onbranch)"
+note "$R/changes/WD-1.feat.md" "A feature."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+START="$(git -C "$R" symbolic-ref --short HEAD)"
+START_SHA="$(git -C "$R" rev-parse HEAD)"
+run_release "$R"; rc=$?
+check "exits 0" [ "$rc" -eq 0 ]
+check "the work is on release/v1.50.0" [ "$(git -C "$R" symbolic-ref --short HEAD)" = release/v1.50.0 ]
+check "the branch it started on is untouched" [ "$(git -C "$R" rev-parse "$START")" = "$START_SHA" ]
+check "one commit on top of the start: 'Release 1.50.0'" [ "$(git -C "$R" rev-list --count "$START..release/v1.50.0")" -eq 1 ] && [ "$(git -C "$R" log -1 --format=%s)" = "Release 1.50.0" ]
+check "the version and the changelog are in that commit" [ "$(git -C "$R" show HEAD:.claude-plugin/plugin.json | jq -r .version)" = 1.50.0 ] && git -C "$R" show HEAD:CHANGELOG.md | grep -qx '## 1.50.0'
+check "output: branch=release/v1.50.0" grep -qx 'branch=release/v1.50.0' "$R/out.txt"
+check "no tag is created" [ -z "$(git -C "$R" tag)" ]
+
+R="$(mkrepo branchfail)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+START="$(git -C "$R" symbolic-ref --short HEAD)"
+printf '#!/bin/sh\nexit 1\n' > "$R/.git/hooks/pre-commit"
+chmod +x "$R/.git/hooks/pre-commit"
+run_release "$R"; rc=$?
+check "a failing commit: exits 1" [ "$rc" -eq 1 ]
+check "a failing commit: back on the start branch" [ "$(git -C "$R" symbolic-ref --short HEAD)" = "$START" ]
+check "a failing commit: the release branch is deleted" no_branch "$R" release/v1.49.2
+check "a failing commit: everything is back at HEAD" rolled_back "$R" WD-1.fix.md
+
+R="$(mkrepo branchempty)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+START="$(git -C "$R" symbolic-ref --short HEAD)"
+run_release "$R" STUB_NOHEAD=1; rc=$?
+check "empty notes: exits 1" [ "$rc" -eq 1 ]
+check "empty notes: back on the start branch with no release branch" [ "$(git -C "$R" symbolic-ref --short HEAD)" = "$START" ] && no_branch "$R" release/v1.49.2
+check "empty notes: everything is back at HEAD" rolled_back "$R" WD-1.fix.md
+
+R="$(mkrepo detached)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+DETACHED_SHA="$(git -C "$R" rev-parse HEAD)"
+git -C "$R" checkout -q --detach
+run_release "$R"; rc=$?
+check "from a detached HEAD: exits 0 and commits on release/v1.49.2" [ "$rc" -eq 0 ] && [ "$(git -C "$R" symbolic-ref --short HEAD)" = release/v1.49.2 ]
+R="$(mkrepo detachedfail)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+DETACHED_SHA="$(git -C "$R" rev-parse HEAD)"
+git -C "$R" checkout -q --detach
+printf '#!/bin/sh\nexit 1\n' > "$R/.git/hooks/pre-commit"
+chmod +x "$R/.git/hooks/pre-commit"
+run_release "$R"; rc=$?
+check "from a detached HEAD, a failure: back on the same commit, release branch deleted" [ "$rc" -eq 1 ] && [ "$(git -C "$R" rev-parse HEAD)" = "$DETACHED_SHA" ] && no_branch "$R" release/v1.49.2 && rolled_back "$R" WD-1.fix.md
+
+R="$(mkrepo branchexists)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+START="$(git -C "$R" symbolic-ref --short HEAD)"
+git -C "$R" branch release/v1.49.2
+run_release "$R"; rc=$?
+check "the branch already exists: exits 1 and says so" [ "$rc" -eq 1 ] && grep -q 'release/v1.49.2 already exists' "$R/run.log"
+check "the branch already exists: nothing is touched" [ "$(git -C "$R" symbolic-ref --short HEAD)" = "$START" ] && rolled_back "$R" WD-1.fix.md
+
+R="$(mkrepo unknownarg)"
+run_release "$R" ; RELEASE_ARGS="--nope"; run_release "$R"; rc=$?
+check "an unknown argument is refused" [ "$rc" -eq 1 ] && grep -q "unknown argument '--nope'" "$R/run.log"
+RELEASE_ARGS=""
 
 echo "names that are not fragments"
 for bad in notes.md WD-1.feature.md README.md "ñotes.md" WD-1.fix.txt .DS_Store .foo; do
@@ -186,12 +263,6 @@ check "without .gitkeep: the version bump is in the release commit" [ "$(git -C 
 check "without .gitkeep: the folder is kept with .gitkeep" [ -e "$R/changes/.gitkeep" ] && git -C "$R" cat-file -e HEAD:changes/.gitkeep
 
 echo "a step fails after the notes are built"
-rolled_back() { # rolled_back <repo> <fragment>: everything is as it was at HEAD (fragment committed)
-  local d="$1" frag="$2"
-  [ "$(version_of "$d")" = 1.49.1 ] && [ -e "$d/changes/$frag" ] \
-    && [ -z "$(git -C "$d" tag)" ] && [ "$(commits_of "$d")" -eq 2 ] \
-    && [ -z "$(git -C "$d" status --porcelain -- . ':!out.txt' ':!run.log')" ]
-}
 R="$(mkrepo hookfail)"
 note "$R/changes/WD-1.fix.md" "A fix."
 git -C "$R" add -A
@@ -210,6 +281,23 @@ git -C "$R" commit -q -m fragments
 run_release "$R" STUB_NOHEAD=1; rc=$?
 check "empty notes: exits 1" [ "$rc" -eq 1 ]
 check "empty notes: everything is back at HEAD" rolled_back "$R" WD-1.fix.md
+
+R="$(mkrepo failsafter)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+run_release "$R" STUB_FAIL_AFTER=1; rc=$?
+check "towncrier fails after removing the fragments: exits 1" [ "$rc" -eq 1 ]
+check "towncrier fails after removing the fragments: they are back, everything as at HEAD" rolled_back "$R" WD-1.fix.md
+RELEASE_ARGS="--branch"
+R="$(mkrepo failsafterbranch)"
+note "$R/changes/WD-1.fix.md" "A fix."
+git -C "$R" add -A
+git -C "$R" commit -q -m fragments
+START="$(git -C "$R" symbolic-ref --short HEAD)"
+run_release "$R" STUB_FAIL_AFTER=1; rc=$?
+check "same with --branch: exits 1, back on the start branch, no release branch, everything at HEAD" [ "$rc" -eq 1 ] && [ "$(git -C "$R" symbolic-ref --short HEAD)" = "$START" ] && no_branch "$R" release/v1.49.2 && rolled_back "$R" WD-1.fix.md
+RELEASE_ARGS=""
 
 echo "refusals"
 R="$(mkrepo tagged)"
@@ -250,5 +338,4 @@ else
   echo "  SKIP towncrier is not installed (pip install towncrier)"
 fi
 
-printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+finish

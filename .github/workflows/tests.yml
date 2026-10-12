@@ -16,22 +16,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      # The release-notes format test needs towncrier; keep this pin equal to
-      # the version noted in .github/towncrier.toml.
-      - name: Install towncrier
-        run: |
-          python3 -m venv "$RUNNER_TEMP/towncrier"
-          "$RUNNER_TEMP/towncrier/bin/pip" install towncrier==26.9.0
-          echo "$RUNNER_TEMP/towncrier/bin" >> "$GITHUB_PATH"
+      # The release-notes format test needs towncrier.
+      - uses: ./.github/actions/setup-towncrier
       - name: Run the plugin's test scripts
-        run: |
-          fail=0
-          for t in scripts/*.test.sh .github/scripts/*.test.sh; do
-            printf '\n=== %s\n' "$t"
-            bash "$t" || fail=1
-          done
-          if [ "$fail" -ne 0 ]; then
-            echo
-            echo "one or more test scripts failed"
-            exit 1
-          fi
+        run: bash .github/scripts/run-tests.sh

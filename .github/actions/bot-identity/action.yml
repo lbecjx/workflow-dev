@@ -1,0 +1,11 @@
+# Sets the git identity of the workflow's commits and tags, so release.yml and
+# publish-release.yml sign them the same way.
+name: Set the bot git identity
+description: Configure git user.name and user.email as github-actions[bot].
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

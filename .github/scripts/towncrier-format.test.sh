@@ -15,15 +15,9 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/test-lib.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 TOWNCRIER="${TOWNCRIER:-towncrier}"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
-pass=0
-fail=0
-ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
-no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 assert_contains() { case "$2" in *"$1"*) ok "$3" ;; *) no "$3 (missing: $1)" ;; esac; }
 assert_absent()   { case "$2" in *"$1"*) no "$3 (unexpected: $1)" ;; *) ok "$3" ;; esac; }
 
@@ -81,5 +75,4 @@ cmp -s "$TMP/before.md" "$TMP/after.md" && ok "history from 1.49.1 down is uncha
 [ ! -e "$TMP/changes/WD-9001.feat.md" ] && ok "consumed fragments are removed" || no "consumed fragments are removed"
 [ -e "$TMP/changes/.gitkeep" ] && ok ".gitkeep stays" || no ".gitkeep stays"
 
-printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+finish

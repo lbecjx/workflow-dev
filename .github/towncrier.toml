@@ -1,5 +1,6 @@
 # Release notes for this repo's own releases (dogfooding only; not part of the plugin).
-# towncrier 26.9.0 is the version this was checked with; `ignore` needs 24.7 or later.
+# towncrier 26.9.0 is the version this was checked with (`ignore` needs 24.7 or later).
+# It is installed by .github/actions/setup-towncrier: change the version there.
 # Run from the repo root: towncrier build --config .github/towncrier.toml --dir .
 # `directory` and `template` are relative to --dir (the repo root), not to this file.
 
