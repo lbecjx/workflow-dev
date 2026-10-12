@@ -1,3 +1,11 @@
+# Runs every test of the repo (run-tests.sh with no argument) on every push and
+# pull request. The one pull request it skips is the release pull request that
+# release.yml opens: github-actions[bot] from a release/v branch of this
+# repository. It changes no code, and the release workflow already ran its own
+# tests before opening it. A skipped job counts as passed, also for the required
+# check scripts. The condition is the release clause of changelog-check.yml, kept
+# identical by .github/scripts/workflows.test.sh; the no-changelog label is left
+# out, so a labelled pull request still runs the tests.
 name: tests
 
 on:
@@ -6,6 +14,10 @@ on:
 
 jobs:
   scripts:
+    if: >-
+      ${{ !(github.event.pull_request.user.login == 'github-actions[bot]'
+      && startsWith(github.head_ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository) }}
     # macOS, deliberately. The test suite and the guard target BSD tools the
     # repo's own conventions assume (`shasum`, `date -r`, `%-I`), and every run
     # so far has happened on macOS; a Linux job would exercise a portability

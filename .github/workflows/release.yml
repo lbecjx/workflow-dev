@@ -6,8 +6,10 @@
 #   2. From main, .github/scripts/release.sh --branch writes the next version
 #      (breaking: major, feat: minor, otherwise patch), the CHANGELOG.md section,
 #      removes the release notes in changes/ and commits it on release/vX.Y.Z.
-#   3. Runs every test of the repo on that branch. If anything fails the run ends
-#      red and nothing was pushed: main and the release notes are untouched.
+#   3. Runs the release's own tests (.github/scripts/*.test.sh) on that branch.
+#      A release changes no plugin code, and that code already passed the full
+#      suite on its own pull request. If anything fails the run ends red and
+#      nothing was pushed: main and the release notes are untouched.
 #   4. .github/scripts/release-push.sh creates the branch on GitHub at main and
 #      commits the same changes on it through GitHub's API, then a pull request
 #      to main is opened with the changelog section as its description, labelled
@@ -28,10 +30,11 @@
 # pushed.
 #
 # The checks of a pull request opened with GITHUB_TOKEN do not start on their own:
-# GitHub holds them as "awaiting approval" until a maintainer approves them, which
-# is why the tests run in step 3 and not on the pull request. changelog-check
-# skips this pull request by its author and branch, so once approved it passes. If
-# main ever requires status checks to merge, approve the held runs before merging.
+# GitHub holds them as "awaiting approval" until a maintainer approves them.
+# changelog-check and tests both skip this pull request by its author and branch,
+# so once the held runs are approved both required checks pass without running
+# the suite again. The cost: a change merged to main around the tests (an admin
+# bypass) is no longer caught here; the push to main still runs the full suite.
 #
 # Run it from main (the job does nothing from another branch). It runs on macOS,
 # like tests.yml: the scripts have only ever been run there.
@@ -69,7 +72,7 @@ jobs:
         run: .github/scripts/release.sh --branch
       - name: Run the tests on the release branch
         if: steps.release.outputs.released == 'true'
-        run: bash .github/scripts/run-tests.sh
+        run: bash .github/scripts/run-tests.sh .github/scripts
       - name: Commit the release on its branch through GitHub
         if: steps.release.outputs.released == 'true'
         env:
