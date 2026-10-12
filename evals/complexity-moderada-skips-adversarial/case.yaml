@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: complexity-moderada-skips-adversarial
+description: >
+  Guard for the story complexity level added in WD-0084. The active story's
+  Decisions record `Complexity: moderada`, and the diff is real but low-risk
+  logic (the same pure function as validates-adversarial-depth-ask). For a
+  `moderada` story, /workflow-dev:validate must skip the adversarial pass
+  because of the level, and must not ask for its depth. If a future edit stops
+  reading the level, or asks the depth anyway, this should start failing.
+tags: [complexity, regression]
+context:
+  scaffold_script: fixture.sh
