@@ -16,6 +16,12 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.49.2
+
+- The release pull request now carries a commit signed by GitHub, and the workflows no longer warn about Node 20.
+- Releases and this changelog are now generated from release notes added with each change.
+- Releases of this repo are now cut by hand: the workflow tests, opens a release pull request and publishes the tag and the GitHub release when it is merged. No stored token is needed.
+
 ## 1.49.1
 
 - The alerts no longer read any environment variable. `WORKFLOW_DEV_ATTENTION`
