@@ -21,6 +21,8 @@
 #   started <pid>    launched a new caffeinate
 #   running <pid>    one for this session is already alive; nothing launched
 #   stopped <pid...> this session's caffeinate is ended
+#   kept-remote <pid...>
+#                    stop left it alive: the session has Remote Control on
 #   not-running      none for this session is alive (already gone is not an error)
 #   unsupported      not macOS, or no caffeinate: skipped
 #   no-session       no Claude Code session PID to tie caffeinate to: skipped
@@ -52,6 +54,17 @@
 # but 0 or 1), the answer is `unknown` and nothing is launched or ended. Each
 # `start` and `stop` is a sequential step of the run (`start` repeats at every
 # task group), so two calls racing each other is not a case this handles.
+#
+# ## Why `stop` keeps it under Remote Control
+#
+# With Remote Control on, the human follows the session from another device
+# and can still answer from there; a Mac that falls asleep freezes the session
+# for them. Claude Code sets `CLAUDE_CODE_BRIDGE_SESSION_ID` on its own
+# environment while the Remote Control bridge is attached, deletes it when the
+# bridge goes away, and passes it to the Bash tool (read in the 2.1.287
+# binary). So a non-empty value means Remote Control is on, and `stop` leaves
+# this session's caffeinate alive: `-w` still ends it with the session. Unset
+# or empty means off or unknown, and `stop` closes it as before.
 #
 # Known limit, stated on purpose: caffeinate does not stop the sleep that comes
 # from closing a laptop lid with no external display. Linux (`systemd-inhibit`)
@@ -176,7 +189,9 @@ case "$action" in
     echo "started $!"
     ;;
   stop)
-    if [[ -n "$pids" ]] && pkill -U "$(id -u)" -f "$pattern" 2>/dev/null; then
+    if [[ -n "$pids" && -n "${CLAUDE_CODE_BRIDGE_SESSION_ID:-}" ]]; then
+      echo "kept-remote $pids"
+    elif [[ -n "$pids" ]] && pkill -U "$(id -u)" -f "$pattern" 2>/dev/null; then
       echo "stopped $pids"
     else
       echo "not-running"

@@ -46,7 +46,9 @@ Hooks play them, never a skill (`scripts/attention-alert.sh`, see
 
 - **A question asked through the ask-question tool** plays `need` by itself
   (the `PreToolUse` hook), or `away` while an autonomous run keeps the Mac
-  awake: the human walked away, so the line calls them back. Do nothing.
+  awake: the human walked away, so the line calls them back. A `caffeinate`
+  kept on for Remote Control after the run counts too, until the session ends.
+  Do nothing.
 - **A permission prompt** plays `permission` by itself (the
   `Notification:permission_prompt` hook). Do nothing.
 - **A turn that ends by handing control to the human in plain text** plays only

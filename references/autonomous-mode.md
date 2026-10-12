@@ -293,6 +293,9 @@ point, and it records nothing in Decisions.
   `Autonomous mode: off` or is removed. A run that goes on after such a wait
   starts it again. The pre-autonomous checkpoint is not such a wait: the human
   is there, and the run goes on right after it, so `caffeinate` stays on.
+  When the session has Remote Control on, every `stop` above leaves
+  `caffeinate` running instead (`kept-remote`, below): the human may follow from
+  another device, and a sleeping Mac would freeze the session for them.
 - **The attention sound goes with it.** Each `stop` above that hands control
   back to the human — the end-of-run report, a stop listed in "Chaining", a wait
   on the human — also arms the attention sound, right after the `stop`, with the
@@ -308,6 +311,7 @@ point, and it records nothing in Decisions.
   |---|---|
   | `started <pid>` / `running <pid>` | `caffeinate` (PID) is on; the Mac will not idle-sleep until the run ends |
   | `stopped <pid>` | `caffeinate` (PID) is closed; the Mac sleeps normally again |
+  | `kept-remote <pid>` | `caffeinate` (PID) stays on because the session has Remote Control; it closes by itself when the session ends |
   | `not-running` (on stop) | it was already gone; nothing to close (not an error) |
   | `unsupported` | not macOS (or no `caffeinate`): skipped |
   | `no-session` | no Claude Code session to tie it to: skipped |
@@ -331,6 +335,9 @@ point, and it records nothing in Decisions.
   path; a process that merely names caffeinate, or one the human starts as
   plain `caffeinate …`, is never this session's. If `pgrep` fails (any exit
   but 0 or 1), the script says `unknown` and launches or ends nothing.
+- **Remote Control.** The script reads it from `CLAUDE_CODE_BRIDGE_SESSION_ID`,
+  which Claude Code sets only while the Remote Control bridge is attached. Unset
+  or empty means off or unknown, and `stop` closes `caffeinate` as usual.
 - **Limits.** `caffeinate` does not stop the sleep that comes from closing a
   laptop lid with no external display. Linux (`systemd-inhibit`) is out of
   scope; there the script says `unsupported`.
@@ -360,7 +367,8 @@ can audit, containing:
    (with `validate`'s sub-agents) and its note that only skill runs are
    counted, reusing WD-0037's checkpoint mechanism.
 5. **Keeping the Mac awake** — whether `caffeinate` was on (its PID) and when it
-   was closed, or that it was skipped and why (see "Keeping the Mac awake").
+   was closed, that it was kept on for Remote Control, or that it was skipped
+   and why (see "Keeping the Mac awake").
 
 The report is a hand-back, so the attention sound is armed with the `stop`
 that closes `caffeinate` (see "Keeping the Mac awake").
