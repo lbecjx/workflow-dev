@@ -42,7 +42,9 @@ check "success: writes pr_url to the output" grep -qx 'pr_url=https://github.com
 check "success: creates the label no-changelog" grep -q '^label create no-changelog' "$GH_LOG"
 check "success: base main, head the release branch" grep -q -- '--base main --head release/v1.50.0' "$GH_LOG"
 check "success: title is 'Release 1.50.0'" grep -q -- '--title Release 1.50.0' "$GH_LOG"
-check "success: the description is the notes file" grep -q -- "--body-file $W/notes.md" "$GH_LOG"
+check "success: the description starts with the notes" [ "$(head -1 "$TMP/pr-body.md")" = "- A feature." ]
+check "success: the description asks for Squash and merge" grep -q 'Squash and merge' "$TMP/pr-body.md"
+check "success: the notes file itself is left as it was" [ "$(cat "$W/notes.md")" = "- A feature." ]
 check "success: the label is added to the pull request that was opened" grep -q '^pr edit https://github.com/lbecjx/workflow-dev/pull/99 --add-label no-changelog' "$GH_LOG"
 check "success: the pull request is created without asking for the label" not grep -q -- 'pr create.*--label' "$GH_LOG"
 check "success: the release branch stays on the remote" branch_on_remote "$W"

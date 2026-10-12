@@ -15,7 +15,7 @@ jobs:
     # than being assumed.
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The release-notes format test needs towncrier.
       - uses: ./.github/actions/setup-towncrier
       - name: Run the plugin's test scripts

@@ -10,8 +10,12 @@
 # Opens the release pull request to main.
 #
 # Env: VERSION (X.Y.Z), BRANCH (the pushed release branch), NOTES_FILE (the
-# changelog section, used as the description). Run from the repo root; needs gh
+# changelog section, the start of the description). Run from the repo root; needs gh
 # (GH_TOKEN in CI). With $GITHUB_OUTPUT set it writes pr_url= there.
+#
+# The description ends with a line asking for "Squash and merge": main takes only
+# signed commits, GitHub signs the squashed commit it makes, and "Rebase and
+# merge" would copy the commit onto main without a signature.
 #
 # The label no-changelog goes on the pull request because it adds no release
 # note of its own (changelog-check would fail it). It is best effort: the pull
@@ -35,14 +39,18 @@ die() { printf 'release-pr.sh: %s\n' "$1" >&2; exit 1; }
 [ -s "${NOTES_FILE:-}" ] || die "NOTES_FILE is missing or empty"
 
 err="$(mktemp)"
-trap 'rm -f "$err"' EXIT
+body="$(mktemp)"
+trap 'rm -f "$err" "$body"' EXIT
+
+{ cat "$NOTES_FILE"; printf '\n---\n\nMerge this pull request with **Squash and merge**.\n'; } > "$body" \
+  || die "could not write the pull request description"
 
 gh label create no-changelog --force --color ededed \
   --description "Skip the release-note check for this pull request" >/dev/null 2>&1 \
   || echo "release-pr.sh: could not create the label no-changelog; continuing" >&2
 
 if url="$(gh pr create --base main --head "$BRANCH" --title "Release $VERSION" \
-    --body-file "$NOTES_FILE" 2>"$err")"; then
+    --body-file "$body" 2>"$err")"; then
   echo "$url"
   gh pr edit "$url" --add-label no-changelog >/dev/null 2>&1 \
     || echo "release-pr.sh: could not add the label no-changelog to $url; continuing" >&2
