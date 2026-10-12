@@ -52,12 +52,15 @@ mkremote() {
 #   pr list        STUB_FAIL=1 fails; STUB_PRS_JSON is run through the --jq it is given
 #   label create   STUB_LABEL_FAIL=1 fails
 #   pr create      STUB_DENY=1 answers the "not permitted to create or approve pull
-#                  requests" error; STUB_FAIL=1 fails with another error
+#                  requests" error; STUB_FAIL=1 fails with another error; the
+#                  description (--body-file) is kept in $TMP/pr-body.md
 #   pr edit        STUB_EDIT_FAIL=1 fails
 #   pr view        succeeds only with STUB_PR_EXISTS=1
 #   release view   succeeds only with STUB_RELEASED=1
 #   release create STUB_CREATE_FAIL=1 fails; the notes it was given are kept in
 #                  $TMP/notes-seen.txt
+#   api graphql    the request body (--input) is kept in $TMP/graphql-body.json;
+#                  STUB_API_FAIL=1 fails, else it prints STUB_API_GRAPHQL
 install_gh_stub() {
   mkdir -p "$TMP/bin"
   GH_LOG="$TMP/gh.log"
@@ -83,6 +86,10 @@ case "$1 $2" in
     exit 0 ;;
   "pr view") [ "${STUB_PR_EXISTS:-0}" = 1 ]; exit $? ;;
   "pr create")
+    for a in "$@"; do
+      [ "${prev:-}" = "--body-file" ] && cp "$a" "$TMP/pr-body.md"
+      prev="$a"
+    done
     if [ "${STUB_DENY:-0}" = 1 ]; then
       echo "pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)" >&2
       exit 1
@@ -97,6 +104,14 @@ case "$1 $2" in
       [ "$1" = "--notes-file" ] && cp "$2" "$TMP/notes-seen.txt"
       shift
     done
+    exit 0 ;;
+  "api graphql")
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--input" ] && cp "$2" "$TMP/graphql-body.json"
+      shift
+    done
+    [ "${STUB_API_FAIL:-0}" = 1 ] && { echo "GraphQL: boom" >&2; exit 1; }
+    printf '%s' "${STUB_API_GRAPHQL:-}"
     exit 0 ;;
 esac
 exit 0

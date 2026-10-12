@@ -8,11 +8,18 @@
 #      removes the release notes in changes/ and commits it on release/vX.Y.Z.
 #   3. Runs every test of the repo on that branch. If anything fails the run ends
 #      red and nothing was pushed: main and the release notes are untouched.
-#   4. Pushes the branch and opens a pull request to main with the changelog
-#      section as its description, labelled no-changelog.
-#   5. You review and merge it. Only then do the release notes leave main.
+#   4. .github/scripts/release-push.sh creates the branch on GitHub at main and
+#      commits the same changes on it through GitHub's API, then a pull request
+#      to main is opened with the changelog section as its description, labelled
+#      no-changelog.
+#   5. You review and merge it with "Squash and merge". Only then do the release
+#      notes leave main.
 #   6. publish-release.yml tags the merged commit and publishes the GitHub Release.
 # With no release notes waiting in changes/, it ends without doing anything.
+#
+# main only accepts commits with a verified signature, and a commit made with
+# `git commit` and the token of the run cannot be signed. So the commit made in
+# step 2 is never pushed: GitHub creates the one on the branch and signs it.
 #
 # No secret is used, only the token of the run (GITHUB_TOKEN). One setting of the
 # repository must be on, because the pull request is opened by Actions: Settings >
@@ -47,7 +54,7 @@ jobs:
     if: github.repository == 'lbecjx/workflow-dev' && github.ref == 'refs/heads/main'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-towncrier
@@ -62,11 +69,12 @@ jobs:
       - name: Run the tests on the release branch
         if: steps.release.outputs.released == 'true'
         run: bash .github/scripts/run-tests.sh
-      - name: Push the release branch
+      - name: Commit the release on its branch through GitHub
         if: steps.release.outputs.released == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.release.outputs.branch }}
-        run: git push origin "refs/heads/$BRANCH"
+        run: .github/scripts/release-push.sh
       - name: Open the release pull request
         id: pr
         if: steps.release.outputs.released == 'true'

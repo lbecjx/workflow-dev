@@ -37,7 +37,7 @@ jobs:
     if: github.repository == 'lbecjx/workflow-dev'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/bot-identity
