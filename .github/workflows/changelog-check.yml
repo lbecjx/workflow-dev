@@ -1,7 +1,13 @@
 # A pull request must carry its own release note as a fragment in changes/
 # (changes/<story>.<feat|fix|breaking|misc>.md); it does not touch CHANGELOG.md
 # or the version in plugin.json, which the release job writes after the merge.
-# The label no-changelog skips the check.
+# The label no-changelog skips the check, and so does the release pull request
+# that release.yml opens: it removes the release notes instead of adding one. That
+# pull request is recognized by who opened it (github-actions[bot]), its branch
+# (release/v...) and its repository, all known when it is opened. Its label cannot
+# be relied on: GitHub holds the checks of a pull request opened with GITHUB_TOKEN
+# until a maintainer approves them, and the label is added only after it is opened.
+# A skipped job counts as passed, also for a required check.
 #
 # A renamed fragment counts as changed (the R in the filter), so renaming one to
 # another type or an invalid name is checked like a new one.
@@ -20,7 +26,11 @@ on:
 
 jobs:
   fragment:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+    if: >-
+      ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog')
+      && !(github.event.pull_request.user.login == 'github-actions[bot]'
+      && startsWith(github.head_ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

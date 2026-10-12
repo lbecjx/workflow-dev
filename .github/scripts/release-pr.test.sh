@@ -51,11 +51,15 @@ check "success: the release branch stays on the remote" branch_on_remote "$W"
 
 W="$(prepare labelfails)"
 STUB_LABEL_FAIL=1 run "$W"; rc=$?
-check "the label cannot be created: warns and goes on" [ "$rc" -eq 0 ] && grep -q 'could not create the label' "$W/out.txt"
+check "the label cannot be created: exit 0" [ "$rc" -eq 0 ]
+check "the label cannot be created: warns and goes on" grep -q 'could not create the label' "$W/out.txt"
 
 W="$(prepare editfails)"
 STUB_EDIT_FAIL=1 run "$W"; rc=$?
-check "the label cannot be added: the pull request still stands and the branch stays" [ "$rc" -eq 0 ] && grep -q 'could not add the label' "$W/out.txt" && grep -q 'pull/99' "$W/out.txt" && branch_on_remote "$W"
+check "the label cannot be added: exit 0" [ "$rc" -eq 0 ]
+check "the label cannot be added: warns" grep -q 'could not add the label' "$W/out.txt"
+check "the label cannot be added: the pull request still stands" grep -q 'pull/99' "$W/out.txt"
+check "the label cannot be added: the branch stays" branch_on_remote "$W"
 
 W="$(prepare denied)"
 STUB_DENY=1 run "$W"; rc=$?
@@ -66,26 +70,32 @@ check "refused by the repository setting: the pushed branch is deleted" not bran
 
 W="$(prepare otherfail)"
 STUB_FAIL=1 run "$W"; rc=$?
-check "another failure: exit 1 and the error is shown as it came" [ "$rc" -eq 1 ] && grep -q 'boom: something else' "$W/out.txt"
+check "another failure: exit 1" [ "$rc" -eq 1 ]
+check "another failure: the error is shown as it came" grep -q 'boom: something else' "$W/out.txt"
 check "another failure: the hint about the setting is not shown" not grep -q 'Allow GitHub Actions' "$W/out.txt"
 check "another failure: the pushed branch is deleted" not branch_on_remote "$W"
 
 W="$(prepare prexists)"
 STUB_PR_EXISTS=1 STUB_FAIL=1 run "$W"; rc=$?
-check "a pull request already exists for the branch: exit 1, the branch is kept" [ "$rc" -eq 1 ] && branch_on_remote "$W" && grep -q 'exists already, so the branch was kept' "$W/out.txt"
+check "a pull request already exists for the branch: exit 1" [ "$rc" -eq 1 ]
+check "a pull request already exists for the branch: the branch is kept" branch_on_remote "$W"
+check "a pull request already exists for the branch: says so" grep -q 'exists already, so the branch was kept' "$W/out.txt"
 
 W="$(prepare nonotes)"
 rm "$W/notes.md"
 run "$W"; rc=$?
-check "missing notes file: exit 1 before gh runs" [ "$rc" -eq 1 ] && [ ! -s "$GH_LOG" ]
+check "missing notes file: exit 1" [ "$rc" -eq 1 ]
+check "missing notes file: gh does not run" [ ! -s "$GH_LOG" ]
 W="$(prepare emptynotes)"
 : > "$W/notes.md"
 run "$W"; rc=$?
-check "empty notes file: exit 1 before gh runs" [ "$rc" -eq 1 ] && [ ! -s "$GH_LOG" ]
+check "empty notes file: exit 1" [ "$rc" -eq 1 ]
+check "empty notes file: gh does not run" [ ! -s "$GH_LOG" ]
 check "empty notes file: the branch is not touched" branch_on_remote "$W"
 
 W="$(prepare novars)"
 (cd "$W" && env -u VERSION -u BRANCH NOTES_FILE="$W/notes.md" "$PR" > out.txt 2>&1 </dev/null); rc=$?
-check "no VERSION or BRANCH: exit 1 and says so" [ "$rc" -eq 1 ] && grep -q 'is not set' "$W/out.txt"
+check "no VERSION or BRANCH: exit 1" [ "$rc" -eq 1 ]
+check "no VERSION or BRANCH: says so" grep -q 'is not set' "$W/out.txt"
 
 finish

@@ -27,10 +27,11 @@
 # approve pull requests". If it is off, the run says so and removes the branch it
 # pushed.
 #
-# A pull request opened with GITHUB_TOKEN does not start other workflows, which is
-# why the tests run in step 3 and not on the pull request. If main ever requires
-# status checks to merge, this pull request will show none; it would then have to
-# be merged by an administrator, or this workflow given a token that starts them.
+# The checks of a pull request opened with GITHUB_TOKEN do not start on their own:
+# GitHub holds them as "awaiting approval" until a maintainer approves them, which
+# is why the tests run in step 3 and not on the pull request. changelog-check
+# skips this pull request by its author and branch, so once approved it passes. If
+# main ever requires status checks to merge, approve the held runs before merging.
 #
 # Run it from main (the job does nothing from another branch). It runs on macOS,
 # like tests.yml: the scripts have only ever been run there.
