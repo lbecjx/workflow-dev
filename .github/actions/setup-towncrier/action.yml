@@ -1,0 +1,14 @@
+# Installs towncrier, at the one version this repo's release notes are built and
+# tested with, into a venv that goes on the PATH. tests.yml and release.yml use it,
+# so the version is written here and nowhere else (besides the note in
+# .github/towncrier.toml, which says it must match).
+name: Set up towncrier
+description: Install the pinned towncrier into a venv on the PATH.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/towncrier"
+        "$RUNNER_TEMP/towncrier/bin/pip" install towncrier==26.9.0
+        echo "$RUNNER_TEMP/towncrier/bin" >> "$GITHUB_PATH"

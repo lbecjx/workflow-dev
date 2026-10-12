@@ -14,14 +14,8 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/test-lib.sh"
 CHECK="$HERE/check-changes.sh"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
-pass=0
-fail=0
-ok() { printf '  ok   %s\n' "$1"; pass=$((pass + 1)); }
-no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 
 mkdir -p "$TMP/changes/sub"
 cd "$TMP" || exit 1
@@ -77,5 +71,4 @@ OUT="$(printf 'changes/WD-1.feat.md\nREADME.md\n' | "$CHECK" 2>&1)"
 OUT="$(printf '' | "$CHECK" 2>&1)"
 [ $? -eq 1 ] && ok "empty stdin fails" || no "empty stdin fails ($OUT)"
 
-printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+finish

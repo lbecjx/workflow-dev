@@ -1,0 +1,48 @@
+# Publishes a release once its pull request is merged: the annotated tag vX.Y.Z on
+# the merged commit and the GitHub Release, with the notes of that version from
+# CHANGELOG.md. The pull request comes from the release workflow, which a person
+# runs by hand; nothing here runs unless the version in plugin.json changed.
+#
+# .github/scripts/publish-release.sh recognizes the release by comparing the
+# version before and after this push (github.event.before), so it does not depend
+# on how the pull request was merged. The paths filter below only avoids starting
+# the job on ordinary merges; the script checks again.
+#
+# Known limit: GitHub keeps one pending run per concurrency group and replaces an
+# older pending one. If three pushes that change plugin.json arrive while one run is
+# going, the middle one is never published. Two releases that close together cannot
+# happen through release.yml (it refuses while one is open); if it does, re-run the
+# cancelled run from the Actions tab.
+#
+# It uses the token of the run (GITHUB_TOKEN) with write access to contents, which
+# creates the tag and the release and deletes the release branch. No secret is
+# needed. Runs on macOS for the same reason tests.yml does: every script here has
+# only ever been run there.
+name: publish-release
+
+on:
+  push:
+    branches: [main]
+    paths: ['.claude-plugin/plugin.json']
+
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'lbecjx/workflow-dev'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/bot-identity
+      - name: Tag and publish the release
+        env:
+          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/publish-release.sh
