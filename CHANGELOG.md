@@ -16,6 +16,10 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.49.3
+
+- A release now runs only its own tests, and its pull request skips the test check, so the full suite no longer runs twice for each release.
+
 ## 1.49.2
 
 - The release pull request now carries a commit signed by GitHub, and the workflows no longer warn about Node 20.
