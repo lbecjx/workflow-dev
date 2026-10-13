@@ -108,11 +108,13 @@ Do **not** arm:
 An autonomous run (`references/autonomous-mode.md`) hands control back only
 where it lets the Mac sleep again: the end-of-run report, and every stop listed
 in "Keeping the Mac awake". Arm exactly there, right after
-`autonomous-keep-awake.sh stop`, and nowhere else:
+`autonomous-keep-awake.sh stop`, and nowhere else. A wait on a question is not
+a stop: the ask plays its own sound (above), so it arms nothing. The arms:
 
 - the end-of-run report after every task group is done and the story-end
   `validate` passed → `story`;
-- any stop on a problem (a FAIL it cannot fix, an ambiguous AC, a block) → `fail`;
+- any stop on a problem (a FAIL it cannot fix, a block, a doubt it cannot infer
+  while unattended, `inference-first.md`) → `fail`;
 - a stop the human asked for → `done`.
 
 No per-step skill arms during the run.

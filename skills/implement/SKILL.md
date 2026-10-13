@@ -39,14 +39,14 @@ Executes the next task group from the story's plan section: loads every executio
 
 ### Step 1: Load context
 
-0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root). Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path. With the row present, start keeping the Mac awake (`references/autonomous-mode.md`, "Keeping the Mac awake"); it only reports `running` when this session's `caffeinate` is already alive.
+0. **Detect autonomous mode.** Read the story's Working Memory → Decisions table. A row `Autonomous mode: on` means this run is autonomous: Steps 2–5 below stop asking and follow the infer + record + report rule in `references/autonomous-mode.md` (at the plugin root), except for a doubt the evidence cannot settle (`references/inference-first.md`), which is still asked. Absence of the row means human-piloted — the default, and the behaviour this skill describes as its primary path. With the row present, start keeping the Mac awake (`references/autonomous-mode.md`, "Keeping the Mac awake"); it only reports `running` when this session's `caffeinate` is already alive.
 
 0b. **Record this run's start** — once per invocation, however many task groups
    it then runs (`references/run-cost.md` at the plugin root,
    `--stage implement --start`). The `validate`, `save` and `summarize-changes`
    runs this skill invokes are nested in it and record nothing of their own.
 
-1. Read `.workflow-dev/context/[STORY-ID].md` — find the Plan section, identify next task group (first with status "Not Started" or "In Progress")
+1. Read `.workflow-dev/context/[STORY-ID].md` — find the Plan section, identify next task group (first with status "Not Started" or "In Progress"). An `Open question:` row still `Pending (human)` in its Decisions comes first (`references/inference-first.md` at the plugin root)
 2. Read `.workflow-dev/context/REPO.md` — project conventions, prohibitions, good practices
 3. Read `references/coding-standards.md` — universal engineering rules
 4. Read `references/decision-points.md` — when to stop and ask
@@ -102,10 +102,17 @@ Task Group N: <Title>
 
 During implementation, STOP and ask the human when any condition from `references/decision-points.md` is met. Never proceed silently past a decision point.
 
-In autonomous mode, a decision point is not a stop — it is resolved by the
-infer + record + report rule in `references/autonomous-mode.md`: infer the
-answer the human would give, write the decision and its inferred reason to the
-story's Decisions table, and carry it into the end-of-run report. Never skip the
+Before you stop, settle what the evidence settles (`references/inference-first.md`
+at the plugin root): a decision point the story, REPO.md, the code, git history or
+the docs already answer is recorded as an inferred answer with its evidence, not
+asked.
+
+In autonomous mode, a decision point the evidence settles is not a stop — it is
+resolved by the infer + record + report rule in `references/autonomous-mode.md`:
+write the answer and its evidence to the story's Decisions table, and carry it
+into the end-of-run report. A decision point the evidence cannot settle is never
+inferred: follow `references/inference-first.md`, "A doubt you cannot
+infer". Never skip the
 record step — a decision taken for the human with no written trace is the one
 failure this mode must not have. The hard boundary in `autonomous-mode.md`
 (never push a protected branch, never merge, never skip the adversarial pass,
@@ -244,4 +251,4 @@ All principles from `references/coding-standards.md` and `references/decision-po
 
 1. **Human-in-the-loop** — explain and wait after every task. No silent batching. The one exception is autonomous mode (`Autonomous mode: on` in the story's Decisions — `references/autonomous-mode.md`), which replaces the per-task wait with infer + record + report; it does not make a human-piloted run silent.
 2. **Validate before commit — or defer it deliberately, per the story's chosen mode.** Every task group's changes get checked, one way or another: either `/workflow-dev:validate` runs right after it (marked "validated"), or it's marked "deferred" and folded into the one batched pass at story end (Step 5) — never silently skipped with no marker at all.
-3. **Zero-inference** — read code or ask. Never assume.
+3. **No assumptions** — infer from evidence, or ask (`references/inference-first.md`). Never assume.

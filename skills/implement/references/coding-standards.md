@@ -44,14 +44,14 @@ Think and implement like a Senior Software Engineer:
 
 ---
 
-## Zero-Inference Policy
+## No Assumptions
 
-Nothing should be inferred. Everything must be given by the human or read from code:
+Nothing is assumed. Every answer comes from the evidence — the story, REPO.md, the code, git history, the docs — or from the human (`references/inference-first.md` at the plugin root):
 
 - Don't assume naming conventions — read existing code
 - Don't assume error handling strategy — match existing patterns
 - Don't assume data shapes or types — read actual interfaces
-- Don't assume business logic — ask
+- Don't assume business logic — take it from the story and the code, or ask
 - Don't assume the plan is correct — verify against actual codebase
 
 ---

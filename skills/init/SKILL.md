@@ -275,8 +275,11 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
 ### Phase 7: Ask the human
 
 1. Collect every ⬜ across both files.
-2. Turn them into specific questions grounded in what's actually missing — not a generic checklist.
-3. Present them and update the context files with the answers.
+2. Settle each one from the evidence first, and record each answer with its
+   evidence (`references/inference-first.md` at the plugin root). Keep as a
+   question only what that file calls not inferable.
+3. Turn those into specific questions grounded in what's actually missing — not a generic checklist.
+4. Present them and update the context files with the answers, rewriting each `Open question:` row with its answer and `Human` as who decided.
 
 In autonomous mode, this phase is the pre-autonomous checkpoint: follow
 `references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
@@ -305,7 +308,10 @@ Report back:
 
 In autonomous mode, don't suggest and don't ask: run `/workflow-dev:plan` in
 the same turn (`references/autonomous-mode.md`, "Chaining"). The report above
-goes into the end-of-run report instead.
+goes into the end-of-run report instead. The one exception: when the
+pre-autonomous checkpoint stopped the story because nobody could answer an open
+question, do not run `plan`. Stop there and report the open questions, as
+`references/inference-first.md`, "A doubt you cannot infer", says.
 
 ## Principles
 

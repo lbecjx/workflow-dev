@@ -46,8 +46,9 @@ is asked about first; see "Asked at init"). The agent records the row
   and the PR should mention the agent as co-author
   (`../skills/validate/references/rules.md` §12.3). Skip it when the repo's
   `.workflow-dev/config.json` already holds `agentCoauthorship`: the answer is
-  per repository, asked once. It is asked here because the run asks nothing
-  later, and `summarize-changes` must not stop an unattended run to ask it.
+  per repository, asked once. It is asked here because the run asks no fixed
+  question later, and `summarize-changes` must not stop an unattended run to
+  ask it.
   Same question, options, and key as `summarize-changes` Step 1; the answer is
   always the human's, never inferred. No answer means no, and writes nothing.
 - **Asked at init** when the human has not said how to run: `init` asks through
@@ -75,14 +76,14 @@ script** that detects the signal, because the only consumers of the signal are
 the skills (read by the agent), and the commit/PR hooks do **not** need it — see
 "Hooks" below.
 
-## The pre-autonomous checkpoint — the only place a run asks
+## The pre-autonomous checkpoint
 
-An autonomous run may ask the human questions in exactly one place: at the end
-of `init`, before the run goes autonomous (`init` Phase 7). After that point it
-asks nothing. The human chose autonomous so they could walk away; a question
-that surfaces an hour later finds nobody there and stalls the run. So `init`
-gathers every question that could block the run while the human is still
-present, and asks only those.
+An autonomous run asks its questions up front: at the end of `init`, before the
+run goes autonomous (`init` Phase 7). The human chose autonomous so they could
+walk away; a question that surfaces an hour later may find nobody there and
+stall the run. So `init` gathers every question that could block the run while
+the human is still present, and asks those then. After that point the run asks
+only a doubt it cannot infer that comes up later (step 5).
 
 In order:
 
@@ -92,19 +93,26 @@ In order:
    need to ask first. For example, in Spanish: "Espera, verifico si tengo
    preguntas necesarias que podrían bloquearme y que debo hacerte antes de
    pasar a modo autónomo."
-2. **Infer first.** Go through every ⬜ in the context files and resolve what
-   you can by "infer + record + report" (below).
-3. **Ask only what blocks.** A ⬜ is a blocking question only when it is
-   important to the outcome **and** inference cannot settle it: an ambiguous
-   acceptance criterion, or a choice between readings that would produce
-   different work. Ask all of them in one batch with the ask-question tool,
-   wait for the answers, and write them into the context files. Do not ask
-   about a ⬜ you could infer, however minor, and do not ask "anything else?".
+2. **Infer first.** Go through every ⬜ in the context files and settle what
+   the evidence settles, recording each answer with its evidence
+   (`references/inference-first.md`).
+3. **Ask only what blocks.** A ⬜ is a blocking question when that file calls it
+   not inferable: an ambiguous acceptance criterion, a choice between readings
+   that would produce different work, a value nothing in the repo states. Write
+   each one as an `Open question:` row first, then ask all of them in one batch
+   with the ask-question tool, wait for the answers, and write them into the
+   context files, rewriting each `Open question:` row with its answer and
+   `Human` as who decided. When the run is unattended (same file), do not ask and do not
+   go autonomous: stop the story there, with the open questions reported. Do not ask about a ⬜ you could infer,
+   however minor, and do not ask "anything else?".
 4. **Say when there is nothing to ask.** If no blocking question is left, say
    so in one line and go on.
-5. **Go autonomous.** From here on the run asks nothing: every decision point
-   follows "infer + record + report", and an ambiguity that only appears later
-   stops the run and is reported (see "The hard boundary"), never asked.
+5. **Go autonomous.** From here on the run asks nothing it can infer: every
+   decision point the evidence settles follows "infer + record + report". A
+   doubt that is not inferable and only appears later is never assumed: the run
+   asks it and waits while a human can answer, and stops the story when the run
+   is unattended (`references/inference-first.md`, "A doubt you cannot
+   infer").
 
 The alerts question of `init` (`attention-alert.md`, "Alerts for this story")
 is asked here while the human is present, and never blocks: with no answer the
@@ -120,13 +128,18 @@ hook.
 Where a human-in-the-loop run would STOP and ask, an autonomous run does three
 things instead, in order, and never skips any of them:
 
-1. **Infer** — pick the answer the human most likely would, using the same
-   default each skill already documents for its unattended/non-interactive
-   branch. Do not re-derive a fallback the skill already owns.
-2. **Record** — write the decision (and the reason it was inferred) to the
-   story's Decisions table. A decision taken for the human that is not written
-   down is a silent skip, and a silent skip is the one failure this mode must
-   never have.
+1. **Infer** — for a fixed question a skill always asks (a validation mode, a
+   manual-QA choice, an adversarial depth), take the default that skill already
+   documents for its unattended/non-interactive branch; do not re-derive a
+   fallback the skill already owns. For an ad-hoc doubt, infer means settling
+   it from the evidence (`references/inference-first.md`); a skill's default is
+   never evidence for it. A doubt the evidence cannot settle is not a decision
+   point this rule resolves: it is asked or stops the story (same file).
+2. **Record** — write the decision to the story's Decisions table: the reason
+   for a fixed question's default, the evidence for an ad-hoc doubt (the row
+   shape is in `references/inference-first.md`). A decision taken for the human
+   that is not written down is a silent skip, and a silent skip is the one
+   failure this mode must never have.
 3. **Report** — surface it in the end-of-run report (see below), so the human
    sees every call that was made on their behalf.
 
@@ -158,9 +171,12 @@ finishes in this mode, the agent runs the next one in the same turn:
   this mode removes.
 - The run stops only at the hard boundary below, at a quality-gate FAIL it
   cannot fix (except a finding that reached the fix-round cap, which is
-  recorded and passed over — see "The quality gate is load-bearing"), at an
-  ambiguous AC, at a point where the human asked it to stop
-  (e.g. "stop once the plan is written"), or at the end-of-run report. A stop says
+  recorded and passed over — see "The quality gate is load-bearing"), at a
+  doubt it cannot infer while unattended (an ambiguous AC is one), at a point
+  where the human asked it to stop
+  (e.g. "stop once the plan is written"), or at the end-of-run report. A doubt
+  it cannot infer while a human can answer is not a stop: the run asks it,
+  waits, and goes on with the answer. A stop says
   which of these it is, and every one of them lets the Mac sleep again (see
   "Keeping the Mac awake").
 
@@ -192,10 +208,12 @@ not judgment calls, and they have no autonomous fallback:
   picks one. The depth is decided by
   `validate/references/rules.md` §11.0's unattended fallback — the mode consumes
   that fallback, it never invents a shallower one (see "Adversarial depth").
-- **Never invent acceptance criteria.** An ambiguous AC is a blocking question
-  for the pre-autonomous checkpoint. If one only appears after it, the run stops
-  and reports the ambiguity; it neither asks nor fabricates a criterion to
-  satisfy.
+- **Never invent acceptance criteria, and never assume an answer the evidence
+  does not give.** An ambiguous AC is a blocking question for the
+  pre-autonomous checkpoint. If one only appears after it, it is a doubt the
+  run cannot infer: the run asks it and waits while a human can answer, and
+  stops the story when unattended (`references/inference-first.md`). It never
+  fabricates a criterion, or an answer, to satisfy.
 - **Never add AI/agent attribution the human did not allow, and never infer a
   yes.** `pre-commit-message-check.sh` denies any commit/PR carrying
   attribution unless the human answered yes to agent co-authorship, and then
@@ -205,14 +223,20 @@ not judgment calls, and they have no autonomous fallback:
   the agent must not "help" the run along by editing attribution text, or the
   `agentCoauthorship` key, past the check.
 
-Besides the pre-autonomous checkpoint, one question is required even in
-autonomous mode: when model tiering is not set up,
-the tiering hook has the agent ask, before the first workflow-dev skill goes on, and wait for the answer
-(configure the agents, or a default model for this story or this repo — see
-`hooks/README.md`). No answer is inferred for the user; the run waits.
+Besides the pre-autonomous checkpoint, two things are asked even in
+autonomous mode, and the run waits for the answer:
 
-Everything else — a validation-mode choice, a manual-QA choice, a
-no-repro-vs-complete depth — is an ordinary decision point and follows
+- When model tiering is not set up, the tiering hook has the agent ask, before
+  the first workflow-dev skill goes on (configure the agents, or a default
+  model for this story or this repo — see `hooks/README.md`).
+- A doubt the evidence cannot settle (`references/inference-first.md`), while a
+  human can answer it. Unattended, it stops the story instead. A conflict
+  between two sessions' saves (`save` Step 3) is one: contradictory evidence.
+
+No answer to either is inferred for the user.
+
+The other fixed questions — a validation-mode choice, a manual-QA choice, a
+no-repro-vs-complete depth — are ordinary decision points and follow
 "infer + record + report".
 
 `init`'s session-model tier notice (WD-0050) is not a decision point: it asks
@@ -293,9 +317,9 @@ point, and it records nothing in Decisions.
   `caffeinate` is alive and launches a new one when it is not.
 - **Stop.** Run `"$PLUGIN_ROOT"/scripts/autonomous-keep-awake.sh stop` when the
   run ends, in every form: the end-of-run report, any stop listed in "Chaining"
-  (a finding, a block, a quality-gate FAIL it cannot fix, an ambiguous AC, a
-  stop the human asked for), whenever the run waits on the human (the
-  model-tiering question), and when the row becomes
+  (a finding, a block, a quality-gate FAIL it cannot fix, a doubt it cannot
+  infer while unattended, a stop the human asked for), whenever the run waits on the human (the
+  model-tiering question, a doubt it cannot infer), and when the row becomes
   `Autonomous mode: off` or is removed. A run that goes on after such a wait
   starts it again. The pre-autonomous checkpoint is not such a wait: the human
   is there, and the run goes on right after it, so `caffeinate` stays on.
@@ -306,7 +330,9 @@ point, and it records nothing in Decisions.
   back to the human — the end-of-run report, a stop listed in "Chaining", a wait
   on the human — also arms the attention sound, right after the `stop`, with the
   kind `references/attention-alert.md` ("In autonomous mode") gives: `story` for
-  a finished story, `fail` for a stop on a problem. These are the only points an
+  a finished story, `fail` for a stop on a problem (an unattended stop on a
+  doubt it cannot infer is one). A wait on a question needs no arm: the ask
+  itself plays its sound. These are the only points an
   autonomous run arms; a task group that chains on stays silent. Turning the row
   `off` is the human's own move, so it arms nothing.
 - **Notices.** Tell the human what happened in one line, in the conversation's
@@ -358,11 +384,13 @@ can audit, containing:
 
 1. **What it did** — the task groups completed, per the plan.
 2. **Every decision taken for the human** — one line each, with the inferred
-   reason, pulled from the Decisions table entries the run recorded. That
-   includes the answers passed to another plugin's skill in a pre-answered
-   invocation, and the run mode itself.
+   reason or, for an ad-hoc doubt, its evidence, pulled from the Decisions
+   table entries the run recorded. That includes the answers passed to another
+   plugin's skill in a pre-answered invocation, and the run mode itself.
 3. **What it deferred** — any validation deferred to the story-end pass, any
-   finding left for the human, any ambiguity it stopped on. This includes
+   finding left for the human, any ambiguity it stopped on, and every question
+   it asked mid-run with the human's answer. Every `Open question:` row still
+   pending is listed first. This includes
    every `validate`'s AC Coverage result in the run (`validate/references/rules.md`
    Part 14): each AC's verdict, every PARTIAL and NOT VERIFIABLE STATICALLY with
    its reason, and the proposed Progress changes. (An AC confirmed NOT COVERED

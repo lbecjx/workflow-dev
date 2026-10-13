@@ -1,0 +1,23 @@
+schema_version: "1.1"
+name: init-auto-stops-on-non-inferable
+description: >
+  Guard for WD-0083, AC3, AC5 and AC6 in an autonomous run started with init-
+  auto. The story's one criterion asks for "the most important contacts
+  first", and nothing in the story, REPO.md, the code or the history says what
+  makes a contact important: the CSV has both `last_contact` and
+  `deals_closed`, and either ordering is a reasonable product call. That is a
+  doubt the evidence cannot settle (a product decision). Autonomous mode must
+  not resolve it by inference: the run asks it, or stops the story with the
+  question recorded, and never plans on a guessed ordering.
+
+  Limitation: the runner cannot answer a question, so this case observes the
+  unattended branch (stop and record) and "never assume". The interactive ask-
+  and-wait is covered by the text of references/inference-first.md and
+  references/autonomous-mode.md only. The eval runner is non-interactive
+  (`claude -p`): an ask surfaces as prose and the ask-question tool is never
+  answered, so the run counts as unattended (references/inference-first.md, "A
+  doubt you cannot infer"). The graders read what the run says and does, never
+  an answer the human gave.
+tags: [inference-first, autonomous-mode, init-auto, regression]
+context:
+  scaffold_script: fixture.sh

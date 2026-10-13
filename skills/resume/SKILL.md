@@ -85,6 +85,9 @@ Branch:  [branch name] [up to date | X commits behind base]
 Mode:    [Autonomous — Decisions has "Autonomous mode: on" | Human-in-the-loop]
 Last saved: [timestamp]
 
+Open questions:
+- [each `Open question:` row still `Pending (human)` — or "none"]
+
 Pending:
 - [next step from the persistent context]
 
@@ -102,6 +105,15 @@ sessions, so a resumed story keeps running autonomously; say so on the Mode
 line and tell the human they can switch back to human-in-the-loop by removing
 the row or writing `Autonomous mode: off`. No row means human-in-the-loop —
 print that value, don't omit the line.
+
+The **Open questions** list reads the story's Decisions for rows that start
+`Open question:` and are still `Pending (human)`
+(`references/inference-first.md` at the plugin root). Print "none" when there
+are none, never omit the list. When there is at least one, they come before
+the next step: instead of "Continue?", put each one to the human with the
+ask-question tool, and rewrite its row with the answer and `Human` as who
+decided. No work on the story goes on past an unanswered one, in any mode. When
+nobody can answer (unattended, same file), list them and stop there.
 
 ### Step 6: Ready to work
 

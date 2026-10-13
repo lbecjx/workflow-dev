@@ -40,9 +40,10 @@ Step by step is the default, and stays that way. For a story you want run end to
 
 It drops the per-step confirmations, not the guardrails:
 
-- **It asks only before it starts, and only what would block it.** That means an ambiguous acceptance criterion, say, and whether commits may credit the agent as co-author when the repo has no answer yet. After that it asks nothing.
+- **It asks what it needs before it starts, and only what it cannot work out itself.** Answers already in the story, the repo, its history or its docs are not asked: the agent uses them and notes where it found each one, so you can correct it. What is left — an ambiguous acceptance criterion, a product call, a value nothing in the repo states — it asks up front, along with whether commits may credit the agent as co-author when the repo has no answer yet.
+- **It never guesses a decision that is yours.** If such a question only comes up later, it asks and waits for you. If nobody can answer, as in a headless run, it stops that story and leaves the question written down. The same holds step by step: the agent asks you only what the repo cannot answer.
 - **It never overrides a story you set to step by step.** It asks you first.
-- **Every decision it makes for you is written down,** with its reason, and listed in the final report.
+- **Every decision it makes for you is written down,** with its reason or the evidence it came from, and listed in the final report.
 - **It has hard limits.** It never pushes a protected branch, never merges, never skips the adversarial check when it would run, never invents acceptance criteria, and never credits the AI unless you allowed it.
 - **A blocking finding is never downgraded** to a warning to keep the run going.
 - **It keeps your Mac awake only while it works.** The screen still turns off and locks. With Remote Control on, it stays awake until the session ends, so you can keep going from another device.

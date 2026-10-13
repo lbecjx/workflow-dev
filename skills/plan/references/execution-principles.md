@@ -25,12 +25,14 @@ When a task group from the plan is being implemented, these principles govern ho
 
 ---
 
-## Zero-Inference
+## No Assumptions
+
+Every answer comes from the evidence or from the human (`references/inference-first.md` at the plugin root):
 
 - Don't assume naming conventions — read existing code
 - Don't assume error handling strategy — match existing patterns
 - Don't assume data shapes or types — read actual interfaces
-- Don't assume business logic — ask
+- Don't assume business logic — take it from the story and the code, or ask
 - Don't assume the plan is still correct — verify against codebase before executing
 
 **Plan implication:** Tasks should reference specific files/functions/patterns to follow. "Do it like X" is better than "implement this" when there's a pattern to follow.
