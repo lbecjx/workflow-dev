@@ -5,6 +5,10 @@
 #
 # The change modifies a *tracked* file so it is inside validate's single-diff
 # scope (`git diff --name-only` lists tracked modifications, not untracked files).
+#
+# The baseline also commits a release-note fragment the diff never touches, so
+# Git History Disclosure must still SKIP: only fragments in the changed-file
+# list are reviewed, and a changes/ directory alone triggers nothing.
 set -e
 
 git init -q
@@ -16,8 +20,10 @@ cat > README.md <<'MD'
 
 A throwaway repo used to check that a docs-only diff runs the reduced set.
 MD
+mkdir -p changes
+echo "Fixed the date shown on the reports page." > changes/OLD-1.fix.md
 
-git add README.md
+git add README.md changes
 git commit -q -m "chore: baseline"
 
 # The diff under review — uncommitted on purpose. Documentation only: no logic,

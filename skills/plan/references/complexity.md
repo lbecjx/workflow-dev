@@ -81,7 +81,9 @@ These checks run at every level, and are never on the `simple` list:
 - AC Coverage, when the change claims ACs. It already runs in the reduced set;
   the ACs are the contract at every level.
 - The `.workflow-dev/` ↔ `config.json` drift check.
-- Git history disclosure (Part 12), when a changelog is in scope.
+- Git history disclosure (Part 12), when a release note — a changelog entry
+  or a release-note fragment, found as `../../validate/references/rules.md`
+  §12.0 says — is in scope.
 
 ### The `simple` pick-list
 

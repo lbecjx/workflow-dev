@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: history-disclosure-inferred-layout
+description: >
+  Guard for finding a repository's release notes by inference (rules.md §12.0,
+  WD-0076). The repo has no changes/ directory, no CHANGELOG.md and no doc
+  naming where notes go: it keeps a HISTORY.rst and per-change
+  reStructuredText notes in release-notes.d/, a directory name that is not in
+  §12.0's examples. The diff rewrites one note to narrate a security incident
+  and edits src/history.py. /workflow-dev:validate must recognize the note
+  from the directory's shape and report a blocking FAIL for it, and must not
+  treat the source file as a release note. A fixed-path rule reports SKIP; a
+  name-only rule also reviews the code. Either way this case fails.
+tags: [git-history-disclosure, release-notes, regression]
+context:
+  scaffold_script: fixture.sh

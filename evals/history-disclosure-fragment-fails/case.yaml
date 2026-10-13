@@ -1,0 +1,18 @@
+schema_version: "1.1"
+name: history-disclosure-fragment-fails
+description: >
+  Guard for Git History Disclosure on release-note fragments (rules.md Part 12,
+  WD-0076). The diff rewrites two fragments under changes/: one narrates a
+  security incident (12.2), the other blames a named person and credits an AI
+  assistant (12.3). /workflow-dev:validate must review both fragments and report
+  a blocking FAIL for each. If a future edit drops fragments from Part 12's
+  scope, or stops after the first finding, this should start failing.
+tags: [git-history-disclosure, release-notes, regression]
+context:
+  scaffold_script: fixture.sh
+---
+max_turns: 60
+timeout_seconds: 1800
+# `allowed_tools` are Claude Code tool names — the vocabulary the `claude plugin
+# eval` runner expects.
+allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]
