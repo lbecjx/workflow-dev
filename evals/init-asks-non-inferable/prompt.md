@@ -7,7 +7,7 @@ allowed_tools: [Read, Write, Edit, Glob, Grep, Bash, Skill, Agent, AskUserQuesti
 ---
 
 Run /workflow-dev:init on `local-backlog/EVAL-0006-important-contacts.md`. Run
-it step by step. Don't turn the alerts on for this story. Stop once init is
+it step by step. Don't change the alerts setting. Stop once init is
 done; don't plan or implement anything.
 
 Do not commit anything. In your final message, list every question you asked me

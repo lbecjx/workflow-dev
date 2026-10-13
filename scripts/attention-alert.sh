@@ -37,24 +37,23 @@
 #   attention-alert.sh --ask         PreToolUse:AskUserQuestion hook (need; away mid autonomous run)
 #   attention-alert.sh --notify      Notification:permission_prompt hook (permission)
 #   attention-alert.sh --prompt      UserPromptSubmit hook: drops a stale arm
-#   attention-alert.sh devices | suggest
-#                                    the audio outputs, and the built-in one (below)
+#   attention-alert.sh get           this machine's answer: on, off or unset
+#   attention-alert.sh set on|off    save it (prints saved or unavailable)
 #
 # An unknown kind falls back to `need`: a typo in a skill must still call the
 # human, never go silent. When to arm, and with which kind, is the skills' rule,
 # owned by references/attention-alert.md; this file only owns the mechanics.
 #
-# ## Configuration — none in the environment
+# ## Configuration — one answer per machine, none in the environment
 #
-# Whether a story sounds, and on which output, is its `notifications` entry in
-# `.workflow-dev/config.json` and nothing else (see "Alerts are per story"
-# below). No environment variable is read to switch the alerts off
-# (WORKFLOW_DEV_ATTENTION), to swap the sound (WORKFLOW_DEV_ATTENTION_SOUND) or
-# to force the output (WORKFLOW_DEV_ATTENTION_DEVICE): each of them was a second
-# control that could override the story's own, silencing or redirecting a story
-# the human had just turned on, with no sign of why. Removed in WD-0072.
+# Whether anything sounds is one yes/no for the whole machine, saved by `init`
+# (see "One answer per machine" below). No environment variable is read to
+# switch the alerts off (WORKFLOW_DEV_ATTENTION), to swap the sound
+# (WORKFLOW_DEV_ATTENTION_SOUND) or to force the output
+# (WORKFLOW_DEV_ATTENTION_DEVICE): each of them was a second control that could
+# override the human's own answer, with no sign of why. Removed in WD-0072.
 #
-# It is silent, whatever the story says, in CI (`CI` set to anything but
+# It is silent, whatever the answer says, in CI (`CI` set to anything but
 # `false`/`0`) and in a non-interactive session: Claude Code exports
 # `CLAUDE_CODE_SESSION_ATTENDED=1` to an interactive session and `0` under
 # `claude -p` (measured 2026-10-10). A missing variable (an older Claude Code)
@@ -108,7 +107,7 @@
 set -u
 
 usage() {
-  printf 'usage: %s play [kind] | play start <output> | arm [kind] | --stop | --ask | --notify | --prompt | devices | suggest | set-pref <device> | pref | activate <story> <device> | deactivate <story> | entries | active | offer | prune\n' "${0##*/}" >&2
+  printf 'usage: %s play [kind] | arm [kind] | --stop | --ask | --notify | --prompt | get | set on|off\n' "${0##*/}" >&2
   exit 2
 }
 
@@ -171,104 +170,45 @@ ring_bell() {
   { printf '\a' >> "${_WD_ATTENTION_TTY:-/dev/tty}"; } 2>/dev/null
 }
 
-# The alerts sound only for a story that turned them on. Sets ACTIVE_STORY and
-# ACTIVE_DEVICE from the active entry of the repo that holds <dir> (default
-# $PWD); exit 1, silent, when there is none: no entry, no story, no jq.
-ACTIVE_STORY=""
-ACTIVE_DEVICE=""
-story_gate() { # story_gate [dir] [story id the arm recorded]
-  local entry="" id device
-  # An armed turn remembers the story it was armed for: by the Stop the branch
-  # may no longer name it (a checkout to main), and its fanfare must still sound.
-  # (The tests' seam names the entry itself, so there is nothing to look up.)
-  if [[ -n "${2:-}" && -z "${_WD_ATTENTION_ACTIVE+x}" ]]; then
-    while IFS=$'\t' read -r id device; do
-      if [[ "$(lower "$id")" == "$(lower "$2")" ]]; then
-        entry="$id"$'\t'"$device"
-        break
-      fi
-    done < <(entries "${1:-}")
-  fi
-  # An arm that names a story no longer holding an entry (its alerts were turned
-  # off) is silent: the branch must not hand its sound to another story.
-  [[ -n "${2:-}" && -z "${_WD_ATTENTION_ACTIVE+x}" && -z "$entry" ]] && return 1
-  [[ -n "$entry" ]] || entry="$(active_entry "${1:-}")"
-  [[ -n "$entry" ]] || return 1
-  ACTIVE_STORY="${entry%%$'\t'*}"
-  ACTIVE_DEVICE="${entry#*$'\t'}"
-}
-
 play_now() { # play_now <kind>
   alert_enabled || return 0
-  local player sound device helper name
+  local player sound
   player="$(pick_player)"
   sound="$(sound_file "$1")"
   if [[ -z "$player" || ! -f "$sound" ]]; then
     ring_bell
     return 0
   fi
-  device="$ACTIVE_DEVICE"
-  helper="$(helper_bin)"
-  name="${player##*/}"
-  # A chosen output is tried first; when it fails (unplugged, renamed, no
-  # helper), the default output plays instead, so the human is never left
-  # without the alert.
-  if [[ -n "$device" && "$device" != default ]]; then
-    case "$name" in
-      afplay)
-        if [[ -x "$helper" ]]; then
-          ( { "$helper" "$device" "$sound" || "$player" "$sound"; } </dev/null >/dev/null 2>&1 & ) 2>/dev/null
-          return 0
-        fi
-        ;;
-      paplay)
-        ( { "$player" --device="$device" "$sound" || "$player" "$sound"; } </dev/null >/dev/null 2>&1 & ) 2>/dev/null
-        return 0
-        ;;
-      aplay)
-        ( { "$player" -D "$device" "$sound" || "$player" "$sound"; } </dev/null >/dev/null 2>&1 & ) 2>/dev/null
-        return 0
-        ;;
-    esac
-  fi
+  # No output is ever named: the sound plays wherever the system plays sound
+  # now. A saved output went silent the day the human took that headset off
+  # (WD-0089), and the default output is the one they last chose themselves.
   ( "$player" "$sound" </dev/null >/dev/null 2>&1 & ) 2>/dev/null
   return 0
 }
 
-# ## Where the sounds play
+# ## One answer per machine
 #
-# `afplay` and friends play on the system's default output, which is often a
-# headset the human takes off when they walk away. So the story's entry names
-# the output to use; `default` is the system's default output.
+# The human says once whether they want the alerts, and that answer holds for
+# every story of every repo on this machine:
 #
-# On macOS a chosen output needs scripts/attention-play.swift, compiled once with
-# `swiftc` into ~/.workflow-dev/bin/ — never in a hook. Without `swiftc` the
-# default output plays. On Linux, `paplay --device` / `aplay -D` take the output
-# name directly.
+#   ~/.workflow-dev/config.json   {"notifications": true|false}
+#
+# Nothing about the alerts lives in a repo's `.workflow-dev/config.json`, so a
+# new clone or a worktree does not ask again, and no story turns them off when
+# it ends. Only a JSON boolean is an answer. Anything else — no file, the
+# per-story list older versions wrote to the repo's file, the old
+# `userPref.notifications` output choice, a string "true" — is no answer: then
+# nothing sounds and `init` asks once.
+#
+# The file may hold other keys that are not ours, so the write goes through `jq`
+# (or perl) and replaces the file whole, or not at all. With neither tool, an
+# unreadable file or a root that is not an object, `set` prints `unavailable` and
+# touches nothing, and a read finds no answer: the alerts stay off, never the
+# file lost.
 
 machine_dir() {
   printf '%s/.workflow-dev' "${HOME:-}"
 }
-
-helper_bin() {
-  printf '%s/bin/attention-play' "$(machine_dir)"
-}
-
-# ## Alerts are per story
-#
-# A story turns the alerts on by having an entry in the repo's
-# `.workflow-dev/config.json`, and the human's last choice of output is kept in
-# `~/.workflow-dev/config.json`:
-#
-#   repo:  {"notifications": [{"storyId": "WD-0068", "device": "<output>"}]}
-#   user:  {"userPref": {"notifications": {"device": "<output>"}}}
-#
-# Both files hold other keys that are not ours (gitignored, language, ...), so
-# every write goes through `jq` and replaces the file whole, or not at all. With
-# no `jq`, an unreadable file or a root that is not an object, a write prints
-# `unavailable` and touches nothing, and a read finds no entry: the alerts stay
-# off, never the file lost. Two writers at the same instant (a Stop and an `init`)
-# can lose one update: the window is milliseconds, and nothing is half-written.
 
 user_config() {
   printf '%s/config.json' "$(machine_dir)"
@@ -297,60 +237,25 @@ json_engine() {
   fi
 }
 
-# The perl engine: the same operations as the jq programs, on stdin's JSON
-# object, printing the new document (or, for `entries`/`pref`, the lines read).
-# A document that is not one JSON object makes it exit 1, as jq's checks do.
+# The perl engine: the same two operations as the jq programs, on stdin's JSON
+# object. `get` prints on/off, or nothing when there is no boolean answer; `set`
+# prints the new document. A document that is not one JSON object makes it exit
+# 1, as jq's checks do.
 PERL_JSON='
-use strict; use warnings; use JSON::PP; use B;
+use strict; use warnings; use JSON::PP;
 my ($op, @a) = @ARGV;
-utf8::decode($_) for @a;
 local $/; my $src = <STDIN>;
 $src =~ s/^\xEF\xBB\xBF// if defined $src;
 $src = "{}" unless defined $src && $src =~ /\S/;
 my $d = eval { JSON::PP->new->allow_bignum->utf8->decode($src) };
 exit 1 if $@ || ref $d ne "HASH";
-sub str {
-  my $v = shift;
-  return undef if !defined $v || ref $v;
-  my $f = B::svref_2object(\$v)->FLAGS;
-  return ($f & B::SVp_POK) && !($f & (B::SVp_IOK | B::SVp_NOK)) ? $v : undef;
-}
-if ($op eq "entries") {
+if ($op eq "get") {
   my $n = $d->{notifications};
-  exit 0 unless ref $n eq "ARRAY";
-  for my $r (@$n) {
-    next unless ref $r eq "HASH";
-    my ($i, $v) = (str($r->{storyId}), str($r->{device}));
-    next unless defined $i && defined $v && !JSON::PP::is_bool($r->{storyId}) && !JSON::PP::is_bool($r->{device});
-    utf8::encode($i); utf8::encode($v);
-    print "$i\t$v\n";
-  }
+  print(($n ? "on" : "off"), "\n") if JSON::PP::is_bool($n);
   exit 0;
 }
-if ($op eq "pref") {
-  my $u = $d->{userPref};
-  my $v = ref $u eq "HASH" && ref $u->{notifications} eq "HASH" ? str($u->{notifications}{device}) : undef;
-  if (defined $v) { utf8::encode($v); print "$v\n" }
-  exit 0;
-}
-if ($op eq "set_pref") {
-  $d->{userPref} = {} unless defined $d->{userPref};
-  exit 1 unless ref $d->{userPref} eq "HASH";
-  $d->{userPref}{notifications} = { device => $a[0] };
-} elsif ($op eq "activate" || $op eq "deactivate") {
-  my $n = $d->{notifications};
-  my $absent = !defined $n || (JSON::PP::is_bool($n) && !$n && $op eq "activate");
-  exit 0 if $absent && $op eq "deactivate" && do { print JSON::PP->new->pretty->canonical->allow_bignum->utf8->encode($d); 1 };
-  $n = [] if $absent;
-  exit 1 unless ref $n eq "ARRAY";
-  my $id = $a[0]; $id =~ tr/A-Z/a-z/;
-  my @keep = grep {
-    my $s = ref $_ eq "HASH" && defined $_->{storyId} && !ref $_->{storyId} ? $_->{storyId} : "";
-    $s =~ tr/A-Z/a-z/;
-    !(ref $_ eq "HASH" && $s eq $id)
-  } @$n;
-  push @keep, { storyId => $a[0], device => $a[1] } if $op eq "activate";
-  $d->{notifications} = \@keep;
+if ($op eq "set") {
+  $d->{notifications} = $a[0] eq "on" ? JSON::PP::true : JSON::PP::false;
 } else { exit 1 }
 print JSON::PP->new->pretty->canonical->allow_bignum->utf8->encode($d);
 '
@@ -359,57 +264,70 @@ json_perl() { # json_perl <op> [args...], the document on stdin
   perl -MJSON::PP -e "$PERL_JSON" -- "$@"
 }
 
-# The jq programs, one per write. $1 is the operation, the rest its arguments.
-json_jq() { # json_jq <op> [args...], the document on stdin
-  local op="$1" prog
-  shift
-  case "$op" in
-    set_pref)
-      prog='.userPref.notifications = {device: $d}'
-      jq --arg d "$1" "if type == \"object\" then ($prog) else error(\"not an object\") end" ;;
-    activate)
-      prog='.notifications = (((.notifications // []) | if type == "array" then . else error("not a list") end) | map(select(((.storyId? // "") | tostring | ascii_downcase) != ($i | ascii_downcase)))) + [{storyId: $i, device: $d}]'
-      jq --arg i "$1" --arg d "$2" "if type == \"object\" then ($prog) else error(\"not an object\") end" ;;
-    deactivate)
-      prog='if .notifications == null then . else (.notifications | if type == "array" then . else error("not a list") end) as $n | .notifications = ($n | map(select(((.storyId? // "") | tostring | ascii_downcase) != ($i | ascii_downcase)))) end'
-      jq --arg i "$1" "if type == \"object\" then ($prog) else error(\"not an object\") end" ;;
-    *) return 1 ;;
-  esac
+# The jq write. $1 is the operation, the rest its arguments.
+json_jq() { # json_jq set <on|off>, the document on stdin
+  local v=false
+  [[ "${1:-}" == set ]] || return 1
+  [[ "${2:-}" == on ]] && v=true
+  jq --argjson v "$v" 'if type == "object" then .notifications = $v else error("not an object") end'
 }
 
-# Apply a write to the JSON object in <file> (a missing file is `{}`) and put
-# the result in its place. Exit 1, file untouched, when there is no JSON tool,
-# the file is not one JSON object, or the write fails.
-json_edit() { # json_edit <file> <op: set_pref|activate|deactivate> [args...]
-  local file="$1" dir lock link hops=0 rc wait_s=10 deadline
-  shift
-  # How long to wait for the lock, in real seconds (a count of tries drifts:
-  # each try also forks `find` and `sleep`). 2 s dropped the last of ten queued
-  # writers on a busy machine, so the agent's own writes (`init`'s activate,
-  # set-pref) wait up to 10 s. `deactivate` runs inside the Stop hook, whose
-  # timeout is 5 s and which has already done work by then, so it waits 3 s.
-  [[ "${1:-}" == deactivate ]] && wait_s=3
-  [[ -n "$(json_engine)" ]] || return 1
-  # A symlinked config (dotfiles) is edited where it points, so the link stays.
+# The file a config path stands for. A symlinked config (dotfiles) is read and
+# edited where it points, so the link stays. A chain longer than ten links to a
+# real file is refused (exit 1), for reading and writing alike: writing at the
+# tenth link would replace it with a file and leave the real target behind, and
+# a read that went further than the write could say `on` while `set off` fails.
+# A chain that ends nowhere (a loop, a dangling link) is returned as is: there is
+# no target to keep, and a write puts a regular file there.
+config_target() { # config_target <path>
+  local file="$1" link hops=0
   while [[ -L "$file" && $hops -lt 10 ]]; do
     link="$(readlink "$file")"
     case "$link" in /*) file="$link" ;; *) file="${file%/*}/$link" ;; esac
     hops=$((hops + 1))
   done
+  [[ -L "$file" && -e "$file" ]] && return 1
+  printf '%s' "$file"
+}
+
+# Apply a write to the JSON object in <file> (a missing file is `{}`) and put
+# the result in its place. Exit 1, file untouched, when there is no JSON tool,
+# the file is not one JSON object, or the write fails. jq is more lenient than
+# perl with a hand-edited file: it takes non-standard numbers (NaN as null,
+# ±Infinity as ±the largest double, 01, +1, .5 or 1. in their plain form), and
+# invalid UTF-8 or a lone surrogate escape (as U+FFFD), so such a file is
+# normalised on write instead of refused.
+json_edit() { # json_edit <file> set <on|off>
+  local file="$1" dir lock rc wait_s=10 deadline strikes
+  shift
+  # How long to wait for the lock, in real seconds (a count of tries drifts:
+  # each try also forks `find` and `sleep`). 2 s dropped the last of ten queued
+  # writers on a busy machine, so a write waits up to 10 s.
+  [[ -n "$(json_engine)" ]] || return 1
+  file="$(config_target "$file")" || return 1
   [[ -d "$file" ]] && return 1
   dir="${file%/*}"
   ( umask 077 && mkdir -p "$dir" ) || return 1
-  # One writer at a time: a Stop deleting an entry and an `init` adding one
-  # would otherwise each read the old file and the last write would win.
+  # One writer at a time: two `init`s answering at once would otherwise each
+  # read the old file, and the last write would drop the other's keys.
   lock="$dir/.config.json.lock"
   deadline=$((SECONDS + wait_s))
+  strikes=0
   until mkdir "$lock" 2>/dev/null; do
-    # Wait only while another writer holds it: a read-only folder, or a file at
-    # the lock's path, will not clear by waiting.
-    [[ -d "$lock" ]] || return 1
-    # A lock a minute old belongs to a writer that died.
-    [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+    # Only a real directory is another writer's lock. Nothing there (a read-only
+    # folder, a full disk, a sandbox), a file or a symlink will not clear by
+    # waiting, but one look can catch a lock just released: give up only after
+    # three looks in a row.
+    if [[ -L "$lock" || ! -d "$lock" ]]; then
+      strikes=$((strikes + 1))
+      [[ $strikes -ge 3 ]] && return 1
+    else
+      strikes=0
+      # A lock a minute old belongs to a writer that died.
+      [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+    fi
     [[ $SECONDS -ge $deadline ]] && return 1
+    # Poll every 50 ms: a write holds the lock for tens of milliseconds.
     sleep 0.05
   done
   # A writer killed here (the human interrupts `init`) must not leave the lock.
@@ -431,12 +349,15 @@ json_write() { # json_write <file> <op> [args...] — the read-edit-replace, und
     src='{}'
   fi
   src="${src#$'\xef\xbb\xbf'}"
-  # A file that holds only whitespace (a stray `touch`) is an empty config.
-  [[ -n "${src//[[:space:]]/}" ]] || src='{}'
+  # A file that holds only whitespace (a stray `touch`) is an empty config. A
+  # regex, not `${src//[[:space:]]/}`: on bash 3.2 that substitution grows
+  # nearly quadratically with the whitespace of a pretty-printed file (4 KB took
+  # 4 s, longer than the lock's wait).
+  [[ "$src" =~ [^[:space:]] ]] || src='{}'
   case "$engine" in
     jq)
       # Two documents glued together are not a config: rewriting them would
-      # double the entry.
+      # keep only one.
       [[ "$(printf '%s' "$src" | jq -s 'length' 2>/dev/null)" == 1 ]] || return 1
       out="$(printf '%s' "$src" | json_jq "$@" 2>/dev/null)" || return 1 ;;
     perl) out="$(printf '%s' "$src" | json_perl "$@" 2>/dev/null)" || return 1 ;;
@@ -449,287 +370,46 @@ json_write() { # json_write <file> <op> [args...] — the read-edit-replace, und
   { printf '%s\n' "$out" > "$tmp" && mv "$tmp" "$file"; } || { rm -f "$tmp"; return 1; }
 }
 
-# A story id is letters, digits, dot, dash and underscore: it is matched against
-# a branch name and written into JSON, never trusted as anything else.
-valid_story_id() {
-  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
+# This machine's answer: `on`, `off` or `unset`. Reading never writes.
+# `_WD_ATTENTION_ON` exists only so the tests can give the answer without a
+# file or a JSON tool.
+read_answer() {
+  local file src answer=""
+  if [[ -n "${_WD_ATTENTION_ON+x}" ]]; then
+    case "$_WD_ATTENTION_ON" in on|off) answer="$_WD_ATTENTION_ON" ;; esac
+    printf '%s\n' "${answer:-unset}"
+    return 0
+  fi
+  # The same file and the same text json_edit and json_write see: a read that saw
+  # more than the write (jq alone stops at a NUL byte; the OS follows more links)
+  # could say `on` while `set off` refuses, and the human could not turn the
+  # alerts off.
+  file="$(config_target "$(user_config)")" || file=""
+  if [[ -n "$file" && -f "$file" ]]; then
+    src="$(cat "$file" 2>/dev/null)"
+    case "$(json_engine)" in
+      jq) answer="$(printf '%s' "$src" | jq -s -r 'if length != 1 then empty else .[0] | if type == "object" and (.notifications | type) == "boolean" then (if .notifications then "on" else "off" end) else empty end end' 2>/dev/null)" ;;
+      perl) answer="$(printf '%s' "$src" | json_perl get 2>/dev/null)" ;;
+    esac
+  fi
+  case "$answer" in on|off) ;; *) answer=unset ;; esac
+  printf '%s\n' "$answer"
 }
 
-# An output name has no control character: none exists, and one would break the
-# tab-separated lists below.
-valid_device() {
-  [[ -n "$1" && "$1" != *[[:cntrl:]]* ]]
+# 0 when the alerts may sound for a session in <dir>: a workflow-dev project
+# (hooks run for every project on the machine) and a yes from the human.
+alerts_gate() { # alerts_gate [dir]
+  workflow_root "${1:-}" >/dev/null || return 1
+  [[ "$(read_answer)" == on ]]
 }
 
-# Save the human's last choice of output. Prints `saved`, `invalid` or `unavailable`.
-do_set_pref() {
-  valid_device "$1" || { printf 'invalid\n'; return 0; }
-  if json_edit "$(user_config)" set_pref "$1"; then
+# Save the answer. Prints `saved` or `unavailable`.
+do_set() { # do_set <on|off>
+  if json_edit "$(user_config)" set "$1"; then
     printf 'saved\n'
   else
     printf 'unavailable\n'
   fi
-}
-
-# The saved output of the last choice, or `unset`. Reading needs jq: with none,
-# or an unreadable file, it is `unset`.
-do_pref() {
-  local file device
-  file="$(user_config)"
-  if [[ -f "$file" ]]; then
-    case "$(json_engine)" in
-      jq) device="$(jq -s -r 'if length != 1 then empty else .[0] | .userPref.notifications.device // empty | select(type == "string") end' "$file" 2>/dev/null)" ;;
-      perl) device="$(json_perl pref < "$file" 2>/dev/null)" ;;
-    esac
-  fi
-  printf '%s\n' "${device:-unset}"
-}
-
-# Turn the alerts on for a story, on the given output: one entry per story id,
-# compared without regard to case. Prints `saved`, `invalid` or `unavailable`.
-do_activate() { # do_activate <story id> <device>
-  local root
-  valid_story_id "$1" && valid_device "$2" || { printf 'invalid\n'; return 0; }
-  root="$(workflow_root)" || { printf 'unavailable\n'; return 0; }
-  if json_edit "$root/.workflow-dev/config.json" activate "$1" "$2"; then
-    printf 'saved\n'
-  else
-    printf 'unavailable\n'
-  fi
-}
-
-# Turn the alerts off for a story: drop its entry. Prints `removed` (also when
-# there was none) or `unavailable`.
-do_deactivate() { # do_deactivate <story id> [dir]
-  local root file
-  valid_story_id "$1" || { printf 'invalid\n'; return 0; }
-  root="$(workflow_root "${2:-}")" || { printf 'unavailable\n'; return 0; }
-  file="$root/.workflow-dev/config.json"
-  [[ -f "$file" ]] || { printf 'removed\n'; return 0; }
-  if json_edit "$file" deactivate "$1"; then
-    printf 'removed\n'
-  else
-    printf 'unavailable\n'
-  fi
-}
-
-# Every entry of the repo that holds <dir> (default $PWD), one per line:
-# <story id>\t<device>. Nothing when there is none, or jq cannot read the file.
-entries() { # entries [dir]
-  local root file
-  root="$(workflow_root "${1:-}")" || return 0
-  file="$root/.workflow-dev/config.json"
-  [[ -f "$file" ]] || return 0
-  {
-    case "$(json_engine)" in
-      jq)
-        jq -s -r 'if length != 1 then empty else .[0] | (.notifications // []) | if type == "array" then .[] else empty end
-          | select(type == "object" and (.storyId | type) == "string" and (.device | type) == "string")
-          | [.storyId, .device] | join("\t") end' "$file" 2>/dev/null ;;
-      perl) json_perl entries < "$file" 2>/dev/null ;;
-    esac
-  } | while IFS=$'\t' read -r id device; do
-    # An id that could not have been written is not trusted on the way back:
-    # it ends up in a regex.
-    valid_story_id "$id" && printf '%s\t%s\n' "$id" "$device"
-  done
-}
-
-# The entry of the story being worked on, as <story id>\t<device>, or nothing.
-# That is the entry whose id stands in the current branch's name (an id inside a
-# longer word does not count: WD-006 is not WD-0068); when none does, the only
-# entry there is; with several and no match, none.
-active_entry() { # active_entry [dir]
-  local list count id device root branch pat idl rest match best="" best_pos=-1 prefix num got
-  # `_WD_ATTENTION_ACTIVE` exists only so the tests can name the active entry
-  # without a repo or jq; an empty value means no active story.
-  if [[ -n "${_WD_ATTENTION_ACTIVE+x}" ]]; then
-    [[ -z "$_WD_ATTENTION_ACTIVE" ]] || printf '%s\n' "$_WD_ATTENTION_ACTIVE"
-    return 0
-  fi
-  list="$(entries "${1:-}")"
-  [[ -n "$list" ]] || return 0
-  root="$(workflow_root "${1:-}")" || return 0
-  branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)"
-  branch="$(lower "$branch")"
-  if [[ -n "$branch" ]]; then
-    while IFS=$'\t' read -r id device; do
-      idl="$(lower "$id")"
-      pat="${idl//./\\.}"
-      if [[ "$branch" =~ (^|[^a-z0-9])${pat}($|[^a-z0-9]) ]]; then
-        # Two ids in one branch: the one named first is the story it is for.
-        # The position is the match's own (with its boundaries), so PROJ-1 does
-        # not claim the start of PROJ-12.
-        match="${BASH_REMATCH[0]}"
-        rest="${branch%%"$match"*}"
-        if [[ $best_pos -lt 0 || ${#rest} -lt $best_pos ]]; then
-          best="$id"$'\t'"$device"
-          best_pos=${#rest}
-        fi
-      fi
-    done <<< "$list"
-    [[ -n "$best" ]] && { printf '%s\n' "$best"; return 0; }
-  fi
-  count="$(printf '%s\n' "$list" | wc -l | tr -d ' ')"
-  [[ "$count" == 1 ]] || return 0
-  # A lone entry stands in for a branch that does not name a story, but not for
-  # one that names another story of the same kind (wd-0070 when it holds
-  # WD-0068). The same story written another way (wd_0068, wd0068, wd-68) is the
-  # entry's own, and its numbers are compared without their leading zeros.
-  id="${list%%$'\t'*}"
-  prefix="$(lower "$id")"
-  prefix="${prefix%%[-0-9._]*}"
-  if [[ -n "$prefix" && -n "$branch" ]]; then
-    num="$(lower "$id")"; num="${num#"$prefix"}"; num="${num#[-_.]}"; num="${num%%[!0-9]*}"
-    num="${num#"${num%%[!0]*}"}"
-    rest="$branch"
-    while [[ "$rest" =~ (^|[^a-z0-9])${prefix}[-_.]?([0-9]+) ]]; do
-      got="${BASH_REMATCH[2]}"; got="${got#"${got%%[!0]*}"}"
-      [[ "$got" == "$num" ]] || return 0
-      rest="${rest#*"${BASH_REMATCH[0]}"}"
-    done
-  fi
-  printf '%s\n' "$list"
-}
-
-# Compile the macOS helper when it is missing or older than its source.
-build_helper() {
-  local bin src tmp
-  bin="$(helper_bin)"
-  src="$HERE/attention-play.swift"
-  [[ -x "$bin" && ! "$src" -nt "$bin" ]] && return 0
-  command -v swiftc >/dev/null 2>&1 || return 1
-  ( umask 077 && mkdir -p "${bin%/*}" ) 2>/dev/null || return 1
-  tmp="$bin.tmp.$$"
-  if ( umask 077 && swiftc -O -o "$tmp" "$src" ) >/dev/null 2>&1; then
-    mv "$tmp" "$bin"
-  else
-    rm -f "$tmp"
-    return 1
-  fi
-}
-
-# Every output, one per line: <transport>\t<default|->\t<name>. Empty when the
-# machine cannot tell (no helper on macOS, no pactl on Linux).
-do_devices() {
-  case "$(uname -s 2>/dev/null)" in
-    Darwin)
-      build_helper || return 0
-      "$(helper_bin)" --list 2>/dev/null
-      ;;
-    Linux)
-      command -v pactl >/dev/null 2>&1 || return 0
-      local def name
-      def="$(pactl get-default-sink 2>/dev/null)"
-      pactl list short sinks 2>/dev/null | while IFS=$'\t' read -r _ name _; do
-        [[ -n "$name" ]] || continue
-        # A PCI analog sink is the machine's own speakers or jack.
-        case "$name" in
-          *pci*analog*) printf 'builtin' ;;
-          *bluez*) printf 'bluetooth' ;;
-          *usb*) printf 'usb' ;;
-          *) printf 'other' ;;
-        esac
-        printf '\t%s\t%s\n' "$([[ "$name" == "$def" ]] && echo default || echo -)" "$name"
-      done
-      ;;
-  esac
-}
-
-# 0 when an output's name says it is a headset or a headphone jack.
-headset_name() {
-  case "$(lower "$1")" in
-    *headphone*|*headset*|*auricular*) return 0 ;;
-  esac
-  return 1
-}
-
-# The output to suggest as "speakers": the first built-in one, or nothing.
-do_suggest() {
-  do_devices | while IFS=$'\t' read -r transport _ name; do
-    [[ "$transport" == builtin ]] && ! headset_name "$name" && { printf '%s\n' "$name"; break; }
-  done
-}
-
-# What `init` shows the human when it asks about the alerts. Line 1 is the
-# state of the saved choice: `first` (never turned on), `suggest\t<output>` (the
-# last choice, still connected) or `list` (a last choice that is gone). Then one
-# line per output, `<recommended|->\t<default|->\t<name>`: the built-in speakers
-# first and marked, the rest after. `nospeaker` follows when there are none to
-# mark, and `default-only` when this machine cannot name the outputs (macOS
-# without the helper): then nothing can be chosen and the default output plays.
-# A built-in output that is a headset jack is not a speaker.
-do_offer() {
-  local pref devs state transport isdef name found=0 first_rec="" rest=""
-  pref="$(do_pref)"
-  devs="$(do_devices)"
-  state=first
-  if [[ "$pref" != unset ]]; then
-    state=list
-    [[ "$pref" == default ]] && state="suggest"$'\t'"default"
-    while IFS=$'\t' read -r _ _ name; do
-      [[ "$name" == "$pref" ]] && state="suggest"$'\t'"$pref"
-    done <<< "$devs"
-  fi
-  printf '%s\n' "$state"
-  if [[ -z "$devs" ]]; then
-    printf 'default-only\n'
-    return 0
-  fi
-  while IFS=$'\t' read -r transport isdef name; do
-    [[ -n "$name" ]] || continue
-    if [[ "$transport" == builtin && "$found" == 0 ]] && ! headset_name "$name"; then
-      found=1
-      first_rec="recommended"$'\t'"$isdef"$'\t'"$name"$'\n'
-    else
-      rest+="-"$'\t'"$isdef"$'\t'"$name"$'\n'
-    fi
-  done <<< "$devs"
-  printf '%s%s' "$first_rec" "$rest"
-  [[ "$found" == 1 ]] || printf 'nospeaker\n'
-  return 0
-}
-
-# 0 when the story context <file> has the heading `### Implementation Status:
-# <status>` on a line of its own. A heading inside a fenced code block is not the
-# story's status, text after the status makes it another one, and a leading BOM
-# or CRLF endings do not hide it.
-context_status() { # context_status <file> <status>
-  LC_ALL=C awk -v want="### Implementation Status: $2" '
-    NR == 1 { sub(/^\357\273\277/, "") }
-    { sub(/[ \t\r]+$/, "") }
-    /^```/ { fence = !fence; next }
-    !fence && $0 == want { found = 1 }
-    END { exit !found }' "$1" 2>/dev/null
-}
-
-# 0 when the context of story <id> in the repo that holds <dir> says it is Done.
-# That line is what ends a story's alerts: `save` writes it when the story is over.
-story_done() { # story_done <id> [dir]
-  local root file
-  root="$(workflow_root "${2:-}")" || return 1
-  file="$root/.workflow-dev/context/$1.md"
-  [[ -f "$file" ]] || file="$(find "$root/.workflow-dev/context" -maxdepth 1 -iname "$1.md" 2>/dev/null | head -n 1)"
-  [[ -n "$file" && -f "$file" ]] && context_status "$file" Done
-}
-
-# Drop the entries of stories that are no longer in progress here: an entry is
-# only kept while `.workflow-dev/context/<id>.md` says the story is In Progress.
-# Prints `pruned <id>` for each one dropped.
-do_prune() {
-  local root id _d file
-  root="$(workflow_root)" || return 0
-  while IFS=$'\t' read -r id _d; do
-    [[ -n "$id" ]] || continue
-    file="$root/.workflow-dev/context/$id.md"
-    # The id is kept as it was typed, and a file system may tell cases apart.
-    [[ -f "$file" ]] || file="$(find "$root/.workflow-dev/context" -maxdepth 1 -iname "$id.md" 2>/dev/null | head -n 1)"
-    if [[ -n "$file" && -f "$file" ]] && context_status "$file" "In Progress"; then
-      continue
-    fi
-    [[ "$(do_deactivate "$id")" == removed ]] && printf 'pruned %s\n' "$id"
-  done < <(entries)
-  return 0
 }
 
 # A top-level string field of a hook payload. Same reading as command-match.sh's
@@ -773,12 +453,12 @@ store_ready() {
 
 # The one way a hook plays: gate, dedupe window, record the play, drop the
 # session's arm (so the same event cannot sound again at the next Stop), play.
-play_event() { # play_event <session> <source: stop|ask|notify> <sound kind> <cwd> [story id]
+play_event() { # play_event <session> <source: stop|ask|notify> <sound kind> <cwd>
   local session="$1" kind="$2" sound="$3" dir last last_time last_kind now
   dir="$(store_dir)"
   rm -f "$dir/armed-$session" 2>/dev/null
   alert_enabled || return 0
-  story_gate "$4" "${5:-}" || return 0
+  alerts_gate "$4" || return 0
   now="$(date +%s)"
   last="$(cat "$dir/last-$session" 2>/dev/null)"
   last_time="${last%% *}"
@@ -807,17 +487,11 @@ sweep_store() {
 }
 
 do_arm() { # do_arm [kind] — the arm file holds the kind the next Stop plays
-  local session="${CLAUDE_CODE_SESSION_ID:-}" entry
+  local session="${CLAUDE_CODE_SESSION_ID:-}"
   valid_session "$session" || return 0
   store_ready || return 0
   sweep_store
-  # The arm holds the kind, then the id of the story it is armed for (the branch
-  # still names it now; at the Stop it may not).
-  entry="$(active_entry "$PWD")"
-  {
-    printf '%s\n' "$(alert_kind "${1:-}")"
-    [[ -n "$entry" ]] && printf '%s\n' "${entry%%$'\t'*}"
-  } | marker_write "$(store_dir)/armed-$session" 2>/dev/null
+  printf '%s\n' "$(alert_kind "${1:-}")" | marker_write "$(store_dir)/armed-$session" 2>/dev/null
   return 0
 }
 
@@ -860,7 +534,7 @@ hook_session() { # hook_session <payload> — the payload's id, else the env's
 }
 
 do_stop() {
-  local payload session dir claimed sound cwd armed_id
+  local payload session dir claimed sound
   any_armed || return 0
   read_payload
   session="$(hook_session "$payload")" || return 0
@@ -869,22 +543,12 @@ do_stop() {
   [[ -z "$(marker_chain_reason "$dir")" ]] || return 0
   claimed="$dir/.claimed-$session-$$"
   mv "$dir/armed-$session" "$claimed" 2>/dev/null || return 0
-  # An arm written before kinds existed holds `armed`, which reads as `need`.
+  # An arm written before kinds existed holds `armed`, which reads as `need`;
+  # one written by an older version also holds a story id on its second line,
+  # which nothing reads any more.
   sound="$(alert_kind "$(head -n 1 "$claimed" 2>/dev/null)")"
-  armed_id="$(sed -n 2p "$claimed" 2>/dev/null)"
-  valid_story_id "$armed_id" || armed_id=""
   rm -f "$claimed"
-  cwd="$(payload_field "$payload" cwd)"
-  play_event "$session" stop "$sound" "$cwd" "$armed_id"
-  # The story's alerts end with the story: its entry goes only when its context
-  # says Done, so a fanfare armed too early (or a story reopened) keeps them.
-  # (Also when the sound itself is off: the story is over either way.)
-  if [[ "$sound" == story ]]; then
-    [[ -n "$ACTIVE_STORY" ]] || story_gate "$cwd" "$armed_id" || true
-    if [[ -n "$ACTIVE_STORY" ]] && story_done "$ACTIVE_STORY" "$cwd"; then
-      do_deactivate "$ACTIVE_STORY" "$cwd" >/dev/null
-    fi
-  fi
+  play_event "$session" stop "$sound" "$(payload_field "$payload" cwd)"
   return 0
 }
 
@@ -923,41 +587,22 @@ do_notify() {
 }
 
 case "${1:-}:$#" in
-  play:1|play:2|play:3|arm:1|arm:2|--stop:1|--ask:1|--notify:1|--prompt:1) ;;
-  devices:1|suggest:1|pref:1|entries:1|active:1|offer:1|prune:1|set-pref:2|deactivate:2|activate:3) ;;
+  play:1|play:2|arm:1|arm:2|--stop:1|--ask:1|--notify:1|--prompt:1|get:1) ;;
+  set:2) [[ "$2" == on || "$2" == off ]] || usage ;;
   *) usage ;;
 esac
-[[ "$1" == set-pref || "$1" == activate || "$1" == deactivate ]] && [[ -z "${2:-}" ]] && usage
-[[ "$1" == activate && -z "${3:-}" ]] && usage
-[[ "$1" == play && $# -eq 3 && "$2" != start ]] && usage
 # Past the usage check nothing is worth showing: a hook's stray stderr (a tool
 # missing on some host) would only reach the human as noise.
 exec 2>/dev/null
 case "$1" in
-  play)
-    # `play start <output>` is the confirmation `init` plays right after turning
-    # the alerts on: the entry may not be the one the branch names yet, so it
-    # asks for no entry and takes the output it is given.
-    if [[ "${2:-}" == start && -n "${3:-}" ]]; then
-      alert_enabled && { valid_device "$3" && ACTIVE_DEVICE="$3"; play_now start; }
-    else
-      alert_enabled && story_gate "$PWD" && play_now "${2:-need}"
-    fi ;;
+  play) alert_enabled && alerts_gate "$PWD" && play_now "${2:-need}" ;;
   arm) do_arm "${2:-}" ;;
   --stop) do_stop ;;
   --ask) do_ask ;;
   --notify) do_notify ;;
   --prompt) do_prompt ;;
-  devices) do_devices ;;
-  suggest) do_suggest ;;
-  set-pref) do_set_pref "$2" ;;
-  pref) do_pref ;;
-  activate) do_activate "$2" "$3" ;;
-  deactivate) do_deactivate "$2" ;;
-  entries) entries ;;
-  active) active_entry ;;
-  offer) do_offer ;;
-  prune) do_prune ;;
+  get) read_answer ;;
+  set) do_set "$2" ;;
   *) usage ;;
 esac
 exit 0

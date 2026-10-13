@@ -76,6 +76,20 @@ script** that detects the signal, because the only consumers of the signal are
 the skills (read by the agent), and the commit/PR hooks do **not** need it — see
 "Hooks" below.
 
+## Before the run starts
+
+In an autonomous `init`, the questions that come before the checkpoint below
+(the tiering setup, the co-authorship question, the alerts question) and the
+checkpoint's own questions all wait for the human's answer. So the human must
+know the run has not started yet. Before the first of them this run asks, say
+once, in the conversation's language (`references/user-language.md`), that
+autonomous mode has not started, and that you first finish setting up
+workflow-dev so the run can then work without stopping. For example, in
+Spanish: "Antes de comenzar el modo autónomo, terminemos de configurar
+workflow-dev para que luego pueda trabajar tranquilo y fluido. El modo autónomo
+todavía no empieza." Say it once per run, not before each question, and not at
+all when nothing is asked.
+
 ## The pre-autonomous checkpoint
 
 An autonomous run asks its questions up front: at the end of `init`, before the
@@ -107,16 +121,18 @@ In order:
    however minor, and do not ask "anything else?".
 4. **Say when there is nothing to ask.** If no blocking question is left, say
    so in one line and go on.
-5. **Go autonomous.** From here on the run asks nothing it can infer: every
-   decision point the evidence settles follows "infer + record + report". A
-   doubt that is not inferable and only appears later is never assumed: the run
-   asks it and waits while a human can answer, and stops the story when the run
-   is unattended (`references/inference-first.md`, "A doubt you cannot
-   infer").
+5. **Go autonomous.** Say in one line that autonomous mode starts now. From
+   here on the run asks nothing it can infer: every decision point the evidence
+   settles follows "infer + record + report". A doubt that is not inferable and
+   only appears later is never assumed: the run asks it and waits while a human
+   can answer, and stops the story when the run is unattended
+   (`references/inference-first.md`, "A doubt you cannot infer").
 
-The alerts question of `init` (`attention-alert.md`, "Alerts for this story")
-is asked here while the human is present, and never blocks: with no answer the
-run takes the saved output, else the default output, turns the alerts on (with the `start` sound) and records it. The
+The alerts question of `init` (`attention-alert.md`, "Alerts on this machine")
+is asked here while the human is present, only when the machine has no answer
+yet. It waits for the answer like the other questions here. Only when nobody
+can answer (unattended) does the run turn the alerts on itself (with the
+`start` sound) and record it as `Agent (inferred)`. The
 run-mode question (see "The signal"), the co-authorship question that
 follows it, and the tiering question (see below) are not part of this
 checkpoint: the first decides whether there is a checkpoint at all, the second

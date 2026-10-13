@@ -79,6 +79,11 @@ Never infer autonomous mode from silence: no answer means step by step. Ask once
 per story; later skills read the row and do not re-ask. The story file may not
 exist yet, so keep the answer and write it in Phase 6 step 8.
 
+In autonomous mode, before the first question this run asks from here on (the
+tiering setup, co-authorship, alerts, or the checkpoint), say that autonomous
+mode has not started yet (`references/autonomous-mode.md`, "Before the run
+starts").
+
 ### Phase 0: Resolve the context-tracking preference
 
 `.workflow-dev/context/` is a fixed path — do not detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only open question is whether this folder is tracked in git or gitignored, and that's answered once per project, not once per run.
@@ -285,10 +290,10 @@ In autonomous mode, this phase is the pre-autonomous checkpoint: follow
 `references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
 checkpoint", instead of the steps above.
 
-**Alerts for this story.** In both modes, while the human is still here and the
-story ID is known, ask about the alerts as `references/attention-alert.md` (at
-the plugin root), "Alerts for this story", says: whether to turn them on for
-this story, and which source plays them.
+**Alerts on this machine.** In both modes, while the human is still here,
+follow `references/attention-alert.md` (at the plugin root), "Alerts on this
+machine": it asks whether to turn the alerts on only while this machine has no
+answer yet.
 
 ### Close the run's cost
 
