@@ -18,7 +18,7 @@ During implementation, STOP and ask the human when any of these conditions is me
 
 - **Cleaner solution exists:** If a more idiomatic, performant, or maintainable solution exists than what was planned — present both options with trade-offs
 - **Plan has errors:** If the plan references code, types, files, or APIs that don't exist or describes an approach that won't work — STOP and explain what's wrong
-- **Missing context:** If you need information not derivable from reading the code — ASK, don't infer
+- **Missing context:** If you need information the evidence does not settle (`references/inference-first.md` at the plugin root: the story, REPO.md, the code, git history, the docs) — ASK, don't assume. What the evidence settles is not a decision point: record it as an inferred answer with its evidence
 - **Ambiguous requirement:** If a task can be interpreted multiple ways — present interpretations, let human choose
 
 ---
@@ -69,5 +69,6 @@ Don't ask about:
 - Formatting choices (follow project formatter)
 - Import ordering (follow project style)
 - Anything the code already answers clearly
+- Anything the evidence settles (`references/inference-first.md`) — record the inferred answer and its evidence instead
 
 The goal is: ask when the human's judgment matters, don't ask when you're just being indecisive.

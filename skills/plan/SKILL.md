@@ -38,7 +38,7 @@ Decomposes the current story's acceptance criteria into ordered task groups with
 
 0. Record this run's start (`references/run-cost.md` at the plugin root,
    `--stage plan --start`).
-1. Read `.workflow-dev/context/[STORY-ID].md` — understand ACs, discoveries, decisions, scope
+1. Read `.workflow-dev/context/[STORY-ID].md` — understand ACs, discoveries, decisions, scope. An `Open question:` row still `Pending (human)` in its Decisions comes first (`references/inference-first.md` at the plugin root)
 2. Read `.workflow-dev/context/REPO.md` — understand conventions, prohibitions, infra
 3. Read `references/execution-principles.md` — internalize how tasks will be executed
 4. Read `references/validation-awareness.md` — understand what the quality gate checks
@@ -115,7 +115,10 @@ never a command or a path for it to read on its own (the same rule as
 The sub-agent never asks the human anything: presenting the plan, the approval
 (Step 4), and the two one-time questions (Step 5) stay with you, the main agent,
 exactly as in a plan you drafted yourself — and so does every autonomous-mode
-rule below. Read its draft against the code you explored before you present it.
+rule below. Read its draft against the code you explored before you present it. Settle
+each point it leaves unsettled from the evidence, and record it with that
+evidence; one the evidence cannot settle is asked, never assumed
+(`references/inference-first.md` at the plugin root).
 
 **An eval earns its place.** Every eval is maintenance for a small team, and
 an eval in the plan makes `validate` run it. So the plan never adds one by
@@ -379,7 +382,7 @@ questions above are part of the run.
 ## Principles
 
 1. **Validation-aware** — every task group is designed to pass `/workflow-dev:validate`. If a task would introduce security issues, missing tests, or broken types, the plan accounts for it.
-2. **Execution-aware** — tasks are written knowing the agent will execute them with human-in-the-loop, zero-inference, and scope discipline.
+2. **Execution-aware** — tasks are written knowing the agent will execute them with human-in-the-loop, no assumptions (infer from evidence, or ask), and scope discipline.
 3. **Minimal** — don't over-decompose. A fix that takes 3 tasks doesn't need 3 task groups. Group related changes.
 4. **Specific** — each task names the file and the change. "Update handler" is bad. "Add a pagination loop to fetchInvoices in src/billing/invoice-client.ts" is good.
 5. **Ordered by dependency** — if Task B needs Task A's output, A comes first.

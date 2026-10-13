@@ -1,0 +1,18 @@
+schema_version: "1.1"
+name: init-infers-from-repo
+description: >
+  Guard for WD-0083, AC1 and AC2. The story's one criterion leaves a gap
+  that the repo closes: which language the greeting uses. `config/app.json`
+  says `es`, and REPO.md names that file as the owner of the project's
+  language. init must settle it from that evidence instead of asking, and
+  write it down with the evidence so the human can correct it.
+
+  The prompt runs the story step by step and stops after init, so nothing
+  after init is graded.
+  The eval runner is non-interactive (`claude -p`): an ask surfaces as prose and
+  the ask-question tool is never answered, so the run counts as unattended
+  (references/inference-first.md, "A doubt you cannot infer"). The graders read
+  what the run says and does, never an answer the human gave.
+tags: [inference-first, init, regression]
+context:
+  scaffold_script: fixture.sh

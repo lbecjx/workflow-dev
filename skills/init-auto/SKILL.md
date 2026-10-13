@@ -1,6 +1,6 @@
 ---
 name: init-auto
-description: Starts a story with init in autonomous mode — same input as init (a Jira story link/ID or a path to a .md file), and the whole story then runs end-to-end without asking each step. Use only when the user runs /workflow-dev:init-auto or asks for it by name.
+description: Starts a story with init in autonomous mode — same input as init (a Jira story link/ID or a path to a .md file), and the whole story then runs end-to-end, asking only what it cannot infer from the repo and the story. Use only when the user runs /workflow-dev:init-auto or asks for it by name.
 ---
 
 <!--
@@ -26,6 +26,10 @@ this autonomously" for that story, as an explicit command instead of a phrase.
 Run it only when the human asked for it in their own message; never pick it
 on your own inference, since `init` records the start as the human's choice
 (`references/autonomous-mode.md`, "The signal").
+
+Autonomous does not mean the human is never asked: a doubt the repo and the
+story cannot settle is still asked, or stops the story when nobody can answer
+(`references/inference-first.md` at the plugin root).
 
 Everything else is `init`'s and `references/autonomous-mode.md`'s (at the
 plugin root): this skill restates none of their steps or rules, so `init` stays

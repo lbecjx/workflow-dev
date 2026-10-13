@@ -156,7 +156,7 @@ This workflow exists for implementation work on stories. For everything else, ju
 | 1 | **Living context** — survives compaction and new sessions |
 | 2 | **The human is the architect** — the agent executes, the human decides |
 | 3 | **Validate before commit** — the quality gate is not optional; the manual-QA pass it can run is opt-in |
-| 4 | **Zero inference** — read the code or ask; never guess |
+| 4 | **No assumptions** — infer from the repo and the story, or ask; never guess |
 | 5 | **Scope discipline** — touch only what's needed |
 | 6 | **Stack-agnostic rules, stack-specific knowledge** — universal standards plus what's been learned about this repo |
 | 7 | **Lightweight for small work, structured for complex work** — the plan is optional; validation isn't |

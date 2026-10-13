@@ -356,7 +356,7 @@ Whether this whole `.workflow-dev/` tree is tracked or gitignored was already se
 
 ### Step 10: Questions for the human
 
-Review everything marked ⬜ across both files and turn it into specific questions:
+Review everything marked ⬜ across both files. Settle each one from the evidence first, and record each answer with its evidence (`references/inference-first.md` at the plugin root). Turn only what that file calls not inferable into specific questions:
 - Not: "anything else I should know?"
 - Yes: "No exemplar found for AC #3 (dead-letter consumer). Is there one in the repo I should follow?"
 
