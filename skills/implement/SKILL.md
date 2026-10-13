@@ -197,6 +197,9 @@ Mac sleep again (`references/autonomous-mode.md`, "Keeping the Mac awake").
    (or, after the last one, to the end-of-run report, which first lets the
    Mac sleep again — `references/autonomous-mode.md`, "Keeping the Mac
    awake"); the human sees the drafted text in that report, not per task group.
+   A hand-back that reports a release-note fragment FAIL is handled like a
+   `validate` FAIL, in every mode: fix the fragment and run
+   `summarize-changes` again before going on.
 
    This isn't handled inline here on purpose: drafting-and-reviewing the
    commit message is a distinct action from validating the diff, and

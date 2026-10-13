@@ -40,8 +40,10 @@ Runs a structured quality gate over the current uncommitted changes, using paral
   other.
 - Doesn't draft or review a commit message or PR title/description — that's
   `/workflow-dev:summarize-changes`. This skill's Git History Disclosure
-  dimension (Part 12) only covers `CHANGELOG.md` entries that happen to be
-  in the diff scope (see Step 3) — text that isn't part of this scope's
+  dimension (Part 12) only covers the repository's release notes — its
+  changelog entries and release-note fragments, found as
+  `references/rules.md` §12.0 says — that happen to be in the diff scope
+  (see Step 3) — text that isn't part of this scope's
   diff at all doesn't belong to this skill.
 
 ## Execution
@@ -152,8 +154,8 @@ list, and it is the **default**, not an opt-in:
   orchestrator performs itself: the discovered commands (an `evals/` run
   included, with its judge resolved and its spend recorded per
   `references/rules.md` §6.1), the
-  `.workflow-dev/` ↔ `config.json` drift check, and a direct read of any in-scope `CHANGELOG.md`
-  entry. The judgment dimensions (Code quality, Testing, Architecture,
+  `.workflow-dev/` ↔ `config.json` drift check, and a direct read of any in-scope release-note
+  file (changelog entry or fragment, `references/rules.md` §12.0). The judgment dimensions (Code quality, Testing, Architecture,
   Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
   break, a fresh pair of eyes adds cost and no signal. One exception: when the
   story has a level (`simple`, `moderada` or `compleja`), Security still runs,
@@ -207,13 +209,20 @@ under its role, with its scoped brief, reporting findings as a structured list
 | **CI/CD** | `wd-operator` | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
 | **AC Coverage** | `wd-judge` | Part 14. One verdict per AC this change claims, with `file:line` evidence. Its brief is §14.1's isolated one — ACs and changed files only, never the plan — then §14.4's citation check and, when §14.4 calls for it, its confirm pass. Runs in the reduced set too. |
 
-**Git history disclosure** (Part 12) is conditional, not always-run: it fires
-only when `CHANGELOG.md` (or equivalent) is in the Step 2 changed-file list,
-and then a **`wd-operator`** sub-agent reviews the new/edited entries — formality,
-length, security-incident disclosure, personal/internal-behavior exposure. A changelog entry is ordinary
-committed file content with no commit-time hook backstop the way a commit
-message has, so this run is its enforcement. If `CHANGELOG.md` isn't in scope,
-report `SKIP — (not touched)`.
+**Git history disclosure** (Part 12) is conditional, not always-run. First,
+inline and for both sets, find the repository's release notes as
+`references/rules.md` §12.0 says — changelog files by name, the release
+tool's configuration, the repository's own instructions, and the shape of a
+fragment directory, in whatever format. Never assume one path: another
+repository keeps them elsewhere. Part 12 fires when a file found this way is
+in the Step 2 changed-file list, and then a **`wd-operator`** sub-agent
+reviews the new/edited entries and fragments — formality, length,
+security-incident disclosure, personal/internal-behavior exposure — with each
+file and the signal that found it in its brief. A changelog entry or fragment
+is ordinary committed file content with no commit-time hook backstop the way
+a commit message has, so this run is its enforcement. If none is in scope,
+report `SKIP` with §12.0's reason: `— (no release notes touched)` or
+`— (no changelog or release notes found in this repository)`.
 
 **Context hygiene** (Part 10) is one of the inline checks above, not a
 sub-agent. The commit message and PR title/description are a different
@@ -296,7 +305,7 @@ Validation Results (set: full — the diff carries logic; story level: compleja,
 | Architecture      | PASS   | 0        |
 | Algorithmic Integrity | PASS | 0        |
 | Context Hygiene    | PASS   | 0        |
-| Git History Disclosure | SKIP | — (CHANGELOG.md not touched) |
+| Git History Disclosure | SKIP | — (no release notes touched) |
 | Adversarial Correctness | PASS | 0 — ran at no-repro (recommended no-repro: real logic, no write/concurrency/security surface; choice surfaced) |
 | AC Coverage       | PASS   | 0 — AC #1 COVERED (src/foo.ts:30), AC #2 COVERED (src/foo.test.ts:12) |
 
@@ -352,7 +361,7 @@ The run's cost is recorded, and its report rendered, as this run's last step
 | **PASS (N warnings)** | Non-blocking issues found. The human decides whether to fix them first. |
 | **FAIL** | Blocking issues found — security, a broken build/tests, type errors, `.workflow-dev/` drift, a CONFIRMED adversarial-correctness finding (either depth), a CONFIRMED algorithmic-integrity finding, or an AC confirmed NOT COVERED. Must be fixed before committing. |
 
-Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/CHANGELOG entry (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other), a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (no-repro) or reproduced live (complete) — or a **CONFIRMED** algorithmic-integrity finding (Part 13): a non-terminating loop/recursion, or a worst-case complexity blow-up reachable from untrusted input (an Algorithmic Complexity Vulnerability / ReDoS). CONFIRMED here carries Part 11's bar — a concrete trigger traced on paper or reproduced, never an unbacked "looks slow". Also blocking: an acceptance criterion this change claims that §14.4's confirm pass leaves **NOT COVERED** (Part 14).
+Blocking: security vulnerabilities, build failures, type errors, test failures, `.workflow-dev/` git-tracking drift (Part 10), a security-incident disclosure or a personal/internal-behavior exposure in the commit message/PR description/changelog entry/release-note fragment (Part 12.2 or 12.3 — both blocking, neither is a lesser variant of the other; only a release-note file `references/rules.md` §12.0 marks *inferred* reports them as WARN), a **CONFIRMED** adversarial-correctness finding (Part 11) — at either depth; CONFIRMED means the same thing whether it was traced statically (no-repro) or reproduced live (complete) — or a **CONFIRMED** algorithmic-integrity finding (Part 13): a non-terminating loop/recursion, or a worst-case complexity blow-up reachable from untrusted input (an Algorithmic Complexity Vulnerability / ReDoS). CONFIRMED here carries Part 11's bar — a concrete trigger traced on paper or reproduced, never an unbacked "looks slow". Also blocking: an acceptance criterion this change claims that §14.4's confirm pass leaves **NOT COVERED** (Part 14).
 Non-blocking: code smells, missing edge-case tests, style issues, bounded algorithmic inefficiency (Part 13 — a quadratic that fits the `n` this code sees, a redundant recomputation, a suboptimal data structure), any adversarial-correctness finding that only reached **NEEDS TESTING** — verify couldn't fully settle it at the depth it ran, so it's a judgment call for the human, same tier as a code smell — and, from AC Coverage (Part 14), a **PARTIAL** AC (WARN) or one **NOT VERIFIABLE STATICALLY** (advisory).
 
 ### Step 6: Record the validated diff (only on PASS)
@@ -504,7 +513,7 @@ Every run ends here, full or reduced, PASS or FAIL, after everything above.
 
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
-- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry — plus AC Coverage when the change claims ACs), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial. It also scales with the story: the level `plan`'s judge recorded removes the adversarial pass (`moderada`), or everything but Security and the listed dimensions (`simple`); no level → the diff-only rule above (`../plan/references/complexity.md`).
+- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry or release-note fragment — plus AC Coverage when the change claims ACs), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial. It also scales with the story: the level `plan`'s judge recorded removes the adversarial pass (`moderada`), or everything but Security and the listed dimensions (`simple`); no level → the diff-only rule above (`../plan/references/complexity.md`).
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not the whole rulebook), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
 - **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment, `wd-adversary` for the Adversarial Correctness pair; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
@@ -513,6 +522,6 @@ Every run ends here, full or reduced, PASS or FAIL, after everything above.
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, a CONFIRMED adversarial-correctness finding (at either depth), a CONFIRMED algorithmic-integrity finding, and an AC confirmed NOT COVERED block. A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
-- **Git history disclosure is enforced, not just suggested** — this skill's slice of it (CHANGELOG.md entries in scope) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed. Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.
+- **Git history disclosure is enforced, not just suggested** — this skill's slice of it (the repository's changelog entries and release-note fragments in scope, found per `references/rules.md` §12.0) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed, and which reviews again any release-note fragment in the change-set it describes (one written after this skill ran included). Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.
 - **AC coverage is static and never writes the story** — Part 14 checks that the change carries evidence for each AC it claims, in every set and every mode (autonomous included: it asks nothing). It proposes Progress changes and leaves them to the human or `save`; whether the behavior works when run stays with manual QA.
 - **Manual QA is opt-in and decided elsewhere** — this skill *runs* manual QA (Step 7) only when `plan` recorded "yes"; it never decides that for itself, and never on a non-PASS.

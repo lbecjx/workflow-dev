@@ -660,18 +660,117 @@ code being wrong; it's about the *story told around the code* being one
 that shouldn't be told in public, in this tone, at all.
 
 **Scope:** the drafted commit message and/or PR title/description, **and**
-any new or edited entries in `CHANGELOG.md` (or equivalent) that appear in
-the changed-file list from Step 2 — not the diff of the actual code. A
-changelog entry is exactly as permanent and public as a commit message
-(often more visible — it's the one artifact meant to be read end-to-end by
-someone who wasn't there), so 12.1–12.4 apply to it the same way; it isn't
-a lower-scrutiny cousin of the commit message just because it's committed
-as a regular file edit instead of passed via `-m`.
+the repository's **release notes** that appear in the changed-file list from
+Step 2: new or edited entries in its changelog, and new or edited
+release-note fragments. Which files those are is found in the repository
+itself (§12.0), never assumed from one layout. Not the diff of the actual
+code. A changelog entry is exactly as permanent and public as a commit
+message (often more visible — it's the one artifact meant to be read
+end-to-end by someone who wasn't there), so 12.1–12.4 apply to it the same
+way; it isn't a lower-scrutiny cousin of the commit message just because
+it's committed as a regular file edit instead of passed via `-m`.
 
-If none of these exist yet — no drafted message and `CHANGELOG.md` isn't
-in the changed-file list — report `SKIP — (nothing drafted yet)`; it
-re-runs once a draft exists or `CHANGELOG.md` is touched (see
-validate/SKILL.md and implement/SKILL.md for exactly when that is).
+A **release-note fragment** is a short per-change file, kept in a dedicated
+directory, that a later release consolidates into the changelog or the
+release page. A fragment is a changelog entry written before the release
+that publishes it: same permanence, same audience, so 12.1–12.4 apply to it
+unchanged.
+
+If none of these exist yet — no drafted message, and no release-note file
+(§12.0) in the changed-file list — report `SKIP` with the reason §12.0 gives;
+it re-runs once a draft exists or one is touched (see validate/SKILL.md for
+exactly when that is). Only files in the changed-file list are reviewed: a
+changelog or a fragment directory this diff does not touch triggers nothing.
+
+### 12.0 Finding the repository's release notes
+
+Repositories keep release notes in many shapes, so this is inferred from the
+repository, never read from a fixed path. It is run by whoever triggers Part
+12 (the orchestrator in `validate`, the drafting agent in
+`summarize-changes`) before deciding whether Part 12 fires.
+
+**A release note is prose for people.** Only a documentation file can be one:
+Markdown, reStructuredText, AsciiDoc, plain text, or a file with no
+extension — or a YAML/TOML fragment whose note is a text field, inside a
+directory that signal 2, 3 or 4 found. Source code, scripts, CI workflows,
+infrastructure or deploy files, database migrations and schema changelogs,
+and a website's own published content (blog or news posts, pages) are never
+release notes, whatever they are named. A file called `history.ts`,
+`News.jsx`, `db/changelog/001.yaml` or `deploy/releases/v1.4.0.yaml` is code
+or data: the other dimensions judge it, Part 12 does not.
+
+**Signals** — collect candidates from every one; they add up, one never
+cancels another:
+
+1. **Changelog files by name.** A documentation file, tracked or new in the
+   change-set, whose base name, ignoring case, separators (`-`, `_`, `.`) and
+   extension, is one of: `changelog`, `changes`, `history`, `news`,
+   `releases`, `release notes`, `whatsnew`, `whats new`. At any depth: a
+   monorepo keeps one per package. Documentation files in a directory with
+   one of these names, one file per version (`docs/changelog/`,
+   `docs/releases/`), count too.
+2. **The release tool's own configuration.** A changelog or release-notes
+   tool configured at the repository root (its own config file, or a
+   section of the root project manifest) names where it reads notes from and
+   where it writes the changelog. Those paths count, whatever they are
+   called.
+3. **The repository's own instructions.** The contributing guide and the
+   pull-request template (at the root, `docs/` or `.github/`), or the
+   changelog's own header, telling contributors where to add a note. The
+   path it names counts.
+4. **Shape.** A directory whose name is about changes, the changelog or
+   release notes (`changes/`, `changelog.d/`, `newsfragments/`,
+   `.changeset/`, `.changes/`, `unreleased/` are common ones, not the list),
+   holding small files, one per change — documentation files, or YAML/TOML
+   files each holding one note in a text field — named by an issue or story
+   id, a change type, a number, or a generated slug.
+
+Never a release note, whatever its path: a `.gitkeep` or other placeholder,
+the directory's own README or template, the tool's config file, generated
+output, and anything vendored or under a dependency directory. A changelog
+that is regenerated by the release from fragments is still a changelog: when
+the diff edits it by hand, it's reviewed.
+
+**Keep it cheap.** Never page through the whole tree. Test the changed-file
+list against signals 1 and 4 by path; read at most the few small files
+signals 2 and 3 name (the root manifest or tool config, the contributing
+guide, the pull-request template) when a changed file sits in a directory
+signals 1 and 4 did not explain, or before calling a match *inferred*
+(below); and settle the SKIP reason with
+one name-filtered listing of tracked files (for example `git ls-files` piped
+to a case-insensitive match on the signal 1 names and signal 4 directory
+names), not a read of each file.
+
+**Which files to review.** The release-note files found above that are in
+the changed-file list — new files included: a new file inside a directory
+signal 2, 3 or 4 found, or a new `CHANGELOG.md` that is not yet added, is
+reviewed like an edited one.
+
+**Confidence.** A match is *confirmed* when signal 1, 2 or 3 found it, or
+when signal 4 found it in a directory whose name plainly says changelog,
+changes or release notes. How many files the directory holds does not
+matter: fragment directories are often empty between releases, because the
+release consumes them. A match is *inferred* only when signal 4 alone found
+it, in a directory whose name is ambiguous, and signals 2 and 3 — read for
+it — do not name that directory. An inferred file is still reviewed — a
+missed note is the costlier error — but its findings are reported as WARN,
+never blocking, each saying "if this is a release note, this is a FAIL under
+12.x", so the human decides. A confirmed match's findings carry their normal
+weight, so a 12.2 or 12.3 finding in it blocks.
+
+**What the report says.** Each reviewed file is listed with the signal that
+found it (`name`, `tool config`, `repo docs`, `shape`, `shape — inferred`),
+so the human can see why it was treated as a release note. The SKIP reason
+tells two cases apart:
+
+- `— (no release notes touched)` — the repository keeps release notes, and
+  none is in the changed-file list;
+- `— (no changelog or release notes found in this repository)` — no signal
+  matched anything.
+
+When the repository's layout is unusual and none of the signals catches it,
+the human can name it in the repository's own contributing guide or pull
+request template; signal 3 then picks it up for every clone.
 
 ### 12.1 Formality
 
@@ -752,7 +851,8 @@ was fixed — worse than saying nothing.
 
 ### 12.4 Length & Conciseness
 
-A long commit message, PR description, or changelog entry is usually long
+A long commit message, PR description, changelog entry, or release-note
+fragment is usually long
 because it's narrating the process (what was tried, what went wrong, why a
 decision was made) instead of stating the outcome — and process narration is
 exactly what 12.1–12.3 already flag for other reasons. Length is a useful
@@ -772,6 +872,12 @@ summarizing, not just softening in tone.
       effect. Not a paragraph per change, and not a transcription of the
       implementation; a bullet that needs three sentences is a summary that
       hasn't been written yet
+- [ ] Release-note fragment (§12.0): the same bar as one changelog bullet —
+      **one or two lines** per note, stating the net effect. No version
+      heading (the release adds it), and no account of how the change was
+      made; a fragment that reads as a paragraph is the same finding as a
+      changelog paragraph. In a structured fragment (YAML/TOML), the bar
+      applies to the note's text field, not to the file
 - [ ] If the underlying change needs more explanation than that to be
       understood, that explanation belongs in code comments, the PR's
       inline diff comments, or linked documentation — not in the message

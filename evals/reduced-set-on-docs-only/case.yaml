@@ -6,7 +6,9 @@ description: >
   logic — /workflow-dev:validate must run the reduced set and must not report the
   judgment dimensions, Algorithmic Integrity included, as run/passed. If a future
   edit makes the gate spawn that dimension for a docs-only change, this should
-  start failing.
-tags: [algorithmic-integrity, reduced-set, regression]
+  start failing. It also guards the Git History Disclosure SKIP (WD-0076): a
+  release-note fragment committed before the diff, and not in it, must not be
+  reviewed.
+tags: [algorithmic-integrity, reduced-set, git-history-disclosure, regression]
 context:
   scaffold_script: fixture.sh

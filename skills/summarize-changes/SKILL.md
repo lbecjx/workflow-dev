@@ -41,7 +41,11 @@ unreviewed.
 
 - Doesn't run `/workflow-dev:validate`'s other dimensions (build, tests,
   security, code quality, etc.) — assumes the code itself was already
-  validated elsewhere; this skill only judges the text describing it
+  validated elsewhere; this skill only judges the text describing it: the
+  commit/PR text, and any changelog entry or release-note fragment in the
+  change-set (Step 3)
+- Doesn't edit files in the change-set — a release-note file that fails
+  review is reported with a proposed rewrite, not changed in place
 - Doesn't run `git commit`, `gh pr create`, or `gh pr edit` itself — hands
   the reviewed text back to whoever (human or calling skill) actually runs
   that command
@@ -144,6 +148,22 @@ hunt/verify split: whoever wrote the text tends to re-confirm it); the
 per-artifact fan-out does not, and a 1–3 line message does not need its own
 session.
 
+The same pass also reviews every **release-note file** in the change-set the
+text describes — a new or edited changelog entry, or a release-note fragment.
+Find them in the repository the way `../validate/references/rules.md` §12.0
+says (changelog files by name, the release tool's configuration, the
+repository's own instructions, the shape of a fragment directory, in any
+format), never from one fixed path: another repository keeps its notes
+elsewhere. In this skill, "fragment" below means any release-note file found
+this way. The change-set is, for a commit, the files of `git diff --name-only HEAD` (tracked
+changes, staged or not) plus `git ls-files --others --exclude-standard` (new
+files not yet added); for a PR, the files of the commits since the base branch.
+A fragment is often written right before the commit, after `validate` already
+ran — usually as a new file, which plain `git diff --name-only` does not list —
+so this pass is the last review it gets before it enters history. The reviewer receives each
+fragment's content with the drafted text, in the same brief; no fragment in
+the change-set, nothing extra to review.
+
 This review is a bounded checklist, not open-ended reasoning, so run it under
 the **`wd-operator`** role (class `operator`) — see
 `../setup-models/references/roles.md`. Name the role as the sub-agent's type;
@@ -161,10 +181,17 @@ crediting an AI.
 - **WARN** (12.1 formality, 12.4 length) → rewrite toward compliance
   before presenting it. This is a draft being produced, not a report being
   filed — fix it, don't just flag it and move on.
+- **A fragment's FAIL or WARN** → report it with the fragment's path, the
+  sub-rule (12.1–12.4), and a proposed rewrite; leave the file as it is. A
+  fragment §12.0 marks *inferred* gets WARN, never FAIL, saying what it would
+  be if it is a release note. A confirmed fragment that FAILs blocks the commit the same way failed message text
+  does: the message is not marked reviewed (Step 4), and the hand-back says
+  the change is not ready to commit until the fragment is fixed.
 
 ### Step 4: Mark reviewed
 
-Once each piece passes, mark the exact final text so
+Once each piece passes and no release-note fragment has a FAIL, mark the
+exact final text so
 `pre-commit-message-check.sh` recognizes it at actual commit/PR time and
 doesn't ask again:
 
@@ -182,9 +209,19 @@ two must match byte-for-byte:
 printf '%s\n\n%s' "<final PR title>" "<final PR description>" | "$PLUGIN_ROOT"/scripts/git-message-mark-reviewed.sh
 ```
 
+Markers cover the message and PR text only. A release-note fragment is file
+content: nothing marks it, and the commit hook never reads it. Its verdict
+lives in the hand-back (Step 5). So while any fragment in the change-set has a
+FAIL, mark nothing: the unmarked message makes the commit hook ask, and the
+commit cannot go through silently with a fragment that failed.
+
 ### Step 5: Hand back
 
-Present the reviewed commit message and/or PR title/description. This
+Present the reviewed commit message and/or PR title/description, and one line
+per release-note file the review covered —
+`<path> (<signal>) — PASS | WARN | FAIL (<sub-rule>: <reason>)`, where
+`<signal>` is what found it (§12.0), with the proposed rewrite under a WARN or
+FAIL — or "Release notes: none in the change-set". This
 step isn't optional because the text already passed review here —
 `pre-commit-message-check.sh` still fires at actual `git commit`/
 `gh pr create`/`gh pr edit` time regardless of whether this skill ran, and
