@@ -21,7 +21,11 @@
 #     one at another path or a process that merely names caffeinate;
 #   - when pgrep fails, the answer is `unknown` and nothing is launched or ended;
 #   - outside macOS, or with no caffeinate, nothing runs;
-#   - with no session to watch it skips; when the session ends, caffeinate ends.
+#   - with no session to watch it skips; when the session ends, caffeinate ends;
+#   - with Remote Control on (`CLAUDE_CODE_BRIDGE_SESSION_ID` set), stop keeps
+#     ours alive and says `kept-remote <pid>`; with nothing running it is still
+#     `not-running`; an empty value closes as before. The suite unsets the
+#     variable first, so a session with Remote Control on cannot leak into it.
 #
 #   bash scripts/autonomous-keep-awake.test.sh
 
@@ -64,7 +68,7 @@ EOF
 chmod +x "$TMP/bin/caffeinate" "$TMP/bin/uname"
 export PATH="$TMP/bin:$PATH"
 export FAKE_UNAME="Darwin"
-unset CLAUDE_PID
+unset CLAUDE_PID CLAUDE_CODE_BRIDGE_SESSION_ID
 
 run() { bash "$SCRIPT" "$@"; }
 count_ours() { ps -U "$(id -u)" -o command= | grep -c -- "caffeinate -i -w $1\$"; }
@@ -198,6 +202,26 @@ kill -0 "$CAF3" 2>/dev/null && no "caffeinate ends with its session (-w)" || ok 
 SELF_COMM="$(ps -o comm= -p $$ | sed 's#.*/##; s/^-//')"
 out="$(KEEP_AWAKE_SESSION_COMM="$SELF_COMM" run status)"
 [[ "$out" == "not-running" ]] && ok "ancestor walk resolves a session" || no "ancestor walk resolves a session (got: '$out')"
+
+# --- 11. stop with Remote Control on keeps ours ------------------------------
+out="$(run start --watch "$SESSION")"; KEPT="${out#started }"; PIDS+=("$KEPT")
+sleep 0.3
+out="$(CLAUDE_CODE_BRIDGE_SESSION_ID=session_test run stop --watch "$SESSION")"; rc=$?
+[[ $rc -eq 0 && "$out" == "kept-remote $KEPT" ]] && ok "Remote Control: stop prints kept-remote <pid>, exit 0" || no "Remote Control: stop (got: rc=$rc '$out')"
+sleep 0.3
+kill -0 "$KEPT" 2>/dev/null && ok "Remote Control: our caffeinate is still alive" || no "Remote Control: our caffeinate is still alive"
+[[ "$(run status --watch "$SESSION")" == "running $KEPT" ]] && ok "Remote Control: status still reports running <pid>" || no "Remote Control: status still reports running <pid>"
+kill -0 "$OTHER_CAF" 2>/dev/null && ok "Remote Control: another session's caffeinate is left alone" || no "Remote Control: another session's caffeinate is left alone"
+
+# --- 12. an empty Remote Control value closes as before ----------------------
+out="$(CLAUDE_CODE_BRIDGE_SESSION_ID= run stop --watch "$SESSION")"
+[[ "$out" == "stopped $KEPT" ]] && ok "empty signal: stop prints stopped <pid>" || no "empty signal: stop (got: '$out')"
+sleep 0.3
+kill -0 "$KEPT" 2>/dev/null && no "empty signal: our caffeinate is ended" || ok "empty signal: our caffeinate is ended"
+
+# --- 13. Remote Control on with nothing running ------------------------------
+out="$(CLAUDE_CODE_BRIDGE_SESSION_ID=session_test run stop --watch "$SESSION")"; rc=$?
+[[ $rc -eq 0 && "$out" == "not-running" ]] && ok "Remote Control, nothing running: not-running, exit 0" || no "Remote Control, nothing running (got: rc=$rc '$out')"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
