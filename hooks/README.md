@@ -132,13 +132,13 @@ the Free Software Foundation, either version 3 of the License, or
     permission."): both are real "blocked on you" moments, and both play only
     in a workflow-dev project (`.workflow-dev/context` in the payload's `cwd` or
     a parent), since a hook cannot see which skill asked.
-  - **Per story (WD-0068).** Every play, from any of these hooks, first looks
-    for the story's entry in the repo's `.workflow-dev/config.json`
-    (`notifications`, made by `init`), found through the payload's `cwd`. The
-    active story is the entry whose ID is in the current branch's name, else the
-    only entry. No entry (or neither `jq` nor `perl`) means silence, `need` and `permission`
-    included, and the entry's output is where it plays. The entry goes when the story's context says Done: `--stop` deletes it after
-    playing `story`, using the story id recorded when the sound was armed.
+  - **Once per machine.** Every play, from any of these hooks, first reads
+    `notifications` in `~/.workflow-dev/config.json` (`true` or `false`,
+    written by `init` the first time it asks). Anything else — no file, a
+    string, the per-story list older versions kept in the repo's config — or
+    neither `jq` nor `perl` means silence, `need` and `permission` included.
+    Every sound plays on the system's default output, and nothing is turned
+    off when a story ends.
   - `UserPromptSubmit` → `--prompt` drops the session's arm: a turn the human
     interrupts ends without a `Stop`, and its arm must not sound at the end of
     the next, ordinary response.

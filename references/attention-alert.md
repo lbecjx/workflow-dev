@@ -37,7 +37,7 @@ before looking at the screen:
 | `fail` | "Something went wrong." | a check failed, or the run is stuck |
 | `saved` | "Context saved." | a save the human asked for finished |
 | `story` | fanfare, then "Congrats! Story complete." | the whole story is done |
-| `start` | "Ok, let's start!" | the alerts were just turned on for this story (played by `init` with `play start`, never armed) |
+| `start` | "Ok, let's start!" | the alerts were just turned on on this machine (played by `init` with `play start`, never armed) |
 
 ## Who plays them
 
@@ -119,61 +119,45 @@ a stop: the ask plays its own sound (above), so it arms nothing. The arms:
 
 No per-step skill arms during the run.
 
-## Alerts for this story
+## Alerts on this machine
 
-The alerts are per story: a story sounds only while it has an entry in the
-repo's `.workflow-dev/config.json` (`notifications`), and no entry means no
-sound at all, `need` and `permission` included. `init` makes the entry (its
-Phase 7, in either run mode, while the human is still there), and the last
-output the human chose is kept in `~/.workflow-dev/config.json`, for the next
-story. Resolve `PLUGIN_ROOT` as in "How to arm", with the story ID known:
+The alerts are one yes or no for the whole machine: the answer lives in
+`~/.workflow-dev/config.json` (`notifications`), holds for every story of every
+repo, and nothing turns it off when a story ends. No answer means no sound at
+all, `need` and `permission` included. Every sound plays on the system's
+default output, so nothing else is asked. `init` asks (its Phase 7, in either
+run mode, while the human is still there), but only while the machine has no
+answer. Resolve `PLUGIN_ROOT` as in "How to arm":
 
-1. `"$PLUGIN_ROOT"/scripts/attention-alert.sh prune` drops the entries of
-   stories that are no longer in progress.
-2. `"$PLUGIN_ROOT"/scripts/attention-alert.sh offer` prints the state on its
-   first line: `first`, `suggest<TAB><output>`, or `list`. The other lines are
-   the outputs (`recommended|-`, `default|-`, name), then `nospeaker` or
-   `default-only`. On macOS the first call compiles a small helper with `swiftc`
-   (a few seconds).
-3. State `first`: say first, in these two short sentences: *"Some processes take
+1. `"$PLUGIN_ROOT"/scripts/attention-alert.sh get` prints `on`, `off` or
+   `unset`. `on` or `off`: say nothing about the alerts and go on.
+2. `unset`: say first, in these two short sentences: *"Some processes take
    minutes. Turn the alerts on and I'll tell you when something ends or when I
-   need you."* This message comes with every story until the human has turned
-   the alerts on once.
-4. Ask, with the ask-question tool, worded per `references/user-language.md`:
-   **Activate alerts for this story?** — `Yes (Recommended)` and `No`. Never
-   recommend turning them off, and never save a `No`: it holds for this story
-   only, and the next story asks again. On `No`, stop here.
-5. On `Yes`, pick the output:
-   - `suggest`: ask which output with `<output> (Suggested)` and
-     `Choose source`; `Choose source` goes on to the list.
-   - `list`, or `first`: ask **Which source will play them?** with the outputs,
-     the recommended one first and marked `(Recommended)`. The ask-question tool
-     takes four options at most: show the first three and leave the rest to
-     "Other", where the human types the name. End the question with two short
-     notes: *"Choose your speakers: when I call you, you may not have your
-     headphones on."* and *"With low volume or on mute, you won't hear me."*
-     With `nospeaker`, the first note becomes *"It will only sound in your
-     headphones: keep them on."*
-   - `default-only`: nothing can be chosen. Say in one line that this Mac plays
-     the alerts on the current output, and use `default` as the output.
-6. Save: `attention-alert.sh set-pref "<output>"`, then
-   `attention-alert.sh activate <STORY-ID> "<output>"`, then
-   `attention-alert.sh play start "<output>"`. If either save prints `unavailable` (no
-   `jq` or `perl`, or an unreadable `config.json`), say in one line that the
-   alerts need `jq` or `perl` and go on without them.
+   need you."*
+3. Ask, with the ask-question tool, worded per `references/user-language.md`:
+   **Turn the notifications on?** They tell the human when you need their
+   answer or finish something, and they play at the system's volume. Options:
+   `Yes (Recommended)` and `No`. Never recommend turning them off.
+4. Save the answer, `No` included: `attention-alert.sh set on` or
+   `attention-alert.sh set off`. On `Yes`, then run
+   `attention-alert.sh play start`, and say this tip in one line: *"If you step
+   away from the computer, turn on your speakers so you hear the alerts from
+   afar."* If `set` prints `unavailable` (no `jq` or `perl`, or an unreadable
+   `config.json`), say in one line that the alerts need `jq` or `perl` and go on
+   without them.
 
 Keep every sentence the human reads to one or two short ones.
 
-In autonomous mode this is part of the pre-autonomous checkpoint, not a
-blocking question about the story: with no answer, use the saved output when
-`offer` said `suggest`, else the default output (`default`), run
-`attention-alert.sh activate <STORY-ID> "<output>"` and
-`attention-alert.sh play start "<output>"`, and record the choice as `Agent (inferred)`.
-Save no preference (`set-pref`) from that fallback: it is not the human's choice.
+In autonomous mode this is part of the pre-autonomous checkpoint, only when
+`get` printed `unset`. It waits for the answer, so say first that autonomous
+mode has not started yet (`autonomous-mode.md`, "Before the run starts"). Only
+when nobody can answer (unattended), run `attention-alert.sh set on` and
+`attention-alert.sh play start`, say the tip, and record it as `Agent (inferred)`.
 
 ## Off, CI and unattended
 
-Whether a story sounds, and on which output, is decided once per story by its
-entry in the repo's `config.json` (see "Alerts for this story"). No environment
-variable changes it. The alerts are silent in CI and in a non-interactive
+Whether anything sounds is decided once per machine (see "Alerts on this
+machine"). The human changes it later by editing `notifications` in
+`~/.workflow-dev/config.json`, or by asking the agent to run
+`attention-alert.sh set on` or `set off`. No environment variable changes it. The alerts are silent in CI and in a non-interactive
 session. Arm the same way regardless: the script decides whether anything plays.

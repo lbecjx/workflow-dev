@@ -19,7 +19,10 @@
 #   - off (every spelling), CI and a non-interactive session stay silent;
 #   - a custom sound is used only when it is a readable regular file;
 #   - a slow player never holds the caller; nothing printed, always exit 0;
-#   - the bundled sound is a short WAV.
+#   - the bundled sound is a short WAV;
+#   - one yes/no per machine (~/.workflow-dev/config.json) decides whether
+#     anything sounds, every sound plays on the default output, and no write
+#     ever stores an output.
 #
 #   bash scripts/attention-alert.test.sh
 
@@ -65,12 +68,12 @@ mkdir -p "$TMP/slow"
 printf '#!/bin/bash\nsleep 5\n' > "$TMP/slow/afplay"
 chmod +x "$TMP/slow/afplay"
 
-# The alerts sound only for a story that turned them on, so every run happens in
-# a project whose config has one entry (on the default output), and finds jq.
-# The no-jq hook variant names the entry through the seam instead.
+# The alerts sound only when this machine said yes, so every run happens in a
+# workflow-dev project with a yes in the sandbox HOME, and finds jq. The no-jq
+# hook variant gives the answer through the seam instead.
 PROJ="$TMP/proj"
 mkdir -p "$PROJ/.workflow-dev/context" "$TMP/jq"
-printf '{"notifications":[{"storyId":"T-1","device":"default"}]}\n' > "$PROJ/.workflow-dev/config.json"
+UCFG="$TMP/home/.workflow-dev/config.json"
 JQ_REAL="$(command -v jq)" && ln -s "$JQ_REAL" "$TMP/jq/jq"
 EXTRA_PATH=":$TMP/jq"
 GATE_ENV=""
@@ -87,9 +90,15 @@ run() { # run <player dir> <os> [VAR=value ...] -- args
     _WD_ATTENTION_TTY="$TTY" ${GATE_ENV:+"$GATE_ENV"} ${envs[@]+"${envs[@]}"} /bin/bash "$SCRIPT" "$@" )
 }
 
-seed_entry() { printf '{"notifications":[{"storyId":"T-1","device":"default"}]}\n' > "${1:-$PROJ}/.workflow-dev/config.json"; }
-seed_device() { printf '{"notifications":[{"storyId":"T-1","device":"%s"}]}\n' "$1" > "${2:-$PROJ}/.workflow-dev/config.json"; }
-reset() { : > "$LOG"; rm -f "$TTY"; seed_entry; }
+seed_answer() { # seed_answer on|off|<raw config text>
+  mkdir -p "${UCFG%/*}"
+  case "$1" in
+    on) printf '{"notifications": true}\n' ;;
+    off) printf '{"notifications": false}\n' ;;
+    *) printf '%s' "$1" ;;
+  esac > "$UCFG"
+}
+reset() { : > "$LOG"; rm -f "$TTY"; seed_answer on; }
 wait_log() { local _; for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [[ -s "$LOG" ]] && return 0; sleep 0.05; done; return 1; }
 played() { wait_log && cat "$LOG"; }
 silent() { sleep 0.3; [[ ! -s "$LOG" && ! -e "$TTY" ]]; }
@@ -163,7 +172,6 @@ out="$(run "$TMP/mac" Darwin -- bogus 2>/dev/null)"; rc=$?
 
 # --- 5. hooks: only armed Stops, plugin questions and permission prompts ------
 mkdir -p "$TMP/plain" "$TMP/my proj/.workflow-dev/context" "$TMP/q\"x/.workflow-dev/context"
-seed_entry "$TMP/my proj"; seed_entry "$TMP/q\"x"
 N=0
 new_sid() { N=$((N + 1)); SID="sess-$N"; }
 payload() { # payload <session> <cwd json-escaped> [extra json]
@@ -328,7 +336,7 @@ hook_suite() {
 }
 
 mkdir -p "$TMP/t"
-EXTRA_PATH="" GATE_ENV="_WD_ATTENTION_ACTIVE=SEAM-1"$'\t'"default" hook_suite "[no jq]"
+EXTRA_PATH="" GATE_ENV="_WD_ATTENTION_ON=on" hook_suite "[no jq]"
 if [[ -x "$TMP/jq/jq" ]]; then
   mkdir -p "$TMP/t"
   hook_suite "[jq]"
@@ -359,14 +367,18 @@ done
 for pair in "skills/plan/SKILL.md:need" "skills/validate/SKILL.md:passed" "skills/validate/SKILL.md:fail" "skills/implement/SKILL.md:done" "skills/manual-qa/SKILL.md:done" "skills/summarize-changes/SKILL.md:commit" "skills/summarize-changes/SKILL.md:pr" "skills/save/SKILL.md:story" "skills/save/SKILL.md:saved" "references/autonomous-mode.md:story"; do
   grep -q "kind.*\`${pair##*:}\`\|\`${pair##*:}\`" "$ROOT/${pair%%:*}" && ok "${pair%%:*} arms ${pair##*:}" || no "${pair%%:*} arms ${pair##*:}"
 done
-for gone in 'First story on this machine' 'attention-alert\.sh device($|[^s])' 'set-volume' 'set-device'; do
-  grep -qE "$gone" "$ROOT/skills/init/SKILL.md" "$DOC" "$ROOT/README.md" && no "docs no longer mention '$gone'" || ok "docs no longer mention '$gone'"
+for gone in 'First story on this machine' 'attention-alert\.sh device($|[^s])' 'set-volume' 'set-device' 'Alerts for this story' 'set-pref' 'attention-alert\.sh activate' 'attention-alert\.sh offer' 'attention-alert\.sh prune' 'Choose source' 'attention-play' 'storyId' 'Which source'; do
+  grep -qE "$gone" "$ROOT/skills/init/SKILL.md" "$DOC" "$ROOT/README.md" "$ROOT/hooks/README.md" "$ROOT/references/autonomous-mode.md" && no "docs no longer mention '$gone'" || ok "docs no longer mention '$gone'"
 done
-for want in 'Alerts for this story' 'attention-alert.sh prune' 'attention-alert.sh offer' 'Activate alerts for this story?' 'Yes (Recommended)' 'Never' 'never save a `No`' '(Suggested)' 'Choose source' '(Recommended)' 'Choose your speakers' "With low volume or on mute" 'It will only sound in your' 'Some processes take' 'set-pref' 'attention-alert.sh activate' 'attention-alert.sh play start' 'Agent (inferred)'; do
+for want in 'Alerts on this machine' 'attention-alert.sh get' 'attention-alert.sh set on' 'attention-alert.sh set off' 'attention-alert.sh play start' 'Turn the notifications on?' 'Yes (Recommended)' 'Never' 'Some processes take' 'speakers' '`unset`' 'Agent (inferred)'; do
   grep -qF -- "$want" "$DOC" && ok "the reference carries '$want'" || no "the reference carries '$want'"
 done
-grep -qF 'Alerts for this story' "$ROOT/skills/init/SKILL.md" && ok "init asks the alerts question" || no "init alerts question"
-grep -qF 'Alerts for this story' "$ROOT/references/autonomous-mode.md" && ok "the autonomous checkpoint carries the alerts question" || no "autonomous alerts question"
+grep -qF 'Alerts on this machine' "$ROOT/skills/init/SKILL.md" && ok "init asks the alerts question" || no "init alerts question"
+grep -qF 'Alerts on this machine' "$ROOT/references/autonomous-mode.md" && ok "the autonomous checkpoint carries the alerts question" || no "autonomous alerts question"
+# The alerts question waits for the answer, so an autonomous run says first it has not started.
+grep -qF '## Before the run starts' "$ROOT/references/autonomous-mode.md" && ok "autonomous mode says the run has not started before its setup questions" || no "autonomous 'Before the run starts' section"
+grep -qF 'Before the run starts' "$DOC" && ok "the alerts reference points to 'Before the run starts'" || no "alerts reference points to 'Before the run starts'"
+grep -qF 'never blocks' "$ROOT/references/autonomous-mode.md" "$DOC" && no "docs no longer claim the alerts question never blocks" || ok "docs no longer claim the alerts question never blocks"
 # `play start` is the one direct play a skill may ask for; every other kind is armed.
 if grep -rn 'attention-alert.sh play' "$ROOT/skills" "$ROOT/references" | grep -v 'play start' >/dev/null; then no "no skill tells the agent to play directly (except start)"; else ok "no skill tells the agent to play directly (except start)"; fi
 
@@ -452,146 +464,102 @@ cp "$SCRIPT" "$HERE/marker-dir.sh" "$TMP/plug/scripts/"
 cp "$ASSETS/attention-need.wav" "$TMP/plug/assets/"
 reset; ( cd "$PROJ" && env -i HOME="$TMP/home" PATH="$TMP/mac:$TMP/os:$SYS:$TMP/jq" FAKE_UNAME=Darwin /bin/bash "$TMP/plug/scripts/attention-alert.sh" play story ) >/dev/null
 [[ "$(played)" == *"/plug/assets/attention-need.wav" ]] && ok "a kind whose file is missing plays need" || no "missing kind file (got: $(cat "$LOG"))"
-# --- 10. where the sounds play: the output comes from the environment ---------
+# --- 10. every sound plays on the default output -----------------------------
 H="$TMP/home"
-HELPER="$H/.workflow-dev/bin/attention-play"
-fake_helper() { # a stand-in for the compiled macOS helper: lists two outputs,
-  # "plays" by logging, and fails for an output named Gone (unplugged)
-  mkdir -p "${HELPER%/*}"
-  cat > "$HELPER" <<EOF
-#!/bin/bash
-if [[ "\$1" == --list ]]; then
-  printf 'usb\tdefault\tHeadset\nbuiltin\t-\tMacBook Pro Speakers\n'
-  exit 0
-fi
-[[ "\$1" == Gone ]] && exit 1
-printf 'helper %s\n' "\$*" >> "$LOG"
-EOF
-  chmod +x "$HELPER"
-  touch "$HELPER"
-}
-rm -rf "$H"
-reset; seed_device "MacBook Pro Speakers"; run "$TMP/mac" Darwin -- play done >/dev/null
-[[ "$(played)" == "afplay "*"/assets/attention-done.wav" ]] && ok "with no helper the default output plays" || no "no helper fallback (got: $(cat "$LOG"))"
-fake_helper
-reset; seed_device "MacBook Pro Speakers"; run "$TMP/mac" Darwin -- play done >/dev/null
-[[ "$(played)" == "helper MacBook Pro Speakers "*"/assets/attention-done.wav" ]] && ok "the chosen output plays through the helper" || no "helper play (got: $(cat "$LOG"))"
-[[ "$(run "$TMP/mac" Darwin -- suggest)" == "MacBook Pro Speakers" ]] && ok "suggest names the built-in output" || no "suggest (got: $(run "$TMP/mac" Darwin -- suggest))"
-[[ "$(run "$TMP/mac" Darwin -- devices | wc -l | tr -d ' ')" == 2 ]] && ok "devices lists every output" || no "devices"
-reset; seed_device Gone; run "$TMP/mac" Darwin -- play done >/dev/null
-[[ "$(played)" == "afplay "*"/assets/attention-done.wav" ]] && ok "an unplugged output falls back to the default output" || no "unplugged fallback (got: $(cat "$LOG"))"
-reset; seed_device default; run "$TMP/mac" Darwin -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "an entry with the default output plays on the default output" || no "entry default (got: $(cat "$LOG"))"
+for kind in need away permission commit pr done passed fail saved story start; do
+  reset; run "$TMP/mac" Darwin -- play "$kind" >/dev/null
+  [[ "$(played)" == "afplay $(cd -P "$HERE/.." && pwd -P)/assets/attention-$kind.wav" ]] && ok "'$kind' plays on the default output (afplay, no output named)" || no "'$kind' default output (got: $(cat "$LOG"))"
+done
+reset; run "$TMP/pulse" Linux -- play done >/dev/null
+[[ "$(played)" == "paplay /"*"/attention-done.wav" ]] && ok "Linux paplay gets no --device" || no "paplay default (got: $(cat "$LOG"))"
+reset; run "$TMP/alsa" Linux -- play done >/dev/null
+[[ "$(played)" == "aplay /"*"/attention-done.wav" ]] && ok "Linux aplay gets no -D" || no "aplay default (got: $(cat "$LOG"))"
+# A helper compiled by an older version is never called.
+mkdir -p "$H/.workflow-dev/bin"
+printf '#!/bin/bash\nprintf "helper %%s\\n" "$*" >> "%s"\n' "$LOG" > "$H/.workflow-dev/bin/attention-play"
+chmod +x "$H/.workflow-dev/bin/attention-play"
 reset; run "$TMP/mac" Darwin -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "with no device chosen the default output plays" || no "no device (got: $(cat "$LOG"))"
+[[ "$(played)" == "afplay "* && "$(cat "$LOG")" != *helper* ]] && ok "an old output helper is never called" || no "old helper (got: $(cat "$LOG"))"
+rm -rf "$H/.workflow-dev/bin"
+# An old repo entry that named an output plays on the default output too.
+printf '{"notifications":[{"storyId":"T-1","device":"MacBook Pro Speakers"}]}\n' > "$PROJ/.workflow-dev/config.json"
+reset; run "$TMP/mac" Darwin -- play done >/dev/null
+[[ "$(played)" == "afplay /"*"/attention-done.wav" ]] && ok "an old repo entry naming an output plays on the default output" || no "old entry output (got: $(cat "$LOG"))"
+rm -f "$PROJ/.workflow-dev/config.json"
 # A retired machine file is never read: not its device, not its volume.
-mkdir -p "$H/.workflow-dev"
 printf '{"device": "MacBook Pro Speakers", "volume": "25"}\n' > "$H/.workflow-dev/attention.json"
 reset; run "$TMP/mac" Darwin -- play done >/dev/null
 [[ "$(played)" == "afplay /"*"/assets/attention-done.wav" ]] && ok "attention.json is no longer read (no device, no -v)" || no "attention.json ignored (got: $(cat "$LOG"))"
-for gone in set-device set-volume device volume; do
-  run "$TMP/mac" Darwin -- "$gone" x >/dev/null 2>&1; rc=$?
-  [[ $rc -eq 2 ]] && ok "'$gone' is no longer a command (usage error)" || no "'$gone' retired (rc=$rc)"
+rm -f "$H/.workflow-dev/attention.json"
+reset; run "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION_VOLUME=40 WORKFLOW_DEV_ATTENTION_DEVICE=Headset -- play done >/dev/null
+[[ "$(played)" == "afplay /"*"/assets/attention-done.wav" ]] && ok "WORKFLOW_DEV_ATTENTION_VOLUME and _DEVICE are ignored" || no "env ignored (got: $(cat "$LOG"))"
+for gone in set-device set-volume device volume devices suggest set-pref pref activate deactivate entries active offer prune; do
+  run "$TMP/mac" Darwin -- "$gone" >/dev/null 2>&1; rc=$?
+  run "$TMP/mac" Darwin -- "$gone" x >/dev/null 2>&1; rc2=$?
+  [[ $rc -eq 2 && $rc2 -eq 2 ]] && ok "'$gone' is no longer a command (usage error)" || no "'$gone' retired (rc=$rc/$rc2)"
 done
-reset; run "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION_VOLUME=40 -- play done >/dev/null
-[[ "$(played)" == "afplay /"* ]] && ok "WORKFLOW_DEV_ATTENTION_VOLUME is ignored (no -v)" || no "volume env ignored (got: $(cat "$LOG"))"
-# Linux: the players take the output name directly.
-fake "$TMP/pulsedev" paplay 'for a in "$@"; do [[ "$a" == --device=Gone ]] && exit 1; done'
-fake "$TMP/alsadev" aplay 'for a in "$@"; do [[ "$a" == Gone ]] && exit 1; done'
-reset; seed_device alsa_output.pci-0000.analog-stereo; run "$TMP/pulsedev" Linux -- play done >/dev/null
-[[ "$(played)" == "paplay --device=alsa_output.pci-0000.analog-stereo "*"/attention-done.wav" ]] && ok "Linux paplay gets --device" || no "paplay device (got: $(cat "$LOG"))"
-reset; seed_device alsa_output.pci-0000.analog-stereo; run "$TMP/alsadev" Linux -- play done >/dev/null
-[[ "$(played)" == "aplay -D alsa_output.pci-0000.analog-stereo "*"/attention-done.wav" ]] && ok "Linux aplay gets -D" || no "aplay device (got: $(cat "$LOG"))"
-reset; seed_device Gone; run "$TMP/pulsedev" Linux -- play done >/dev/null; sleep 0.3
-[[ "$(tail -1 "$LOG")" == "paplay "*"/attention-done.wav" && "$(tail -1 "$LOG")" != *--device* ]] && ok "Linux falls back to the default output when the device fails" || no "paplay fallback (got: $(cat "$LOG"))"
-rm -rf "$H"
+for bad in "play start Speakers" "play done X" "set yes" "set" "set on off" "get x" "set ON"; do
+  run "$TMP/mac" Darwin -- $bad >/dev/null 2>&1; rc=$?
+  [[ $rc -eq 2 ]] && ok "'$bad' is a usage error" || no "'$bad' usage (rc=$rc)"
+done
 
-# --- 12. alerts per story: the saved choice and the repo's entries -------------
+# --- 12. one answer per machine: get and set ---------------------------------
 HAVE_JQ=1; command -v jq >/dev/null 2>&1 || HAVE_JQ=0
-SP="$TMP/storyproj"
-rm -rf "$SP" "$TMP/home"; mkdir -p "$SP/.workflow-dev/context" "$SP/sub/dir"
-( cd "$SP" && git init -q && git checkout -q -b wd-0068-alertas-por-story && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init ) >/dev/null 2>&1
-inp() { RUN_CWD="${INP_DIR:-$SP}" run "$TMP/mac" Darwin "$@"; }
+inp() { run "$TMP/mac" Darwin "$@"; }
+# Every key path in the user config that names an output.
+device_paths() { jq -r '[paths | map(tostring) | join(".")] | map(select(test("device"; "i"))) | .[]' "$UCFG" 2>/dev/null; }
 if [[ $HAVE_JQ -eq 1 ]]; then
-  [[ "$(inp -- pref)" == unset ]] && ok "no saved choice reads as unset" || no "fresh pref"
-  [[ "$(inp -- set-pref "MacBook Pro Speakers")" == saved && "$(inp -- pref)" == "MacBook Pro Speakers" ]] && ok "set-pref is saved and read back" || no "set-pref"
-  jq -e '.userPref.notifications.device == "MacBook Pro Speakers"' "$TMP/home/.workflow-dev/config.json" >/dev/null && ok "the choice lives at userPref.notifications.device" || no "pref shape"
-  [[ -n "$(find "$TMP/home/.workflow-dev" -maxdepth 0 -perm 700)" ]] && ok "the user folder is private (700)" || no "user folder mode"
-  printf '{"userPref": {"other": 1}, "keep": "me"}\n' > "$TMP/home/.workflow-dev/config.json"
-  inp -- set-pref "Headset" >/dev/null
-  jq -e '.keep == "me" and .userPref.other == 1 and .userPref.notifications.device == "Headset"' "$TMP/home/.workflow-dev/config.json" >/dev/null && ok "set-pref keeps every other key" || no "set-pref keeps keys"
-  inp -- set-pref 'Bob "Big" Speaker\x' >/dev/null
-  [[ "$(inp -- pref)" == 'Bob "Big" Speaker\x' ]] && ok "a name with quotes and a backslash round-trips" || no "quoted name"
-  for bad in "$(printf 'two\nlines')" "$(printf 'a\tb')"; do
-    [[ "$(inp -- set-pref "$bad")" == invalid ]] && ok "a name with a control character is refused" || no "control char name"
+  rm -rf "$H"
+  [[ "$(inp -- get)" == unset && ! -e "$UCFG" ]] && ok "no config reads as unset, and reading writes nothing" || no "fresh get"
+  [[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on is saved and read back" || no "set on"
+  jq -e '.notifications == true' "$UCFG" >/dev/null && ok "the answer lives at notifications, a JSON boolean" || no "answer shape ($(cat "$UCFG"))"
+  [[ -n "$(find "$H/.workflow-dev" -maxdepth 0 -perm 700)" ]] && ok "the user folder is private (700)" || no "user folder mode"
+  [[ "$(inp -- set off)" == saved && "$(inp -- get)" == off ]] && jq -e '.notifications == false' "$UCFG" >/dev/null && ok "set off is saved and read back" || no "set off"
+  printf '{"keep":"me","language":"es","userPref":{"notifications":{"device":"Headset"}}}\n' > "$UCFG"
+  [[ "$(inp -- get)" == unset ]] && ok "an old saved output (userPref) is no answer" || no "userPref read (got: $(inp -- get))"
+  inp -- set on >/dev/null
+  jq -e '.keep == "me" and .language == "es" and .userPref.notifications.device == "Headset" and .notifications == true' "$UCFG" >/dev/null && ok "set keeps every other key, an old userPref too" || no "set keeps keys ($(cat "$UCFG"))"
+  for raw in '{"notifications":"true"}' '{"notifications":1}' '{"notifications":null}' '{"notifications":{}}' '{"notifications":[{"storyId":"T-1","device":"x"}]}' '{}' '' '   '; do
+    printf '%s' "$raw" > "$UCFG"
+    [[ "$(inp -- get)" == unset ]] && ok "notifications as '$raw' reads as unset" || no "non-boolean '$raw' (got: $(inp -- get))"
+    [[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on replaces '$raw' with a yes" || no "set over '$raw' ($(cat "$UCFG"))"
   done
-  printf 'not json' > "$TMP/home/.workflow-dev/config.json"
-  [[ "$(inp -- set-pref x)" == unavailable && "$(cat "$TMP/home/.workflow-dev/config.json")" == "not json" ]] && ok "an unreadable config is left untouched (unavailable)" || no "corrupt user config"
-  printf '[1,2]' > "$TMP/home/.workflow-dev/config.json"
-  [[ "$(inp -- set-pref x)" == unavailable && "$(cat "$TMP/home/.workflow-dev/config.json")" == "[1,2]" ]] && ok "a config whose root is not an object is left untouched" || no "array root user config"
-  rm -f "$TMP/home/.workflow-dev/config.json"
-
-  [[ -z "$(inp -- entries)" && -z "$(inp -- active)" ]] && ok "a repo with no config has no entries" || no "no entries"
-  printf '{"gitignored": true, "language": "es"}\n' > "$SP/.workflow-dev/config.json"
-  [[ "$(inp -- activate WD-0068 "MacBook Pro Speakers")" == saved ]] && ok "activate saves an entry" || no "activate"
-  jq -e '.gitignored == true and .language == "es" and .notifications == [{"storyId":"WD-0068","device":"MacBook Pro Speakers"}]' "$SP/.workflow-dev/config.json" >/dev/null && ok "activate keeps every other key" || no "activate keeps keys"
-  [[ "$(inp -- active)" == $'WD-0068\tMacBook Pro Speakers' ]] && ok "the only entry is the active one" || no "only entry (got: $(inp -- active))"
-  inp -- activate wd-0068 Headset >/dev/null
-  [[ "$(inp -- entries | wc -l | tr -d ' ')" == 1 && "$(inp -- active)" == $'wd-0068\tHeadset' ]] && ok "activating the same story again replaces its entry (any case)" || no "replace entry"
-  inp -- activate WD-0070 Other >/dev/null
-  [[ "$(inp -- active)" == $'wd-0068\tHeadset' ]] && ok "with two entries, the one named in the branch is active" || no "branch match (got: $(inp -- active))"
-  ( cd "$SP" && git checkout -q -b wd-0070-otra-cosa )
-  [[ "$(inp -- active)" == $'WD-0070\tOther' ]] && ok "switching branch switches the active story" || no "branch switch (got: $(inp -- active))"
-  ( cd "$SP" && git checkout -q -b main-work )
-  [[ -z "$(inp -- active)" ]] && ok "two entries and no branch match: none is active" || no "no match (got: $(inp -- active))"
-  ( cd "$SP" && git checkout -q -b wd-006-short )
-  inp -- activate WD-006 Short >/dev/null
-  ( cd "$SP" && git checkout -q wd-0068-alertas-por-story )
-  [[ "$(inp -- active)" == $'wd-0068\tHeadset' ]] && ok "an id inside a longer one does not match (WD-006 vs WD-0068)" || no "id boundary (got: $(inp -- active))"
-  INP_DIR="$SP/sub/dir"
-  [[ "$(inp -- active)" == $'wd-0068\tHeadset' ]] && ok "the entry is found from a subdirectory" || no "subdir lookup"
-  INP_DIR=
-  [[ "$(inp -- deactivate wd-0068)" == removed && "$(inp -- entries | grep -c 'wd-0068')" == 0 ]] && ok "deactivate drops the entry (any case)" || no "deactivate"
-  jq -e '.gitignored == true and .language == "es"' "$SP/.workflow-dev/config.json" >/dev/null && ok "deactivate keeps every other key" || no "deactivate keeps keys"
-  [[ "$(inp -- deactivate WD-9999)" == removed ]] && ok "deactivating a story with no entry is harmless" || no "deactivate none"
-  for bad in 'a b' 'x;y' '../x' ''; do
-    out="$(inp -- activate "$bad" Dev 2>&1)"; rc=$?
-    if [[ -z "$bad" ]]; then [[ $rc -eq 2 ]]; else [[ "$out" == invalid ]]; fi && ok "activate refuses story id '$bad'" || no "bad story id '$bad' (rc=$rc out=$out)"
+  for raw in 'not json' '[1,2]' '{"a":1}{"b":2}' '"str"'; do
+    printf '%s' "$raw" > "$UCFG"
+    [[ "$(inp -- get)" == unset && "$(inp -- set on)" == unavailable && "$(cat "$UCFG")" == "$raw" ]] && ok "a config of '$raw' reads as unset and is left untouched" || no "bad config '$raw' ($(cat "$UCFG"))"
   done
-  [[ "$(inp -- activate WD-1 "$(printf 'a\tb')")" == invalid ]] && ok "activate refuses a device with a control character" || no "bad device"
-  printf '{"notifications": "oops"}' > "$SP/.workflow-dev/config.json"
-  [[ "$(inp -- activate WD-1 Dev)" == unavailable && "$(cat "$SP/.workflow-dev/config.json")" == '{"notifications": "oops"}' ]] && ok "a notifications key that is not a list is left untouched" || no "bad notifications"
-  [[ -z "$(inp -- entries)" && -z "$(inp -- active)" ]] && ok "a notifications key that is not a list has no entries" || no "bad notifications read"
-  printf 'not json' > "$SP/.workflow-dev/config.json"
-  [[ "$(inp -- activate WD-1 Dev)" == unavailable && "$(cat "$SP/.workflow-dev/config.json")" == 'not json' ]] && ok "an unreadable repo config is left untouched" || no "corrupt repo config"
-  [[ -z "$(inp -- entries)" ]] && ok "an unreadable repo config has no entries" || no "corrupt read"
-  printf '{"notifications":[{"storyId":"A"},{"storyId":1,"device":"x"},"s",{"storyId":"B","device":"Dev"}]}' > "$SP/.workflow-dev/config.json"
-  [[ "$(inp -- entries)" == $'B\tDev' ]] && ok "entries skips malformed items" || no "malformed items (got: $(inp -- entries))"
-  rm -f "$SP/.workflow-dev/config.json"
-  OUT="$TMP/nowf"; mkdir -p "$OUT"
-  [[ "$(RUN_CWD="$OUT" run "$TMP/mac" Darwin -- activate WD-1 Dev)" == unavailable ]] && ok "activate outside a workflow-dev project is unavailable" || no "activate outside project"
-  for need in "activate WD-1" "set-pref"; do
-    run "$TMP/mac" Darwin -- $need >/dev/null 2>&1; rc=$?
-    [[ $rc -eq 2 ]] && ok "'$need' with a missing argument is a usage error" || no "usage '$need' (rc=$rc)"
-  done
+  rm -f "$UCFG"; inp -- set on >/dev/null; inp -- set off >/dev/null; inp -- set on >/dev/null
+  [[ -z "$(device_paths)" ]] && ok "no write stores an output" || no "a device was written: $(device_paths)"
+  # An old repo-level list is neither an answer nor touched.
+  rm -rf "$H"
+  printf '{"gitignored":true,"notifications":[{"storyId":"T-1","device":"Spk"}]}\n' > "$PROJ/.workflow-dev/config.json"
+  cp "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
+  [[ "$(inp -- get)" == unset ]] && ok "an old per-story list in the repo is no answer" || no "repo list read"
+  inp -- set on >/dev/null
+  cmp -s "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json" && ok "set writes nothing to the repo's config" || no "repo config changed ($(cat "$PROJ/.workflow-dev/config.json"))"
+  rm -f "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
+  # The answer holds outside any workflow-dev project too: it is the machine's.
+  mkdir -p "$TMP/nowf"
+  [[ "$(RUN_CWD="$TMP/nowf" run "$TMP/mac" Darwin -- get)" == on ]] && ok "get reads the machine's answer from any folder" || no "get outside a project"
 else
-  printf '  skip alerts-per-story storage (no jq on this machine)\n'
+  printf '  skip get/set storage (no jq on this machine)\n'
 fi
-# Without jq nothing can be written, and nothing is read.
+# With neither jq nor perl nothing can be written, and nothing is read.
 nojq="$TMP/nojq"; mkdir -p "$nojq"
 for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink; do
   real="$(command -v "$tool")" && ln -sf "$real" "$nojq/$tool"
 done
 printf '#!/bin/bash\necho Darwin\n' > "$nojq/uname"; chmod +x "$nojq/uname"
-nj() { ( cd "$SP" && env -i HOME="$TMP/home" PATH="$TMP/mac:$nojq" /bin/bash "$SCRIPT" "$@" ); }
-rm -rf "$TMP/home"
-[[ "$(nj set-pref Dev)" == unavailable && ! -e "$TMP/home/.workflow-dev/config.json" ]] && ok "without jq, set-pref is unavailable and writes nothing" || no "no jq set-pref"
-[[ "$(nj activate WD-1 Dev)" == unavailable && ! -e "$SP/.workflow-dev/config.json" ]] && ok "without jq, activate is unavailable and writes nothing" || no "no jq activate"
-printf '{"notifications":[{"storyId":"WD-1","device":"Dev"}]}' > "$SP/.workflow-dev/config.json"
-[[ -z "$(nj entries)" && -z "$(nj active)" && "$(nj pref)" == unset ]] && ok "without jq, nothing is read" || no "no jq read"
-rm -rf "$SP/.workflow-dev/config.json" "$TMP/home"
+nj() { ( cd "$PROJ" && env -i HOME="$TMP/home" PATH="$TMP/mac:$nojq" /bin/bash "$SCRIPT" "$@" ); }
+rm -rf "$H"
+[[ "$(nj set on)" == unavailable && ! -e "$UCFG" ]] && ok "without jq or perl, set is unavailable and writes nothing" || no "no engine set"
+seed_answer on
+[[ "$(nj get)" == unset ]] && ok "without jq or perl, nothing is read (unset)" || no "no engine get"
+: > "$LOG"; nj play done >/dev/null
+silent && ok "without jq or perl, nothing sounds" || no "no engine play (got: $(cat "$LOG"))"
+rm -rf "$H"
 
-# --- 12b. the gate: sound only for a story that turned the alerts on ---------
+# --- 12b. the gate: one yes for every story, every repo ----------------------
 GP="$TMP/gateproj"
 rm -rf "$GP"; mkdir -p "$GP/.workflow-dev/context"
 ( cd "$GP" && git init -q && git checkout -q -b wd-0068-x && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i ) >/dev/null 2>&1
@@ -600,353 +568,172 @@ gphook() { # gphook <flag> <extra json> [VAR=value ...]
   local flag="$1" extra="$2"; shift 2
   printf '%s' "$(payload "g-$N" "$GP" "$extra")" | RUN_CWD="$GP" run "$TMP/mac" Darwin ${@+"$@"} -- "$flag"
 }
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-reset; gp -- play done >/dev/null
-[[ "$(played)" == "afplay "*"/attention-done.wav" ]] && ok "a story with an entry sounds" || no "entry sounds (got: $(cat "$LOG"))"
+gstop() { # gstop <kind> [VAR=value ...]: arm then Stop, one session
+  local kind="$1"; shift
+  N=$((N + 1)); RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=g-$N" -- arm "$kind" >/dev/null
+  printf '%s' "$(payload "g-$N" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin ${@+"$@"} -- --stop >/dev/null
+}
 for kind in need permission commit pr done passed fail saved story away start; do
-  reset; printf '{"language":"es"}\n' > "$GP/.workflow-dev/config.json"; gp -- play "$kind" >/dev/null
-  silent && ok "no entry: '$kind' is silent" || no "no entry '$kind' (got: $(cat "$LOG"))"
+  reset; gp -- play "$kind" >/dev/null
+  [[ "$(played)" == *"/attention-$kind.wav" ]] && ok "yes: '$kind' sounds" || no "yes '$kind' (got: $(cat "$LOG"))"
 done
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-printf '{"notifications":[{"storyId":"WD-0050","device":"default"},{"storyId":"WD-0051","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
+for answer in off unset; do
+  for kind in need permission commit pr done passed fail saved story away start; do
+    reset; if [[ $answer == off ]]; then seed_answer off; else rm -f "$UCFG"; fi
+    gp -- play "$kind" >/dev/null
+    silent && ok "$answer: '$kind' is silent" || no "$answer '$kind' (got: $(cat "$LOG"))"
+  done
+  reset; if [[ $answer == off ]]; then seed_answer off; else rm -f "$UCFG"; fi
+  N=$((N + 1)); gphook --ask '' >/dev/null
+  N=$((N + 1)); gphook --notify ',"notification_type":"permission_prompt"' >/dev/null
+  if [[ $answer == off ]]; then seed_answer off; else rm -f "$UCFG"; fi
+  gstop done
+  silent && ok "$answer: a question, a permission prompt and an armed Stop are silent" || no "$answer hooks (got: $(cat "$LOG"))"
+done
+# An old per-story list in the repo is not an answer, and is never touched.
+printf '{"notifications":[{"storyId":"WD-0068","device":"Spk"}]}\n' > "$GP/.workflow-dev/config.json"
+cp "$GP/.workflow-dev/config.json" "$TMP/gp-before.json"
+reset; rm -f "$UCFG"; gp -- play done >/dev/null
+silent && ok "an old repo list with no machine answer is silent" || no "old list sounded (got: $(cat "$LOG"))"
 reset; gp -- play done >/dev/null
-silent && ok "several entries and none named by the branch: silent" || no "ambiguous entries (got: $(cat "$LOG"))"
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"},{"storyId":"WD-0050","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-reset; gp -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "another story of the same repo has its own entry: the branch's story sounds" || no "own entry (got: $(cat "$LOG"))"
+[[ "$(played)" == "afplay "*"/attention-done.wav" ]] && ok "an old repo list and a yes: it sounds" || no "old list + yes (got: $(cat "$LOG"))"
+reset; gstop story; played >/dev/null; gp -- set on >/dev/null
+cmp -s "$GP/.workflow-dev/config.json" "$TMP/gp-before.json" && ok "the repo's config stays byte-identical through play, Stop and set" || no "repo config changed"
+rm -f "$GP/.workflow-dev/config.json" "$TMP/gp-before.json"
 mkdir -p "$TMP/nowf2"; reset; RUN_CWD="$TMP/nowf2" run "$TMP/mac" Darwin -- play done >/dev/null
-silent && ok "outside any workflow-dev project: silent" || no "no project (got: $(cat "$LOG"))"
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
+silent && ok "a yes outside any workflow-dev project: silent" || no "no project (got: $(cat "$LOG"))"
+N=$((N + 1)); reset; printf '%s' "$(payload "g-$N" "$TMP/nowf2")" | RUN_CWD="$TMP/nowf2" run "$TMP/mac" Darwin -- --ask >/dev/null
+silent && ok "a yes and a question outside any project: silent" || no "ask no project (got: $(cat "$LOG"))"
 for v in "CI=true" "CLAUDE_CODE_SESSION_ATTENDED=0"; do
   reset; gp "$v" -- play done >/dev/null
-  silent && ok "an entry does not override $v" || no "entry vs $v"
+  silent && ok "a yes does not override $v" || no "yes vs $v"
 done
 reset; gp WORKFLOW_DEV_ATTENTION=off -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "an entry and WORKFLOW_DEV_ATTENTION=off in the environment: it sounds" || no "entry vs off (got: $(cat "$LOG"))"
-# the entry's output is used, the environment is ignored, and a missing one falls back
-fake_helper
-printf '{"notifications":[{"storyId":"WD-0068","device":"MacBook Pro Speakers"}]}\n' > "$GP/.workflow-dev/config.json"
-reset; gp -- play done >/dev/null
-[[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-done.wav" ]] && ok "the entry's output plays through the helper" || no "entry device (got: $(cat "$LOG"))"
-reset; gp WORKFLOW_DEV_ATTENTION_DEVICE=default -- play done >/dev/null
-[[ "$(played)" == "helper MacBook Pro Speakers "* ]] && ok "WORKFLOW_DEV_ATTENTION_DEVICE is not read: the entry's output plays" || no "env ignored (got: $(cat "$LOG"))"
-printf '{"notifications":[{"storyId":"WD-0068","device":"Gone"}]}\n' > "$GP/.workflow-dev/config.json"
-reset; gp -- play done >/dev/null
-[[ "$(played)" == "afplay "* ]] && ok "an entry whose output is unplugged falls back to the default output" || no "entry gone (got: $(cat "$LOG"))"
-rm -rf "$H"
-# hooks gate too, through the payload's cwd
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-N=$((N + 1)); reset; gphook --ask '' >/dev/null
-[[ "$(played)" == *"/attention-need.wav" ]] && ok "a question sounds when the cwd's story has an entry" || no "ask with entry (got: $(cat "$LOG"))"
-printf '{"language":"es"}\n' > "$GP/.workflow-dev/config.json"
-N=$((N + 1)); reset; gphook --ask '' >/dev/null
-silent && ok "a question is silent when the cwd's story has no entry" || no "ask without entry"
-N=$((N + 1)); reset; gphook --notify ',"notification_type":"permission_prompt"' >/dev/null
-silent && ok "a permission prompt is silent when the cwd's story has no entry" || no "notify without entry"
-N=$((N + 1)); SIDG="g-$N"; reset; RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDG" -- arm done >/dev/null
+[[ "$(played)" == "afplay "* ]] && ok "a yes and WORKFLOW_DEV_ATTENTION=off in the environment: it sounds" || no "yes vs off (got: $(cat "$LOG"))"
+# A checkout between the arm and the Stop changes nothing: no branch is read.
+N=$((N + 1)); SIDG="g-$N"; reset
+RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDG" -- arm story >/dev/null
+( cd "$GP" && git checkout -q -b main-after )
 printf '%s' "$(payload "$SIDG" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin -- --stop >/dev/null
-silent && ok "an armed Stop is silent when the story has no entry" || no "stop without entry"
-# the fanfare ends the story's alerts, but only once its context says Done
+[[ "$(played)" == *"/attention-story.wav" ]] && ok "the fanfare sounds after a checkout to another branch" || no "fanfare after checkout (got: $(cat "$LOG"))"
+# A finished story turns nothing off.
 printf '### Implementation Status: Done\n' > "$GP/.workflow-dev/context/WD-0068.md"
-printf '{"gitignored":true,"notifications":[{"storyId":"WD-0068","device":"default"},{"storyId":"WD-0050","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-N=$((N + 1)); SIDG="g-$N"; reset; printf '{"gitignored":true,"notifications":[{"storyId":"WD-0068","device":"default"},{"storyId":"WD-0050","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
+printf '{"gitignored":true}\n' > "$GP/.workflow-dev/config.json"
+cp "$GP/.workflow-dev/config.json" "$TMP/gp-before.json"
+reset; cp "$UCFG" "$TMP/u-before.json"
+N=$((N + 1)); SIDG="g-$N"
 RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDG" -- arm story >/dev/null
+[[ "$(wc -l < "$TMP/t/workflow-dev-validate/attention/armed-$SIDG" | tr -d ' ')" == 1 ]] && ok "the arm holds the kind alone" || no "arm lines ($(cat "$TMP/t/workflow-dev-validate/attention/armed-$SIDG"))"
 printf '%s' "$(payload "$SIDG" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin -- --stop >/dev/null
-[[ "$(played)" == *"/attention-story.wav" ]] && ok "the story fanfare sounds" || no "story fanfare (got: $(cat "$LOG"))"
-jq -e '.gitignored == true and .notifications == [{"storyId":"WD-0050","device":"default"}]' "$GP/.workflow-dev/config.json" >/dev/null && ok "after the fanfare the story's entry is gone and the rest is kept" || no "entry removed after story ($(cat "$GP/.workflow-dev/config.json"))"
-# a fanfare for a story whose context is still In Progress keeps the entry
-printf '### Implementation Status: In Progress\n' > "$GP/.workflow-dev/context/WD-0068.md"
-N=$((N + 1)); SIDG="g-$N"; reset; printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDG" -- arm story >/dev/null
+[[ "$(played)" == *"/attention-story.wav" ]] && ok "the fanfare of a Done story sounds" || no "Done fanfare (got: $(cat "$LOG"))"
+[[ "$(gp -- get)" == on ]] && cmp -s "$UCFG" "$TMP/u-before.json" && cmp -s "$GP/.workflow-dev/config.json" "$TMP/gp-before.json" && ok "after a Done story's fanfare the answer is still yes and no config changed" || no "Done changed a config"
+: > "$LOG"; gstop done
+[[ "$(played)" == *"/attention-done.wav" ]] && ok "the next hand-back after a Done story still sounds" || no "after Done (got: $(cat "$LOG"))"
+# An arm left by an older version (kind, then a story id) still plays its kind.
+N=$((N + 1)); SIDG="g-$N"; reset
+mkdir -p "$TMP/t/workflow-dev-validate/attention"; chmod 700 "$TMP/t/workflow-dev-validate" "$TMP/t/workflow-dev-validate/attention"
+printf 'passed\nWD-0068\n' > "$TMP/t/workflow-dev-validate/attention/armed-$SIDG"
 printf '%s' "$(payload "$SIDG" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin -- --stop >/dev/null
-played >/dev/null; jq -e '.notifications | length == 1' "$GP/.workflow-dev/config.json" >/dev/null && ok "the entry stays while the story's context is not Done" || no "entry kept while In Progress"
-N=$((N + 1)); SIDG="g-$N"; reset; printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$GP/.workflow-dev/config.json"
-RUN_CWD="$GP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDG" -- arm done >/dev/null
-printf '%s' "$(payload "$SIDG" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin -- --stop >/dev/null
-played >/dev/null; jq -e '.notifications | length == 1' "$GP/.workflow-dev/config.json" >/dev/null && ok "any other kind keeps the entry" || no "other kinds keep the entry"
-rm -rf "$GP" "$TMP/home"
+[[ "$(played)" == *"/attention-passed.wav" ]] && ok "an older two-line arm plays its kind" || no "old arm (got: $(cat "$LOG"))"
+rm -rf "$GP" "$TMP/gp-before.json" "$TMP/u-before.json"
 
-# --- 12c. what init offers, and pruning stale entries --------------------------
-OP="$TMP/offerproj"
-rm -rf "$OP" "$TMP/home"; mkdir -p "$OP/.workflow-dev/context"
-op() { RUN_CWD="$OP" run "$TMP/mac" Darwin "$@"; }
-printf '{"language":"es"}\n' > "$OP/.workflow-dev/config.json"
-out="$(op -- offer)"
-[[ "$out" == "default-only" || "$(printf '%s\n' "$out" | tail -1)" == "default-only" ]] && ok "offer: a Mac with no helper can only use the default output" || no "offer default-only (got: $out)"
-[[ "$(printf '%s\n' "$out" | head -1)" == first ]] && ok "offer: nothing saved is 'first'" || no "offer first (got: $out)"
-fake_helper
-out="$(op -- offer)"
-[[ "$(printf '%s\n' "$out" | sed -n 1p)" == first ]] && ok "offer: with outputs and no saved choice it is 'first'" || no "offer first (got: $out)"
-[[ "$(printf '%s\n' "$out" | sed -n 2p)" == $'recommended\t-\tMacBook Pro Speakers' ]] && ok "offer: the built-in speakers come first and recommended" || no "offer speakers first (got: $out)"
-[[ "$(printf '%s\n' "$out" | sed -n 3p)" == $'-\tdefault\tHeadset' ]] && ok "offer: the other outputs follow, the default one marked" || no "offer rest (got: $out)"
-[[ "$out" != *nospeaker* ]] && ok "offer: speakers found, no 'nospeaker'" || no "offer nospeaker wrongly"
-op -- set-pref "MacBook Pro Speakers" >/dev/null
-[[ "$(op -- offer | head -1)" == $'suggest\tMacBook Pro Speakers' ]] && ok "offer: a saved output that is still there is suggested" || no "offer suggest (got: $(op -- offer | head -1))"
-op -- set-pref "Gone" >/dev/null
-[[ "$(op -- offer | head -1)" == list ]] && ok "offer: a saved output that is gone gives the full list" || no "offer list (got: $(op -- offer | head -1))"
-# no speaker: only a headset and a display
-cat > "$HELPER" <<EOF
-#!/bin/bash
-if [[ "\$1" == --list ]]; then
-  printf 'usb\tdefault\tHeadset\ndisplay\t-\tDELL Monitor\nbuiltin\t-\tExternal Headphones\n'
-  exit 0
+# --- 12c. the one write: symlink, mode, empty file, directory, concurrency ----
+if [[ $HAVE_JQ -eq 1 ]]; then
+  rm -rf "$H"
+  mkdir -p "$TMP/dot"; printf '{"x":1}\n' > "$TMP/dot/user.json"; chmod 644 "$TMP/dot/user.json"
+  mkdir -p "$H/.workflow-dev"; ln -s "$TMP/dot/user.json" "$UCFG"
+  inp -- set on >/dev/null
+  [[ -L "$UCFG" ]] && jq -e '.x == 1 and .notifications == true' "$TMP/dot/user.json" >/dev/null && ok "a symlinked config is edited where it points, the link kept" || no "symlinked config"
+  [[ -n "$(find "$TMP/dot/user.json" -perm 644)" ]] && ok "a write keeps the file's mode" || no "mode kept"
+  rm -rf "$H" "$TMP/dot"
+  # A chain of more than ten links is refused, so the real target is never left behind.
+  mkdir -p "$TMP/dot" "$H/.workflow-dev"; printf '{"notifications":true}\n' > "$TMP/dot/real.json"
+  prev="$TMP/dot/real.json"; for i in $(seq 1 11); do ln -s "$prev" "$TMP/dot/l$i"; prev="$TMP/dot/l$i"; done; ln -s "$prev" "$UCFG"
+  [[ "$(inp -- set off)" == unavailable && -L "$TMP/dot/l1" ]] && jq -e '.notifications == true' "$TMP/dot/real.json" >/dev/null && ok "a chain of more than ten links is refused, every link kept" || no "long link chain"
+  [[ "$(inp -- get)" == unset ]] && ok "...and reads as unset, never an 'on' that set cannot change" || no "long chain get (got: $(inp -- get))"
+  rm -f "$UCFG"; ln -s "$TMP/dot/l9" "$UCFG"
+  [[ "$(inp -- get)" == on && "$(inp -- set off)" == saved && "$(inp -- get)" == off ]] && jq -e '.notifications == false' "$TMP/dot/real.json" >/dev/null && ok "a chain of ten links is read and edited at its target" || no "ten-link chain"
+  rm -rf "$H" "$TMP/dot"
+  # A NUL byte reads the same for get and set: no answer, never an 'on' that set cannot change.
+  mkdir -p "$H/.workflow-dev"; printf '{"notifications":true}\0junk' > "$UCFG"
+  [[ "$(inp -- get)" == unset ]] && ok "a config with a NUL and trailing junk reads as unset (silent)" || no "NUL junk get (got: $(inp -- get))"
+  printf '{"notifications":true}\0{"notifications":false}' > "$UCFG"
+  [[ "$(inp -- get)" == unset ]] && ok "two documents split by a NUL read as unset" || no "NUL two docs (got: $(inp -- get))"
+  printf '{"notifications":true}\0' > "$UCFG"
+  [[ "$(inp -- get)" == on ]] && ok "a trailing NUL alone still reads" || no "trailing NUL (got: $(inp -- get))"
+  rm -rf "$H"
+  mkdir -p "$H/.workflow-dev"; mkdir "$UCFG"
+  [[ "$(inp -- set on)" == unavailable && "$(inp -- get)" == unset ]] && ok "a directory at the config path is unavailable, not saved" || no "dir at config path"
+  rmdir "$UCFG"
+  printf '{"keep":true}\n' > "$UCFG"
+  for i in 1 2 3 4 5 6 7 8 9 10; do inp -- set "$([[ $((i % 2)) == 0 ]] && echo on || echo off)" >/dev/null & done; wait
+  jq -e '.keep == true and (.notifications | type) == "boolean"' "$UCFG" >/dev/null && ok "ten parallel writes leave one valid answer and keep other keys" || no "parallel writes ($(cat "$UCFG"))"
+  [[ ! -d "$H/.workflow-dev/.config.json.lock" ]] && ok "the write lock is released" || no "lock left behind"
+  # A large pretty-printed config is written in linear time.
+  { printf '{\n  "notifications": false,\n  "pad": [\n'; for i in $(seq 1 3000); do printf '    "a b c d e f",\n'; done; printf '    "end"\n  ]\n}\n'; } > "$UCFG"
+  start=$SECONDS; out="$(inp -- set on)"; took=$((SECONDS - start))
+  [[ "$out" == saved && $took -le 3 && "$(inp -- get)" == on ]] && jq -e '.pad | length == 3001' "$UCFG" >/dev/null && ok "a 100 KB indented config is written in seconds, every key kept (${took}s)" || no "large config (out=$out took=${took}s)"
+  mkdir "$H/.workflow-dev/.config.json.lock"; touch -t 200001010000 "$H/.workflow-dev/.config.json.lock"
+  [[ "$(inp -- set on)" == saved ]] && ok "a stale lock (a dead writer's) is cleared" || no "stale lock"
+  chmod 555 "$H/.workflow-dev"
+  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
+  chmod 755 "$H/.workflow-dev"
+  [[ "$out" == unavailable && $took -le 1 ]] && ok "a read-only folder fails at once, without waiting for the lock" || no "read-only folder (out=$out took=${took}s)"
+  touch "$H/.workflow-dev/.config.json.lock"
+  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
+  rm -f "$H/.workflow-dev/.config.json.lock"
+  [[ "$out" == unavailable && $took -le 1 ]] && ok "a file at the lock's path fails at once" || no "file at lock path (out=$out took=${took}s)"
+  rm -rf "$H"
 fi
-printf 'helper %s\n' "\$*" >> "$LOG"
-EOF
-chmod +x "$HELPER"; touch "$HELPER"
-out="$(op -- offer)"
-[[ "$out" == *nospeaker* && "$out" != *recommended* ]] && ok "offer: no speakers means 'nospeaker' and no recommended output (a headset jack is not a speaker)" || no "offer nospeaker (got: $out)"
-[[ "$(op -- suggest)" == "" ]] && ok "suggest names no output when only a headset jack is built in" || no "suggest headset"
-rm -rf "$TMP/home"
-[[ "$(op -- offer | head -1)" == first ]] && ok "offer: 'first' again once the saved choice is gone" || no "offer first again"
 
-# prune keeps only the stories still In Progress
-printf '### Implementation Status: In Progress\n' > "$OP/.workflow-dev/context/WD-0001.md"
-printf '### Implementation Status: Done\n' > "$OP/.workflow-dev/context/WD-0002.md"
-printf '{"language":"es","notifications":[{"storyId":"WD-0001","device":"d"},{"storyId":"WD-0002","device":"d"},{"storyId":"WD-0003","device":"d"}]}\n' > "$OP/.workflow-dev/config.json"
-out="$(op -- prune)"
-[[ "$out" == $'pruned WD-0002\npruned WD-0003' ]] && ok "prune drops finished stories and stories with no context file" || no "prune (got: $out)"
-jq -e '.language == "es" and .notifications == [{"storyId":"WD-0001","device":"d"}]' "$OP/.workflow-dev/config.json" >/dev/null && ok "prune keeps the in-progress entry and every other key" || no "prune result ($(cat "$OP/.workflow-dev/config.json"))"
-[[ -z "$(op -- prune)" ]] && ok "prune with nothing stale prints nothing" || no "prune idempotent"
-rm -rf "$OP" "$TMP/home" "$H"
-
-# --- 12d. review fixes: saved default, malformed rows, hostile ids, fanfare when off ---
-FP="$TMP/fixproj"
-rm -rf "$FP" "$TMP/home"; mkdir -p "$FP/.workflow-dev/context"
-( cd "$FP" && git init -q && git symbolic-ref HEAD refs/heads/feature/wd-0068-x )
-fp() { RUN_CWD="$FP" run "$TMP/mac" Darwin "$@"; }
-fake_helper
-fp -- set-pref default >/dev/null
-[[ "$(fp -- offer | head -1)" == $'suggest\tdefault' ]] && ok "offer: a saved 'default' is always still available (suggested)" || no "offer saved default (got: $(fp -- offer | head -1))"
-printf '{"notifications":[{"storyId":"x|","device":"inj"},{"storyId":"WD-0068","device":"real"}]}' > "$FP/.workflow-dev/config.json"
-[[ "$(fp -- active)" == $'WD-0068\treal' && "$(fp -- entries)" == $'WD-0068\treal' ]] && ok "an id that is not valid is skipped on read (no regex injection)" || no "hostile id (got: $(fp -- active))"
-printf '{"notifications":[{"device":"no id"},"junk",{"storyId":"WD-0068","device":"real"}]}' > "$FP/.workflow-dev/config.json"
-[[ "$(fp -- activate WD-0069 spk)" == saved ]] && ok "a malformed row does not block activate" || no "malformed row blocks activate"
-[[ "$(fp -- deactivate WD-0068)" == removed && "$(fp -- entries)" == $'WD-0069\tspk' ]] && ok "a malformed row does not block deactivate" || no "malformed row blocks deactivate (got: $(fp -- entries))"
-printf '{"notifications":[{"storyId":"WD-0068","device":"Bob \\\\ Speaker"}]}' > "$FP/.workflow-dev/config.json"
-[[ "$(fp -- entries)" == $'WD-0068\tBob \\ Speaker' ]] && ok "a backslash in an output name comes back as written" || no "backslash device (got: $(fp -- entries))"
-# the fanfare ends the story's alerts even when the sound is switched off
-printf '### Implementation Status: Done\n' > "$FP/.workflow-dev/context/WD-0068.md"
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$FP/.workflow-dev/config.json"
-N=$((N + 1)); SIDF="f-$N"; reset
-RUN_CWD="$FP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDF" -- arm story >/dev/null
-printf '%s' "$(payload "$SIDF" "$FP")" | RUN_CWD="$FP" run "$TMP/mac" Darwin WORKFLOW_DEV_ATTENTION=off -- --stop >/dev/null
-sleep 0.2; [[ -z "$(fp -- entries)" ]] && ok "the story entry goes after the fanfare, WORKFLOW_DEV_ATTENTION=off in the environment or not" || no "entry kept (got: $(fp -- entries))"
-rm -rf "$FP" "$TMP/home" "$H"
-
-# --- 12e. adversarial-review fixes ---------------------------------------------
-XP="$TMP/xproj"
-rm -rf "$XP" "$TMP/home"; mkdir -p "$XP/.workflow-dev/context"
-( cd "$XP" && git init -q && git symbolic-ref HEAD refs/heads/wd-0070-new )
-xp() { RUN_CWD="$XP" run "$TMP/mac" Darwin "$@"; }
-fake_helper
-printf '{"notifications":[{"storyId":"WD-0068","device":"Spk"}]}\n' > "$XP/.workflow-dev/config.json"
-[[ -z "$(xp -- active)" ]] && ok "a lone entry does not stand in for a branch that names another story (wd-0070 vs WD-0068)" || no "lone entry, other story (got: $(xp -- active))"
-reset; xp -- play done >/dev/null; silent && ok "...and that story stays silent" || no "other story sounded"
-( cd "$XP" && git symbolic-ref HEAD refs/heads/main )
-[[ "$(xp -- active)" == $'WD-0068\tSpk' ]] && ok "a lone entry still serves a branch that names no story (main)" || no "lone entry on main (got: $(xp -- active))"
-( cd "$XP" && git symbolic-ref HEAD refs/heads/fix-123 )
-[[ "$(xp -- active)" == $'WD-0068\tSpk' ]] && ok "a lone entry serves a branch with another tracker's id (fix-123)" || no "lone entry, other tracker (got: $(xp -- active))"
-printf '{"notifications":[{"storyId":"WD-0068","device":"A"},{"storyId":"WD-0070","device":"B"}]}\n' > "$XP/.workflow-dev/config.json"
-( cd "$XP" && git symbolic-ref HEAD refs/heads/wd-0070-fix-wd-0068 )
-[[ "$(xp -- active)" == $'WD-0070\tB' ]] && ok "a branch naming two stories belongs to the one it names first" || no "two ids in a branch (got: $(xp -- active))"
-# play start right after activate, whatever the branch
-( cd "$XP" && git symbolic-ref HEAD refs/heads/main )
-printf '{"notifications":[{"storyId":"WD-0068","device":"A"},{"storyId":"WD-0070","device":"B"}]}\n' > "$XP/.workflow-dev/config.json"
-reset; xp -- play start >/dev/null; silent && ok "play start with no output still goes through the gate" || no "play start gate"
-reset; xp -- play start "MacBook Pro Speakers" >/dev/null
-[[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-start.wav" ]] && ok "play start <output> sounds right after activating, on that output, whatever the branch" || no "play start output (got: $(cat "$LOG"))"
-reset; xp WORKFLOW_DEV_ATTENTION=off -- play start "MacBook Pro Speakers" >/dev/null
-[[ "$(played)" == "helper MacBook Pro Speakers "*"/attention-start.wav" ]] && ok "play start <output> sounds with WORKFLOW_DEV_ATTENTION=off in the environment" || no "play start off (got: $(cat "$LOG"))"
-reset; xp CI=true -- play start "MacBook Pro Speakers" >/dev/null; silent && ok "play start <output> still obeys CI" || no "play start CI"
-run "$TMP/mac" Darwin -- play done X >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "an output argument is only for play start (usage error)" || no "play done X usage"
-# writes: symlink, mode, empty file, directory, concurrency
-mkdir -p "$TMP/dot"; printf '{"x":1}\n' > "$TMP/dot/user.json"; chmod 644 "$TMP/dot/user.json"
-mkdir -p "$TMP/home/.workflow-dev"; ln -s "$TMP/dot/user.json" "$TMP/home/.workflow-dev/config.json"
-xp -- set-pref Spk >/dev/null
-[[ -L "$TMP/home/.workflow-dev/config.json" ]] && jq -e '.x == 1 and .userPref.notifications.device == "Spk"' "$TMP/dot/user.json" >/dev/null && ok "a symlinked config is edited where it points, the link kept" || no "symlinked config"
-[[ -n "$(find "$TMP/dot/user.json" -perm 644)" ]] && ok "a write keeps the file's mode" || no "mode kept"
-rm -rf "$TMP/home" "$TMP/dot"
-: > "$XP/.workflow-dev/config.json"
-[[ "$(xp -- activate WD-1 Spk)" == saved && "$(xp -- entries)" == $'WD-1\tSpk' ]] && ok "an empty config file is treated like a missing one" || no "empty config"
-rm -f "$XP/.workflow-dev/config.json"; mkdir "$XP/.workflow-dev/config.json"
-[[ "$(xp -- activate WD-1 Spk)" == unavailable ]] && ok "a directory at the config path is unavailable, not saved" || no "dir at config path"
-rmdir "$XP/.workflow-dev/config.json"
-printf '{"keep":true}\n' > "$XP/.workflow-dev/config.json"
-for i in 1 2 3 4 5 6 7 8 9 10; do xp -- activate "WD-$i" Spk >/dev/null & done; wait
-[[ "$(xp -- entries | wc -l | tr -d ' ')" == 10 ]] && jq -e '.keep == true' "$XP/.workflow-dev/config.json" >/dev/null && ok "ten parallel activations lose none and keep other keys" || no "parallel writes (got: $(xp -- entries | wc -l))"
-[[ ! -d "$XP/.workflow-dev/.config.json.lock" ]] && ok "the write lock is released" || no "lock left behind"
-mkdir "$XP/.workflow-dev/.config.json.lock"; touch -t 200001010000 "$XP/.workflow-dev/.config.json.lock"
-[[ "$(xp -- activate WD-99 Spk)" == saved ]] && ok "a stale lock (a dead writer's) is cleared" || no "stale lock"
-# a short id inside a longer one, a read-only folder, a file at the lock path, two documents
-printf '{"notifications":[]}\n' > "$XP/.workflow-dev/config.json"
-xp -- activate PROJ-1 one >/dev/null; xp -- activate PROJ-12 twelve >/dev/null
-( cd "$XP" && git symbolic-ref HEAD refs/heads/proj-12-follows-proj-1 )
-[[ "$(xp -- active)" == $'PROJ-12\ttwelve' ]] && ok "PROJ-1 does not claim the start of PROJ-12 in a branch naming both" || no "prefix ids (got: $(xp -- active))"
-( cd "$XP" && git symbolic-ref HEAD refs/heads/main )
-chmod 555 "$XP/.workflow-dev"
-start=$SECONDS; out="$(xp -- activate WD-5 Spk)"; took=$((SECONDS - start))
-chmod 755 "$XP/.workflow-dev"
-[[ "$out" == unavailable && $took -le 1 ]] && ok "a read-only folder fails at once, without waiting for the lock" || no "read-only folder (out=$out took=${took}s)"
-touch "$XP/.workflow-dev/.config.json.lock"
-start=$SECONDS; out="$(xp -- activate WD-5 Spk)"; took=$((SECONDS - start))
-rm -f "$XP/.workflow-dev/.config.json.lock"
-[[ "$out" == unavailable && $took -le 1 ]] && ok "a file at the lock's path fails at once" || no "file at lock path (out=$out took=${took}s)"
-printf '{"a":1}{"b":2}' > "$XP/.workflow-dev/config.json"
-[[ "$(xp -- activate WD-6 Spk)" == unavailable && "$(cat "$XP/.workflow-dev/config.json")" == '{"a":1}{"b":2}' ]] && ok "a config holding two documents is left untouched" || no "two documents"
-# the fanfare sounds even when the branch no longer names the story by the Stop
-printf '### Implementation Status: Done\n' > "$XP/.workflow-dev/context/WD-0068.md"
-printf '{"notifications":[{"storyId":"WD-0068","device":"default"},{"storyId":"WD-0070","device":"default"}]}\n' > "$XP/.workflow-dev/config.json"
-( cd "$XP" && git symbolic-ref HEAD refs/heads/wd-0068-x )
-N=$((N + 1)); SIDX="x-$N"; reset
-RUN_CWD="$XP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDX" -- arm story >/dev/null
-( cd "$XP" && git symbolic-ref HEAD refs/heads/main )
-[[ -z "$(xp -- active)" ]] && ok "(setup) on main with two entries no story is active" || no "setup main"
-printf '%s' "$(payload "$SIDX" "$XP")" | RUN_CWD="$XP" run "$TMP/mac" Darwin -- --stop >/dev/null
-[[ "$(played)" == *"/attention-story.wav" ]] && ok "the fanfare sounds although the branch no longer names the story" || no "fanfare on main (got: $(cat "$LOG"))"
-[[ "$(xp -- entries)" == $'WD-0070\tdefault' ]] && ok "...and removes that story's entry, not the other one's" || no "entry after fanfare on main (got: $(xp -- entries))"
-# an armed turn on a story that declined alerts stays silent
-printf '{"language":"es"}\n' > "$XP/.workflow-dev/config.json"
-N=$((N + 1)); SIDX="x-$N"; reset
-RUN_CWD="$XP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDX" -- arm story >/dev/null
-printf '%s' "$(payload "$SIDX" "$XP")" | RUN_CWD="$XP" run "$TMP/mac" Darwin -- --stop >/dev/null
-silent && ok "a story with no entry gets no fanfare (it declined the alerts)" || no "fanfare without entry"
-# prune finds the context file whatever its case
-printf '### Implementation Status: In Progress\n' > "$XP/.workflow-dev/context/WD-0068.md"
-printf '{"notifications":[{"storyId":"wd-0068","device":"Spk"}]}\n' > "$XP/.workflow-dev/config.json"
-[[ -z "$(xp -- prune)" ]] && ok "prune keeps an entry whose id differs in case from its context file" || no "prune case"
-rm -rf "$XP" "$TMP/home" "$H"
-
-# --- 12f. the perl engine: the same storage with perl and no jq ----------------
+# --- 12d. the perl engine: the same answer with perl and no jq ----------------
 if command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e1 >/dev/null 2>&1; then
   mkdir -p "$TMP/perlbin"; ln -sf "$(command -v perl)" "$TMP/perlbin/perl"
-  RP="$TMP/perlproj"
-  rm -rf "$RP" "$TMP/home"; mkdir -p "$RP/.workflow-dev/context"
-  ( cd "$RP" && git init -q && git symbolic-ref HEAD refs/heads/wd-0068-x )
-  rp() { EXTRA_PATH=":$TMP/perlbin" RUN_CWD="$RP" run "$TMP/mac" Darwin "$@"; }
-  [[ "$(rp -- pref)" == unset ]] && ok "[perl] no saved choice reads as unset" || no "[perl] fresh pref"
-  [[ "$(rp -- set-pref "MacBook Pro Speakers")" == saved && "$(rp -- pref)" == "MacBook Pro Speakers" ]] && ok "[perl] set-pref is saved and read back" || no "[perl] set-pref"
-  printf '{"userPref": {"other": 1}, "keep": "me", "big": 12345678901234567890}\n' > "$TMP/home/.workflow-dev/config.json"
-  rp -- set-pref "Café ☕ Speaker" >/dev/null
-  [[ "$(rp -- pref)" == "Café ☕ Speaker" ]] && ok "[perl] a UTF-8 output name round-trips" || no "[perl] utf8 (got: $(rp -- pref))"
-  jq -e '.keep == "me" and .userPref.other == 1 and .big == 12345678901234567890' "$TMP/home/.workflow-dev/config.json" >/dev/null 2>&1 \
-    && ok "[perl] set-pref keeps every other key (a big integer too)" \
-    || { grep -q '"keep" *: *"me"' "$TMP/home/.workflow-dev/config.json" && grep -q 12345678901234567890 "$TMP/home/.workflow-dev/config.json" && ok "[perl] set-pref keeps every other key (a big integer too)" || no "[perl] keeps keys ($(cat "$TMP/home/.workflow-dev/config.json"))"; }
-  printf 'not json' > "$TMP/home/.workflow-dev/config.json"
-  [[ "$(rp -- set-pref x)" == unavailable && "$(cat "$TMP/home/.workflow-dev/config.json")" == "not json" ]] && ok "[perl] an unreadable config is left untouched" || no "[perl] corrupt user config"
-  printf '[1,2]' > "$TMP/home/.workflow-dev/config.json"
-  [[ "$(rp -- set-pref x)" == unavailable && "$(cat "$TMP/home/.workflow-dev/config.json")" == "[1,2]" ]] && ok "[perl] a root that is not an object is left untouched" || no "[perl] array root"
-  rm -rf "$TMP/home"
-  printf '{"gitignored": true, "language": "es"}\n' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- activate WD-0068 Spk)" == saved ]] && ok "[perl] activate saves an entry" || no "[perl] activate"
-  [[ "$(rp -- active)" == $'WD-0068\tSpk' ]] && ok "[perl] the only entry is the active one" || no "[perl] active (got: $(rp -- active))"
-  rp -- activate wd-0068 Headset >/dev/null
-  [[ "$(rp -- entries | wc -l | tr -d ' ')" == 1 && "$(rp -- entries)" == $'wd-0068\tHeadset' ]] && ok "[perl] activating the same story again replaces its entry (any case)" || no "[perl] replace"
-  grep -q '"gitignored" *: *true' "$RP/.workflow-dev/config.json" && grep -q '"language" *: *"es"' "$RP/.workflow-dev/config.json" && ok "[perl] activate keeps every other key" || no "[perl] activate keeps keys"
-  printf '{"notifications":[{"device":"no id"},"junk",{"storyId":"WD-0068","device":"real"}]}' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- activate WD-0069 spk)" == saved && "$(rp -- deactivate WD-0068)" == removed && "$(rp -- entries)" == $'WD-0069\tspk' ]] && ok "[perl] a malformed row blocks neither activate nor deactivate" || no "[perl] malformed rows (got: $(rp -- entries))"
-  printf '{"a":1}{"b":2}' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- activate WD-6 Spk)" == unavailable && "$(cat "$RP/.workflow-dev/config.json")" == '{"a":1}{"b":2}' ]] && ok "[perl] a config holding two documents is left untouched" || no "[perl] two documents"
-  printf '{"notifications": "oops"}' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- activate WD-1 Dev)" == unavailable && "$(cat "$RP/.workflow-dev/config.json")" == '{"notifications": "oops"}' ]] && ok "[perl] a notifications key that is not a list is left untouched" || no "[perl] bad notifications"
-  printf '{"notifications":[{"storyId":"x|","device":"inj"},{"storyId":"WD-0068","device":"real"}]}' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- active)" == $'WD-0068\treal' ]] && ok "[perl] an id that is not valid is skipped on read" || no "[perl] hostile id"
-  printf '{"notifications":[{"storyId":"WD-0068","device":"Bob \\\\ Speaker"}]}' > "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- entries)" == $'WD-0068\tBob \\ Speaker' ]] && ok "[perl] a backslash in an output name comes back as written" || no "[perl] backslash"
-  rm -f "$RP/.workflow-dev/config.json"
-  [[ "$(rp -- deactivate WD-1)" == removed ]] && ok "[perl] deactivating with no config is harmless" || no "[perl] deactivate none"
-  rp -- activate WD-1 Spk >/dev/null
-  [[ "$(rp -- deactivate WD-1)" == removed && -z "$(rp -- entries)" ]] && ok "[perl] deactivate drops the entry" || no "[perl] deactivate"
-  rm -rf "$RP" "$TMP/home"
+  rp() { EXTRA_PATH=":$TMP/perlbin" run "$TMP/mac" Darwin "$@"; }
+  rm -rf "$H"
+  [[ "$(rp -- get)" == unset ]] && ok "[perl] no config reads as unset" || no "[perl] fresh get"
+  [[ "$(rp -- set on)" == saved && "$(rp -- get)" == on && "$(rp -- set off)" == saved && "$(rp -- get)" == off ]] && ok "[perl] set on and off are saved and read back" || no "[perl] round trip"
+  grep -q '"notifications" *: *false' "$UCFG" && ok "[perl] the answer is a JSON boolean" || no "[perl] shape ($(cat "$UCFG"))"
+  printf '{"keep": "me", "big": 12345678901234567890, "userPref": {"notifications": {"device": "Spk"}}}\n' > "$UCFG"
+  [[ "$(rp -- get)" == unset ]] && ok "[perl] an old saved output is no answer" || no "[perl] userPref"
+  rp -- set on >/dev/null
+  grep -q '"keep" *: *"me"' "$UCFG" && grep -q 12345678901234567890 "$UCFG" && grep -q '"device" *: *"Spk"' "$UCFG" && ok "[perl] set keeps every other key (a big integer too)" || no "[perl] keeps keys ($(cat "$UCFG"))"
+  for raw in '{"notifications":"true"}' '{"notifications":1}' '{"notifications":null}' '{"notifications":[{"storyId":"T-1","device":"x"}]}'; do
+    printf '%s' "$raw" > "$UCFG"
+    [[ "$(rp -- get)" == unset ]] && ok "[perl] notifications as '$raw' reads as unset" || no "[perl] '$raw' (got: $(rp -- get))"
+  done
+  for raw in 'not json' '[1,2]'; do
+    printf '%s' "$raw" > "$UCFG"
+    [[ "$(rp -- set on)" == unavailable && "$(cat "$UCFG")" == "$raw" ]] && ok "[perl] a config of '$raw' is left untouched" || no "[perl] bad '$raw'"
+  done
+  printf '\xef\xbb\xbf{"notifications": true}' > "$UCFG"
+  [[ "$(rp -- get)" == on ]] && ok "[perl] a BOM at the start is read past" || no "[perl] BOM"
+  printf '{"notifications":true}\0junk' > "$UCFG"
+  [[ "$(rp -- get)" == unset && "$(rp -- set off)" == unavailable ]] && ok "[perl] a NUL and trailing junk read as unset" || no "[perl] NUL junk"
+  printf '{"notifications":true}\0' > "$UCFG"
+  [[ "$(rp -- get)" == on && "$(rp -- set off)" == saved && "$(rp -- get)" == off ]] && ok "[perl] a trailing NUL alone reads and writes like jq" || no "[perl] trailing NUL (got: $(rp -- get))"
+  rm -rf "$H"
 else
   printf '  skip perl engine (no perl with JSON::PP on this machine)\n'
 fi
 
-# --- 12g. second adversarial round -------------------------------------------
-QP="$TMP/qproj"
-mkdir -p "$TMP/perlbin"; command -v perl >/dev/null 2>&1 && ln -sf "$(command -v perl)" "$TMP/perlbin/perl"
-rm -rf "$QP" "$TMP/home"; mkdir -p "$QP/.workflow-dev/context"
-( cd "$QP" && git init -q && git symbolic-ref HEAD refs/heads/wd-0068-x )
-qj() { RUN_CWD="$QP" run "$TMP/mac" Darwin "$@"; }                       # jq
-qpl() { EXTRA_PATH=":$TMP/perlbin" RUN_CWD="$QP" run "$TMP/mac" Darwin "$@"; }  # perl, no jq
-fake_helper
-# B1: an arm for a story that no longer has an entry is silent and deletes nothing
-printf '{"notifications":[{"storyId":"WD-0068","device":"A"},{"storyId":"WD-0070","device":"B"}]}\n' > "$QP/.workflow-dev/config.json"
-printf '### Implementation Status: Done\n' > "$QP/.workflow-dev/context/WD-0070.md"
-N=$((N + 1)); SIDQ="q-$N"; reset
-RUN_CWD="$QP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDQ" -- arm story >/dev/null
-qj -- deactivate WD-0068 >/dev/null
-( cd "$QP" && git symbolic-ref HEAD refs/heads/main )
-printf '%s' "$(payload "$SIDQ" "$QP")" | RUN_CWD="$QP" run "$TMP/mac" Darwin -- --stop >/dev/null
-silent && ok "an arm for a story with no entry is silent (no fallback to another story)" || no "B1 sounded (got: $(cat "$LOG"))"
-[[ "$(qj -- entries)" == $'WD-0070\tB' ]] && ok "...and deletes no other story's entry" || no "B1 deleted (got: $(qj -- entries))"
-( cd "$QP" && git symbolic-ref HEAD refs/heads/wd-0068-x )
-# C1/C2: only a real status heading counts
-for case in 'fence|### Implementation Status: In Progress\n```\n### Implementation Status: Done\n```\n|keep' \
-            'suffix|### Implementation Status: Done-ish\n|keep' \
-            'prose|The story is ### Implementation Status: Done soon\n|keep' \
-            'plain|### Implementation Status: Done\n|go' \
-            'crlf|### Implementation Status: Done\r\n|go' \
-            'bom|\xef\xbb\xbf### Implementation Status: Done\n|go' \
-            'trailing|### Implementation Status: Done   \n|go'; do
-  name="${case%%|*}"; rest="${case#*|}"; body="${rest%|*}"; want="${rest##*|}"
-  printf "$body" > "$QP/.workflow-dev/context/WD-0068.md"
-  printf '{"notifications":[{"storyId":"WD-0068","device":"default"}]}\n' > "$QP/.workflow-dev/config.json"
-  N=$((N + 1)); SIDQ="q-$N"; reset
-  RUN_CWD="$QP" run "$TMP/mac" Darwin "CLAUDE_CODE_SESSION_ID=$SIDQ" -- arm story >/dev/null
-  printf '%s' "$(payload "$SIDQ" "$QP")" | RUN_CWD="$QP" run "$TMP/mac" Darwin -- --stop >/dev/null
-  played >/dev/null; left="$(qj -- entries | wc -l | tr -d ' ')"
-  if [[ "$want" == keep ]]; then [[ "$left" == 1 ]] && ok "a status of '$name' does not end the story's alerts" || no "status '$name' ended the alerts"
-  else [[ "$left" == 0 ]] && ok "a status of '$name' ends the story's alerts" || no "status '$name' kept the alerts"; fi
-done
-# D1: the same story written another way is still the lone entry's
-printf '{"notifications":[{"storyId":"WD-0068","device":"A"}]}\n' > "$QP/.workflow-dev/config.json"
-for br in wd_0068-alerts wd0068 WD.0068 feature/wd-68 wd-0068b; do
-  ( cd "$QP" && git symbolic-ref HEAD "refs/heads/$br" )
-  [[ "$(qj -- active)" == $'WD-0068\tA' ]] && ok "branch '$br' is the lone entry's own story" || no "branch '$br' (got: $(qj -- active))"
-done
-for br in wd_0070 wd.0070 wd0070 wd-0070 wd-0068-and-wd-0070; do
-  ( cd "$QP" && git symbolic-ref HEAD "refs/heads/$br" )
-  [[ "$(qj -- active)" == $'WD-0068\tA' && "$br" == wd-0068-and-wd-0070 || -z "$(qj -- active)" && "$br" != wd-0068-and-wd-0070 ]] && ok "branch '$br' is judged against the lone entry" || no "branch '$br' (got: $(qj -- active))"
-done
-( cd "$QP" && git symbolic-ref HEAD refs/heads/wd-0068-x )
-# A1-A3, A6: the two engines read and write alike
+# --- 12e. the two engines read and write alike -------------------------------
 if command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e1 >/dev/null 2>&1 && [[ -x "$TMP/jq/jq" ]]; then
+  mkdir -p "$TMP/perlbin"; ln -sf "$(command -v perl)" "$TMP/perlbin/perl"
   agree() { # agree <name> <config text> <command...>: both engines, same answer, same file
     local name="$1" cfg="$2" a b fa fb; shift 2
-    printf '%s' "$cfg" > "$QP/.workflow-dev/config.json"; a="$(qj -- "$@")"; fa="$(jq -cS . "$QP/.workflow-dev/config.json" 2>/dev/null)"
-    printf '%s' "$cfg" > "$QP/.workflow-dev/config.json"; b="$(qpl -- "$@")"; fb="$(jq -cS . "$QP/.workflow-dev/config.json" 2>/dev/null)"
+    mkdir -p "${UCFG%/*}"
+    printf '%s' "$cfg" > "$UCFG"; a="$(run "$TMP/mac" Darwin -- "$@")"; fa="$(jq -cS . "$UCFG" 2>/dev/null)"
+    printf '%s' "$cfg" > "$UCFG"; b="$(EXTRA_PATH=":$TMP/perlbin" run "$TMP/mac" Darwin -- "$@")"; fb="$(jq -cS . "$UCFG" 2>/dev/null)"
     [[ "$a" == "$b" && "$fa" == "$fb" ]] && ok "jq and perl agree: $name" || no "engines differ: $name (jq='$a' perl='$b' / jq-file='$fa' perl-file='$fb')"
   }
-  agree "numbers are not ids or devices" '{"notifications":[{"storyId":68,"device":"a"},{"storyId":"WD-2","device":5}]}' entries
-  agree "numbers are not a saved output" '{"userPref":{"notifications":{"device":5}}}' pref
-  agree "two glued documents read as nothing" '{"notifications":[{"storyId":"WD-1","device":"a"}]}{"notifications":[{"storyId":"WD-2","device":"b"}]}' entries
-  agree "notifications false: activate" '{"notifications":false}' activate WD-1 Spk
-  agree "notifications null: activate" '{"notifications":null}' activate WD-1 Spk
-  agree "notifications null: deactivate" '{"notifications":null}' deactivate WD-1
-  agree "notifications false: deactivate" '{"notifications":false}' deactivate WD-1
-  agree "notifications an object: activate" '{"notifications":{"x":{"storyId":"WD-9","device":"d"}}}' activate WD-1 Spk
-  agree "notifications an object: deactivate" '{"notifications":{"x":{"storyId":"WD-9","device":"d"}}}' deactivate WD-9
-  agree "non-ASCII ids fold alike" '{"notifications":[{"storyId":"WD-K","device":"d"}]}' deactivate wd-k
-  agree "a BOM at the start of the config" $'\xef\xbb\xbf{"notifications":[{"storyId":"WD-1","device":"d"}]}' entries
-fi
-rm -rf "$QP" "$TMP/home" "$H"
-
-# --- 13. the real macOS helper compiles and behaves (no sound played) ---------
-if [[ "$(uname -s)" == Darwin ]] && command -v swiftc >/dev/null 2>&1; then
-  if swiftc -O -o "$TMP/attention-play" "$HERE/attention-play.swift" >/dev/null 2>&1; then
-    ok "attention-play.swift compiles"
-    "$TMP/attention-play" --list >/dev/null; rc=$?
-    [[ $rc -eq 0 ]] && ok "the helper lists outputs (exit 0)" || no "helper --list (rc=$rc)"
-    "$TMP/attention-play" "no such output $$" "$ASSETS/attention-need.wav"; rc=$?
-    [[ $rc -eq 1 ]] && ok "the helper exits 1 for an output that is not connected" || no "helper unknown output (rc=$rc)"
-    "$TMP/attention-play" 2>/dev/null; rc=$?
-    [[ $rc -eq 2 ]] && ok "the helper exits 2 on bad usage" || no "helper usage (rc=$rc)"
-  else
-    no "attention-play.swift compiles"
-  fi
-else
-  printf '  skip real helper (not macOS, or no swiftc)\n'
+  for cfg in '{"notifications":true}' '{"notifications":false}' '{"notifications":"true"}' '{"notifications":0}' '{"notifications":null}' \
+             '{"notifications":[{"storyId":"T-1","device":"d"}]}' '{"userPref":{"notifications":{"device":"d"}}}' '{}' \
+             '{"notifications":true}{"notifications":false}' $'\xef\xbb\xbf{"notifications":true}' '[true]'; do
+    agree "get on '$cfg'" "$cfg" get
+    agree "set on over '$cfg'" "$cfg" set on
+  done
+  rm -rf "$H"
 fi
 
 out="$(run "$TMP/mac" Darwin -- arm done extra 2>/dev/null)"; rc=$?
