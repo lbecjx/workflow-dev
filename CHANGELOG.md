@@ -16,6 +16,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.50.0
+
+- `validate` and `summarize-changes` now find a repository's changelog and release-note files in whatever layout it uses, and review the ones a change touches for tone and disclosure, like a commit message.
+- Validation now scales with each story: once the plan is written, a judge classifies the story as simple, moderate or complex, and validate runs only what that level calls for. Moderate and simple stories skip the adversarial check, the security check runs at every level (documentation-only changes included), and a story with no level keeps the previous check. Plan also warns when a story has more than 10 acceptance criteria and suggests splitting it.
+- An autonomous run no longer lets the Mac sleep when it ends if the session has Remote Control on, so you can keep following it from another device. The Mac sleeps again once the session ends.
+- After a context compaction, the save reminder now names only the stories this session worked on, never a story it did not touch or one already closed. Each session keeps its own save point, so two sessions on one story no longer overwrite each other, and a save picks up what any earlier session left unsaved. A save reads only Claude Code transcripts of sessions that ran in the same project.
+- Turning alerts on or off no longer drops a change when several are saved at the same time: each one now waits longer for its turn.
+
 ## 1.49.3
 
 - A release now runs only its own tests, and its pull request skips the test check, so the full suite no longer runs twice for each release.
