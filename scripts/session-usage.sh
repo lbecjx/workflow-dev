@@ -222,7 +222,8 @@ resolve_claude() {
   # and still only while its transcript is being written. Both state shapes are
   # read; the current one names it `claudePath`, the older one `transcriptPath`.
   if [[ -d "$state_dir" ]] && have_jq; then
-    f=$(ls -1t "$state_dir"/*.json 2>/dev/null | head -1)
+    # compaction-state.sh owns where save points live.
+    f=$(STATE_DIR="$state_dir"; source "$(dirname "${BASH_SOURCE[0]}")/compaction-state.sh" && all_state_files_newest | head -1)
     if [[ -n "$f" ]]; then
       p=$(jq -r 'if (.claudePath // "") == "" then (.transcriptPath // "") else .claudePath end' "$f" 2>/dev/null)
       if [[ -n "$p" && -f "$p" && -z "$(find "$p" -mmin +15 2>/dev/null)" ]]; then printf '%s\ttracked' "$p"; fi

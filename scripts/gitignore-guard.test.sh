@@ -18,8 +18,12 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 READ="$HERE/save-read-unsaved.sh"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# Transcripts live where Claude Code keeps them: save-read-unsaved.sh reads
+# none outside $CLAUDE_CONFIG_DIR/projects.
+CFG="$(mktemp -d)"
+trap 'rm -rf "$CFG"' EXIT
+export CLAUDE_CONFIG_DIR="$CFG"
+TMP="$CFG/projects"; mkdir -p "$TMP"
 
 pass=0
 fail=0
@@ -33,7 +37,7 @@ PATTERN='.workflow-dev/context/.compaction-state/'
 # runs far enough to call ensure_gitignored.
 seed() { # $1 project dir
   mkdir -p "$1/.workflow-dev/context/.compaction-state"
-  printf '{"n":1}\n' > "$1/transcript.jsonl"
+  printf '{"cwd":"%s","n":1}\n' "$(cd "$1" && pwd -P)" > "$1/transcript.jsonl"
   printf '{"claudePath":"%s","claudeLength":0}' "$1/transcript.jsonl" \
     > "$1/.workflow-dev/context/.compaction-state/$STORY.json"
 }
