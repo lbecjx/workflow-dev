@@ -38,7 +38,7 @@ the Free Software Foundation, either version 3 of the License, or
   2. Claude Code's `language` setting (`.claude/settings.local.json` and
      `.claude/settings.json` under `CLAUDE_PROJECT_DIR`, then
      `~/.claude/settings.json`);
-  3. `"language"` in the project's `.workflow-dev/config.json`, which `init`
+  3. `language` in the project's `.workflow-dev/config.env`, which `init`
      writes on every run;
   4. English.
 
@@ -48,9 +48,16 @@ the Free Software Foundation, either version 3 of the License, or
   `scripts/hook-language.sh` (its header says what to add). The
   language changes only the words, never the decision: the attribution deny
   stays a deny in every language.
+- Every hook reads the repo's answers from `.workflow-dev/config.env`, one
+  `key=value` per line, read line by line and never sourced
+  (`scripts/config-env.sh`). The `config.json` of older versions is ignored,
+  so each answer is asked once again. A symlink at `.workflow-dev` or
+  `config.env` is never followed (the repo reads as having no answers): a
+  cloned repo must not make a write land outside it. Only the machine's `~/.workflow-dev/config.env` may be a
+  link, for dotfiles.
 - The attribution block reads one thing besides the command: the human's
   co-authorship decision for the repository, `agentCoauthorship` in
-  `.workflow-dev/config.json` (`scripts/coauthor-decision.sh`,
+  `.workflow-dev/config.env` (`scripts/coauthor-decision.sh`,
   shared with `git-message-mark-reviewed.sh`). Only an explicit yes lets the
   harness's trailer and PR line through; any doubt is no.
 - After a real `gh pr create`/`gh pr edit` succeeds, `scripts/post-pr-url-check.sh`
@@ -104,8 +111,8 @@ the Free Software Foundation, either version 3 of the License, or
   order — configure the agents (the agent runs `/workflow-dev:setup-models`
   itself, as the main agent, since the flow is interactive), a default model for
   this story (a `Tiering: default model` row in the active story's Decisions, offered only on a branch
-  that names the story), or a default model for this repo (`"tiering": "default"`
-  in `.workflow-dev/config.json`). The hook reads both defaults and stays silent
+  that names the story), or a default model for this repo (`tiering=default`
+  in `.workflow-dev/config.env`). The hook reads both defaults and stays silent
   for them, and once the roles are bound; the story one is a table row, not a
   mention. The question is required in autonomous mode too. There is no
   machine-wide opt-out: the old `~/.workflow-dev/tiering.json` is ignored, because
@@ -133,10 +140,10 @@ the Free Software Foundation, either version 3 of the License, or
     in a workflow-dev project (`.workflow-dev/context` in the payload's `cwd` or
     a parent), since a hook cannot see which skill asked.
   - **Once per machine.** Every play, from any of these hooks, first reads
-    `notifications` in `~/.workflow-dev/config.json` (`true` or `false`,
-    written by `init` the first time it asks). Anything else — no file, a
-    string, the per-story list older versions kept in the repo's config — or
-    neither `jq` nor `perl` means silence, `need` and `permission` included.
+    `notifications` in `~/.workflow-dev/config.env` (`on` or `off`, written
+    by `init` the first time it asks; the `~/.workflow-dev/config.json` of
+    older versions is ignored). Anything else — no file, another value —
+    means silence, `need` and `permission` included.
     Every sound plays on the system's default output, and nothing is turned
     off when a story ends.
   - `UserPromptSubmit` → `--prompt` drops the session's arm: a turn the human

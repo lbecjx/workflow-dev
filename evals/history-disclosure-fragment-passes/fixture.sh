@@ -16,7 +16,7 @@ git config user.name "Eval Fixture"
 # the run: that question is required even unattended, so without it validate
 # stops before reviewing anything, for a reason this case is not about.
 mkdir -p .workflow-dev
-printf '{ "gitignored": true, "tiering": "default" }\n' > .workflow-dev/config.json
+printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 mkdir -p changes

@@ -154,7 +154,7 @@ list, and it is the **default**, not an opt-in:
   orchestrator performs itself: the discovered commands (an `evals/` run
   included, with its judge resolved and its spend recorded per
   `references/rules.md` §6.1), the
-  `.workflow-dev/` ↔ `config.json` drift check, and a direct read of any in-scope release-note
+  `.workflow-dev/` ↔ `config.env` drift check, and a direct read of any in-scope release-note
   file (changelog entry or fragment, `references/rules.md` §12.0). The judgment dimensions (Code quality, Testing, Architecture,
   Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
   break, a fresh pair of eyes adds cost and no signal. One exception: when the
@@ -178,7 +178,7 @@ its own rules section is also less likely to wander.
 
 **Mechanical checks run inline, no sub-agent.** Anything that is a script or a
 check rather than a judgment — running the discovered commands, the
-`.workflow-dev/` ↔ `config.json` drift check — the orchestrator runs directly.
+`.workflow-dev/` ↔ `config.env` drift check — the orchestrator runs directly.
 Don't spend a sub-agent on it.
 
 **Model tiering — by role, never by model.** Every sub-agent this skill spawns

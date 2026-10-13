@@ -130,6 +130,8 @@ DEDUPE_SECONDS=5
 
 # shellcheck source=marker-dir.sh
 . "$HERE/marker-dir.sh" 2>/dev/null || exit 0
+# shellcheck source=config-env.sh
+. "$HERE/config-env.sh" 2>/dev/null || exit 0
 
 lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
@@ -191,27 +193,25 @@ play_now() { # play_now <kind>
 # The human says once whether they want the alerts, and that answer holds for
 # every story of every repo on this machine:
 #
-#   ~/.workflow-dev/config.json   {"notifications": true|false}
+#   ~/.workflow-dev/config.env    notifications=on|off
 #
-# Nothing about the alerts lives in a repo's `.workflow-dev/config.json`, so a
+# Nothing about the alerts lives in a repo's `.workflow-dev/config.env`, so a
 # new clone or a worktree does not ask again, and no story turns them off when
-# it ends. Only a JSON boolean is an answer. Anything else — no file, the
-# per-story list older versions wrote to the repo's file, the old
-# `userPref.notifications` output choice, a string "true" — is no answer: then
-# nothing sounds and `init` asks once.
+# it ends. Only `on` or `off` is an answer; anything else (no file, no line,
+# `true`, `yes`) is no answer: then nothing sounds and `init` asks once.
 #
-# The file may hold other keys that are not ours, so the write goes through `jq`
-# (or perl) and replaces the file whole, or not at all. With neither tool, an
-# unreadable file or a root that is not an object, `set` prints `unavailable` and
-# touches nothing, and a read finds no answer: the alerts stay off, never the
-# file lost.
+# The file is read line by line and never sourced, and `set` replaces it whole
+# keeping its other lines (config-env.sh owns both). Neither needs jq or perl.
+# The `~/.workflow-dev/config.json` older versions wrote is ignored, so a
+# machine that answered there is asked once again. `set` prints `unavailable`
+# only when the file cannot be written.
 
 machine_dir() {
   printf '%s/.workflow-dev' "${HOME:-}"
 }
 
 user_config() {
-  printf '%s/config.json' "$(machine_dir)"
+  printf '%s/config.env' "$(machine_dir)"
 }
 
 # The nearest directory at or above $1 (default $PWD) that holds
@@ -226,172 +226,16 @@ workflow_root() {
   done
 }
 
-# Which JSON tool this machine has: `jq`, else `perl` with JSON::PP (core since
-# perl 5.14, on every macOS and nearly every Linux), else none: then nothing can
-# be written or read, and the alerts stay off.
-json_engine() {
-  if command -v jq >/dev/null 2>&1; then
-    printf 'jq'
-  elif command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e1 >/dev/null 2>&1; then
-    printf 'perl'
-  fi
-}
-
-# The perl engine: the same two operations as the jq programs, on stdin's JSON
-# object. `get` prints on/off, or nothing when there is no boolean answer; `set`
-# prints the new document. A document that is not one JSON object makes it exit
-# 1, as jq's checks do.
-PERL_JSON='
-use strict; use warnings; use JSON::PP;
-my ($op, @a) = @ARGV;
-local $/; my $src = <STDIN>;
-$src =~ s/^\xEF\xBB\xBF// if defined $src;
-$src = "{}" unless defined $src && $src =~ /\S/;
-my $d = eval { JSON::PP->new->allow_bignum->utf8->decode($src) };
-exit 1 if $@ || ref $d ne "HASH";
-if ($op eq "get") {
-  my $n = $d->{notifications};
-  print(($n ? "on" : "off"), "\n") if JSON::PP::is_bool($n);
-  exit 0;
-}
-if ($op eq "set") {
-  $d->{notifications} = $a[0] eq "on" ? JSON::PP::true : JSON::PP::false;
-} else { exit 1 }
-print JSON::PP->new->pretty->canonical->allow_bignum->utf8->encode($d);
-'
-
-json_perl() { # json_perl <op> [args...], the document on stdin
-  perl -MJSON::PP -e "$PERL_JSON" -- "$@"
-}
-
-# The jq write. $1 is the operation, the rest its arguments.
-json_jq() { # json_jq set <on|off>, the document on stdin
-  local v=false
-  [[ "${1:-}" == set ]] || return 1
-  [[ "${2:-}" == on ]] && v=true
-  jq --argjson v "$v" 'if type == "object" then .notifications = $v else error("not an object") end'
-}
-
-# The file a config path stands for. A symlinked config (dotfiles) is read and
-# edited where it points, so the link stays. A chain longer than ten links to a
-# real file is refused (exit 1), for reading and writing alike: writing at the
-# tenth link would replace it with a file and leave the real target behind, and
-# a read that went further than the write could say `on` while `set off` fails.
-# A chain that ends nowhere (a loop, a dangling link) is returned as is: there is
-# no target to keep, and a write puts a regular file there.
-config_target() { # config_target <path>
-  local file="$1" link hops=0
-  while [[ -L "$file" && $hops -lt 10 ]]; do
-    link="$(readlink "$file")"
-    case "$link" in /*) file="$link" ;; *) file="${file%/*}/$link" ;; esac
-    hops=$((hops + 1))
-  done
-  [[ -L "$file" && -e "$file" ]] && return 1
-  printf '%s' "$file"
-}
-
-# Apply a write to the JSON object in <file> (a missing file is `{}`) and put
-# the result in its place. Exit 1, file untouched, when there is no JSON tool,
-# the file is not one JSON object, or the write fails. jq is more lenient than
-# perl with a hand-edited file: it takes non-standard numbers (NaN as null,
-# ±Infinity as ±the largest double, 01, +1, .5 or 1. in their plain form), and
-# invalid UTF-8 or a lone surrogate escape (as U+FFFD), so such a file is
-# normalised on write instead of refused.
-json_edit() { # json_edit <file> set <on|off>
-  local file="$1" dir lock rc wait_s=10 deadline strikes
-  shift
-  # How long to wait for the lock, in real seconds (a count of tries drifts:
-  # each try also forks `find` and `sleep`). 2 s dropped the last of ten queued
-  # writers on a busy machine, so a write waits up to 10 s.
-  [[ -n "$(json_engine)" ]] || return 1
-  file="$(config_target "$file")" || return 1
-  [[ -d "$file" ]] && return 1
-  dir="${file%/*}"
-  ( umask 077 && mkdir -p "$dir" ) || return 1
-  # One writer at a time: two `init`s answering at once would otherwise each
-  # read the old file, and the last write would drop the other's keys.
-  lock="$dir/.config.json.lock"
-  deadline=$((SECONDS + wait_s))
-  strikes=0
-  until mkdir "$lock" 2>/dev/null; do
-    # Only a real directory is another writer's lock. Nothing there (a read-only
-    # folder, a full disk, a sandbox), a file or a symlink will not clear by
-    # waiting, but one look can catch a lock just released: give up only after
-    # three looks in a row.
-    if [[ -L "$lock" || ! -d "$lock" ]]; then
-      strikes=$((strikes + 1))
-      [[ $strikes -ge 3 ]] && return 1
-    else
-      strikes=0
-      # A lock a minute old belongs to a writer that died.
-      [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
-    fi
-    [[ $SECONDS -ge $deadline ]] && return 1
-    # Poll every 50 ms: a write holds the lock for tens of milliseconds.
-    sleep 0.05
-  done
-  # A writer killed here (the human interrupts `init`) must not leave the lock.
-  trap 'rmdir "$lock" 2>/dev/null; exit 0' INT TERM
-  json_write "$file" "$@"
-  rc=$?
-  trap - INT TERM
-  rmdir "$lock" 2>/dev/null
-  return $rc
-}
-
-json_write() { # json_write <file> <op> [args...] — the read-edit-replace, under the lock
-  local file="$1" src out tmp engine
-  shift
-  engine="$(json_engine)"
-  if [[ -f "$file" ]]; then
-    src="$(cat "$file" 2>/dev/null)" || return 1
-  else
-    src='{}'
-  fi
-  src="${src#$'\xef\xbb\xbf'}"
-  # A file that holds only whitespace (a stray `touch`) is an empty config. A
-  # regex, not `${src//[[:space:]]/}`: on bash 3.2 that substitution grows
-  # nearly quadratically with the whitespace of a pretty-printed file (4 KB took
-  # 4 s, longer than the lock's wait).
-  [[ "$src" =~ [^[:space:]] ]] || src='{}'
-  case "$engine" in
-    jq)
-      # Two documents glued together are not a config: rewriting them would
-      # keep only one.
-      [[ "$(printf '%s' "$src" | jq -s 'length' 2>/dev/null)" == 1 ]] || return 1
-      out="$(printf '%s' "$src" | json_jq "$@" 2>/dev/null)" || return 1 ;;
-    perl) out="$(printf '%s' "$src" | json_perl "$@" 2>/dev/null)" || return 1 ;;
-    *) return 1 ;;
-  esac
-  [[ -n "$out" ]] || return 1
-  tmp="$(mktemp "${file%/*}/.config.json.XXXXXX")" || return 1
-  # cp -p first, so the new file keeps the old one's mode.
-  [[ -f "$file" ]] && cp -p "$file" "$tmp" 2>/dev/null
-  { printf '%s\n' "$out" > "$tmp" && mv "$tmp" "$file"; } || { rm -f "$tmp"; return 1; }
-}
-
-# This machine's answer: `on`, `off` or `unset`. Reading never writes.
-# `_WD_ATTENTION_ON` exists only so the tests can give the answer without a
-# file or a JSON tool.
+# This machine's answer: `on`, `off` or `unset`. Reading never writes. `_WD_ATTENTION_ON` exists only so the tests can give the
+# answer without a file.
 read_answer() {
-  local file src answer=""
+  local answer=""
   if [[ -n "${_WD_ATTENTION_ON+x}" ]]; then
     case "$_WD_ATTENTION_ON" in on|off) answer="$_WD_ATTENTION_ON" ;; esac
     printf '%s\n' "${answer:-unset}"
     return 0
   fi
-  # The same file and the same text json_edit and json_write see: a read that saw
-  # more than the write (jq alone stops at a NUL byte; the OS follows more links)
-  # could say `on` while `set off` refuses, and the human could not turn the
-  # alerts off.
-  file="$(config_target "$(user_config)")" || file=""
-  if [[ -n "$file" && -f "$file" ]]; then
-    src="$(cat "$file" 2>/dev/null)"
-    case "$(json_engine)" in
-      jq) answer="$(printf '%s' "$src" | jq -s -r 'if length != 1 then empty else .[0] | if type == "object" and (.notifications | type) == "boolean" then (if .notifications then "on" else "off" end) else empty end end' 2>/dev/null)" ;;
-      perl) answer="$(printf '%s' "$src" | json_perl get 2>/dev/null)" ;;
-    esac
-  fi
+  answer="$(config_env_get "$(user_config)" notifications)"
   case "$answer" in on|off) ;; *) answer=unset ;; esac
   printf '%s\n' "$answer"
 }
@@ -405,7 +249,7 @@ alerts_gate() { # alerts_gate [dir]
 
 # Save the answer. Prints `saved` or `unavailable`.
 do_set() { # do_set <on|off>
-  if json_edit "$(user_config)" set "$1"; then
+  if config_env_set "$(user_config)" notifications "$1"; then
     printf 'saved\n'
   else
     printf 'unavailable\n'

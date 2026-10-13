@@ -20,7 +20,8 @@
 #   - a custom sound is used only when it is a readable regular file;
 #   - a slow player never holds the caller; nothing printed, always exit 0;
 #   - the bundled sound is a short WAV;
-#   - one yes/no per machine (~/.workflow-dev/config.json) decides whether
+#   - one yes/no per machine (~/.workflow-dev/config.env; an older config.json
+#     is ignored) decides whether
 #     anything sounds, every sound plays on the default output, and no write
 #     ever stores an output.
 #
@@ -43,7 +44,7 @@ no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 # --- the sandbox PATH ---------------------------------------------------------
 SYS="$TMP/sys"
 mkdir -p "$SYS"
-for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink; do
+for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink ln; do
   real="$(command -v "$tool")" && ln -s "$real" "$SYS/$tool"
 done
 LOG="$TMP/played.log"
@@ -73,7 +74,7 @@ chmod +x "$TMP/slow/afplay"
 # hook variant gives the answer through the seam instead.
 PROJ="$TMP/proj"
 mkdir -p "$PROJ/.workflow-dev/context" "$TMP/jq"
-UCFG="$TMP/home/.workflow-dev/config.json"
+UCFG="$TMP/home/.workflow-dev/config.env"
 JQ_REAL="$(command -v jq)" && ln -s "$JQ_REAL" "$TMP/jq/jq"
 EXTRA_PATH=":$TMP/jq"
 GATE_ENV=""
@@ -93,8 +94,8 @@ run() { # run <player dir> <os> [VAR=value ...] -- args
 seed_answer() { # seed_answer on|off|<raw config text>
   mkdir -p "${UCFG%/*}"
   case "$1" in
-    on) printf '{"notifications": true}\n' ;;
-    off) printf '{"notifications": false}\n' ;;
+    on) printf 'notifications=on\n' ;;
+    off) printf 'notifications=off\n' ;;
     *) printf '%s' "$1" ;;
   esac > "$UCFG"
 }
@@ -460,7 +461,7 @@ new_sid; reset
 hook --notify "$(payload "$SID" "$PROJ" ',"notification_type":"permission_prompt"')" "_WD_KEEP_AWAKE=$TMP/awake-running"
 [[ "$(played)" == *"/assets/attention-permission.wav" ]] && ok "a permission prompt mid autonomous run still plays permission" || no "autonomous notify (got: $(cat "$LOG"))"
 mkdir -p "$TMP/plug/scripts" "$TMP/plug/assets"
-cp "$SCRIPT" "$HERE/marker-dir.sh" "$TMP/plug/scripts/"
+cp "$SCRIPT" "$HERE/marker-dir.sh" "$HERE/config-env.sh" "$TMP/plug/scripts/"
 cp "$ASSETS/attention-need.wav" "$TMP/plug/assets/"
 reset; ( cd "$PROJ" && env -i HOME="$TMP/home" PATH="$TMP/mac:$TMP/os:$SYS:$TMP/jq" FAKE_UNAME=Darwin /bin/bash "$TMP/plug/scripts/attention-alert.sh" play story ) >/dev/null
 [[ "$(played)" == *"/plug/assets/attention-need.wav" ]] && ok "a kind whose file is missing plays need" || no "missing kind file (got: $(cat "$LOG"))"
@@ -504,59 +505,57 @@ for bad in "play start Speakers" "play done X" "set yes" "set" "set on off" "get
 done
 
 # --- 12. one answer per machine: get and set ---------------------------------
-HAVE_JQ=1; command -v jq >/dev/null 2>&1 || HAVE_JQ=0
 inp() { run "$TMP/mac" Darwin "$@"; }
-# Every key path in the user config that names an output.
-device_paths() { jq -r '[paths | map(tostring) | join(".")] | map(select(test("device"; "i"))) | .[]' "$UCFG" 2>/dev/null; }
-if [[ $HAVE_JQ -eq 1 ]]; then
-  rm -rf "$H"
-  [[ "$(inp -- get)" == unset && ! -e "$UCFG" ]] && ok "no config reads as unset, and reading writes nothing" || no "fresh get"
-  [[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on is saved and read back" || no "set on"
-  jq -e '.notifications == true' "$UCFG" >/dev/null && ok "the answer lives at notifications, a JSON boolean" || no "answer shape ($(cat "$UCFG"))"
-  [[ -n "$(find "$H/.workflow-dev" -maxdepth 0 -perm 700)" ]] && ok "the user folder is private (700)" || no "user folder mode"
-  [[ "$(inp -- set off)" == saved && "$(inp -- get)" == off ]] && jq -e '.notifications == false' "$UCFG" >/dev/null && ok "set off is saved and read back" || no "set off"
-  printf '{"keep":"me","language":"es","userPref":{"notifications":{"device":"Headset"}}}\n' > "$UCFG"
-  [[ "$(inp -- get)" == unset ]] && ok "an old saved output (userPref) is no answer" || no "userPref read (got: $(inp -- get))"
-  inp -- set on >/dev/null
-  jq -e '.keep == "me" and .language == "es" and .userPref.notifications.device == "Headset" and .notifications == true' "$UCFG" >/dev/null && ok "set keeps every other key, an old userPref too" || no "set keeps keys ($(cat "$UCFG"))"
-  for raw in '{"notifications":"true"}' '{"notifications":1}' '{"notifications":null}' '{"notifications":{}}' '{"notifications":[{"storyId":"T-1","device":"x"}]}' '{}' '' '   '; do
-    printf '%s' "$raw" > "$UCFG"
-    [[ "$(inp -- get)" == unset ]] && ok "notifications as '$raw' reads as unset" || no "non-boolean '$raw' (got: $(inp -- get))"
-    [[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on replaces '$raw' with a yes" || no "set over '$raw' ($(cat "$UCFG"))"
-  done
-  for raw in 'not json' '[1,2]' '{"a":1}{"b":2}' '"str"'; do
-    printf '%s' "$raw" > "$UCFG"
-    [[ "$(inp -- get)" == unset && "$(inp -- set on)" == unavailable && "$(cat "$UCFG")" == "$raw" ]] && ok "a config of '$raw' reads as unset and is left untouched" || no "bad config '$raw' ($(cat "$UCFG"))"
-  done
-  rm -f "$UCFG"; inp -- set on >/dev/null; inp -- set off >/dev/null; inp -- set on >/dev/null
-  [[ -z "$(device_paths)" ]] && ok "no write stores an output" || no "a device was written: $(device_paths)"
-  # An old repo-level list is neither an answer nor touched.
-  rm -rf "$H"
-  printf '{"gitignored":true,"notifications":[{"storyId":"T-1","device":"Spk"}]}\n' > "$PROJ/.workflow-dev/config.json"
-  cp "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
-  [[ "$(inp -- get)" == unset ]] && ok "an old per-story list in the repo is no answer" || no "repo list read"
-  inp -- set on >/dev/null
-  cmp -s "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json" && ok "set writes nothing to the repo's config" || no "repo config changed ($(cat "$PROJ/.workflow-dev/config.json"))"
-  rm -f "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
-  # The answer holds outside any workflow-dev project too: it is the machine's.
-  mkdir -p "$TMP/nowf"
-  [[ "$(RUN_CWD="$TMP/nowf" run "$TMP/mac" Darwin -- get)" == on ]] && ok "get reads the machine's answer from any folder" || no "get outside a project"
-else
-  printf '  skip get/set storage (no jq on this machine)\n'
-fi
-# With neither jq nor perl nothing can be written, and nothing is read.
+rm -rf "$H"
+[[ "$(inp -- get)" == unset && ! -e "$UCFG" ]] && ok "no config reads as unset, and reading writes nothing" || no "fresh get"
+[[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on is saved and read back" || no "set on"
+[[ "$(cat "$UCFG")" == "notifications=on" ]] && ok "the answer is the line notifications=on" || no "answer shape ($(cat "$UCFG"))"
+[[ -n "$(find "$H/.workflow-dev" -maxdepth 0 -perm 700)" ]] && ok "the user folder is private (700)" || no "user folder mode"
+[[ "$(inp -- set off)" == saved && "$(inp -- get)" == off && "$(cat "$UCFG")" == "notifications=off" ]] && ok "set off is saved and read back" || no "set off"
+printf '# mine\nkeep=me\nnotifications=off\nlanguage=es\n' > "$UCFG"
+inp -- set on >/dev/null
+[[ "$(cat "$UCFG")" == $'# mine\nkeep=me\nlanguage=es\nnotifications=on' ]] && ok "set keeps every other line" || no "set keeps lines ($(cat "$UCFG"))"
+for raw in 'notifications=true' 'notifications=yes' 'notifications=ON' 'notifications=' 'notifications= on' ' notifications=on' 'export notifications=on' 'language=es' '' '   '; do
+  printf '%s\n' "$raw" > "$UCFG"
+  [[ "$(inp -- get)" == unset ]] && ok "'$raw' reads as unset" || no "'$raw' (got: $(inp -- get))"
+  [[ "$(inp -- set on)" == saved && "$(inp -- get)" == on ]] && ok "set on over '$raw' saves a yes" || no "set over '$raw' ($(cat "$UCFG"))"
+done
+printf 'notifications=on\r\n' > "$UCFG"
+[[ "$(inp -- get)" == on ]] && ok "a CRLF line reads" || no "CRLF (got: $(inp -- get))"
+printf 'notifications=on\nnotifications=off\n' > "$UCFG"
+[[ "$(inp -- get)" == off ]] && ok "the last line of the key wins" || no "last wins (got: $(inp -- get))"
+# shellcheck disable=SC2016 # the code must reach the file unexpanded
+printf 'notifications=$(touch %s/pwned)\n' "$TMP" > "$UCFG"
+[[ "$(inp -- get)" == unset && ! -e "$TMP/pwned" ]] && ok "a value that looks like code is data: unset, nothing runs" || no "code value"
+inp -- set off >/dev/null
+[[ ! -e "$TMP/pwned" && "$(inp -- get)" == off ]] && ok "set over a code-looking line runs nothing" || no "code value on set"
+# Bash's read stops a line at a NUL, for get and set alike: they never disagree.
+printf 'notifications=o\0n\n' > "$UCFG"
+[[ "$(inp -- get)" == unset && "$(inp -- set off)" == saved && "$(inp -- get)" == off ]] && ok "a NUL byte reads the same for get and set" || no "NUL (got: $(inp -- get))"
+rm -f "$UCFG"; inp -- set on >/dev/null; inp -- set off >/dev/null; inp -- set on >/dev/null
+grep -qi device "$UCFG" && no "a device was written: $(cat "$UCFG")" || ok "no write stores an output"
+# An old repo-level list is neither an answer nor touched.
+rm -rf "$H"
+printf '{"gitignored":true,"notifications":[{"storyId":"T-1","device":"Spk"}]}\n' > "$PROJ/.workflow-dev/config.json"
+cp "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
+[[ "$(inp -- get)" == unset ]] && ok "an old per-story list in the repo is no answer" || no "repo list read"
+inp -- set on >/dev/null
+cmp -s "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json" && [[ ! -e "$PROJ/.workflow-dev/config.env" ]] && ok "set writes nothing to the repo's config" || no "repo config changed"
+rm -f "$PROJ/.workflow-dev/config.json" "$TMP/repo-before.json"
+# The answer holds outside any workflow-dev project too: it is the machine's.
+mkdir -p "$TMP/nowf"
+[[ "$(RUN_CWD="$TMP/nowf" run "$TMP/mac" Darwin -- get)" == on ]] && ok "get reads the machine's answer from any folder" || no "get outside a project"
+# Neither jq nor perl is needed to read or write the answer.
 nojq="$TMP/nojq"; mkdir -p "$nojq"
-for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink; do
+for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink ln; do
   real="$(command -v "$tool")" && ln -sf "$real" "$nojq/$tool"
 done
 printf '#!/bin/bash\necho Darwin\n' > "$nojq/uname"; chmod +x "$nojq/uname"
 nj() { ( cd "$PROJ" && env -i HOME="$TMP/home" PATH="$TMP/mac:$nojq" /bin/bash "$SCRIPT" "$@" ); }
 rm -rf "$H"
-[[ "$(nj set on)" == unavailable && ! -e "$UCFG" ]] && ok "without jq or perl, set is unavailable and writes nothing" || no "no engine set"
-seed_answer on
-[[ "$(nj get)" == unset ]] && ok "without jq or perl, nothing is read (unset)" || no "no engine get"
+[[ "$(nj set on)" == saved && "$(nj get)" == on ]] && ok "without jq or perl, set and get work" || no "no tool set/get"
 : > "$LOG"; nj play done >/dev/null
-silent && ok "without jq or perl, nothing sounds" || no "no engine play (got: $(cat "$LOG"))"
+[[ "$(played)" == "afplay "* ]] && ok "without jq or perl, a yes sounds" || no "no tool play (got: $(cat "$LOG"))"
 rm -rf "$H"
 
 # --- 12b. the gate: one yes for every story, every repo ----------------------
@@ -637,120 +636,52 @@ printf '%s' "$(payload "$SIDG" "$GP")" | RUN_CWD="$GP" run "$TMP/mac" Darwin -- 
 [[ "$(played)" == *"/attention-passed.wav" ]] && ok "an older two-line arm plays its kind" || no "old arm (got: $(cat "$LOG"))"
 rm -rf "$GP" "$TMP/gp-before.json" "$TMP/u-before.json"
 
-# --- 12c. the one write: symlink, mode, empty file, directory, concurrency ----
-if [[ $HAVE_JQ -eq 1 ]]; then
-  rm -rf "$H"
-  mkdir -p "$TMP/dot"; printf '{"x":1}\n' > "$TMP/dot/user.json"; chmod 644 "$TMP/dot/user.json"
-  mkdir -p "$H/.workflow-dev"; ln -s "$TMP/dot/user.json" "$UCFG"
-  inp -- set on >/dev/null
-  [[ -L "$UCFG" ]] && jq -e '.x == 1 and .notifications == true' "$TMP/dot/user.json" >/dev/null && ok "a symlinked config is edited where it points, the link kept" || no "symlinked config"
-  [[ -n "$(find "$TMP/dot/user.json" -perm 644)" ]] && ok "a write keeps the file's mode" || no "mode kept"
-  rm -rf "$H" "$TMP/dot"
-  # A chain of more than ten links is refused, so the real target is never left behind.
-  mkdir -p "$TMP/dot" "$H/.workflow-dev"; printf '{"notifications":true}\n' > "$TMP/dot/real.json"
-  prev="$TMP/dot/real.json"; for i in $(seq 1 11); do ln -s "$prev" "$TMP/dot/l$i"; prev="$TMP/dot/l$i"; done; ln -s "$prev" "$UCFG"
-  [[ "$(inp -- set off)" == unavailable && -L "$TMP/dot/l1" ]] && jq -e '.notifications == true' "$TMP/dot/real.json" >/dev/null && ok "a chain of more than ten links is refused, every link kept" || no "long link chain"
-  [[ "$(inp -- get)" == unset ]] && ok "...and reads as unset, never an 'on' that set cannot change" || no "long chain get (got: $(inp -- get))"
-  rm -f "$UCFG"; ln -s "$TMP/dot/l9" "$UCFG"
-  [[ "$(inp -- get)" == on && "$(inp -- set off)" == saved && "$(inp -- get)" == off ]] && jq -e '.notifications == false' "$TMP/dot/real.json" >/dev/null && ok "a chain of ten links is read and edited at its target" || no "ten-link chain"
-  rm -rf "$H" "$TMP/dot"
-  # A NUL byte reads the same for get and set: no answer, never an 'on' that set cannot change.
-  mkdir -p "$H/.workflow-dev"; printf '{"notifications":true}\0junk' > "$UCFG"
-  [[ "$(inp -- get)" == unset ]] && ok "a config with a NUL and trailing junk reads as unset (silent)" || no "NUL junk get (got: $(inp -- get))"
-  printf '{"notifications":true}\0{"notifications":false}' > "$UCFG"
-  [[ "$(inp -- get)" == unset ]] && ok "two documents split by a NUL read as unset" || no "NUL two docs (got: $(inp -- get))"
-  printf '{"notifications":true}\0' > "$UCFG"
-  [[ "$(inp -- get)" == on ]] && ok "a trailing NUL alone still reads" || no "trailing NUL (got: $(inp -- get))"
-  rm -rf "$H"
-  mkdir -p "$H/.workflow-dev"; mkdir "$UCFG"
-  [[ "$(inp -- set on)" == unavailable && "$(inp -- get)" == unset ]] && ok "a directory at the config path is unavailable, not saved" || no "dir at config path"
-  rmdir "$UCFG"
-  # Five rounds of twenty writers: a writer that finds the lock just released
-  # must take it, not give up as if the folder were read-only. Twenty at once is
-  # what it takes to hit that moment; ten never did, and each round still takes
-  # about a second against the 10 s wait.
-  printf '{"keep":true}\n' > "$UCFG"
-  for round in 1 2 3 4 5; do
-    for i in $(seq 1 20); do inp -- set "$([[ $((i % 2)) == 0 ]] && echo on || echo off)" > "$TMP/par.$round.$i" & done; wait
-  done
-  saved=$(cat "$TMP"/par.* | grep -c '^saved$'); rm -f "$TMP"/par.*
-  jq -e '.keep == true and (.notifications | type) == "boolean"' "$UCFG" >/dev/null && ok "parallel writes leave one valid answer and keep other keys" || no "parallel writes ($(cat "$UCFG"))"
-  [[ $saved -eq 100 ]] && ok "every one of 100 parallel writes is saved" || no "parallel writes saved ($saved of 100)"
-  [[ ! -d "$H/.workflow-dev/.config.json.lock" ]] && ok "the write lock is released" || no "lock left behind"
-  # A large pretty-printed config is written in linear time.
-  { printf '{\n  "notifications": false,\n  "pad": [\n'; for i in $(seq 1 3000); do printf '    "a b c d e f",\n'; done; printf '    "end"\n  ]\n}\n'; } > "$UCFG"
-  start=$SECONDS; out="$(inp -- set on)"; took=$((SECONDS - start))
-  [[ "$out" == saved && $took -le 3 && "$(inp -- get)" == on ]] && jq -e '.pad | length == 3001' "$UCFG" >/dev/null && ok "a 100 KB indented config is written in seconds, every key kept (${took}s)" || no "large config (out=$out took=${took}s)"
-  mkdir "$H/.workflow-dev/.config.json.lock"; touch -t 200001010000 "$H/.workflow-dev/.config.json.lock"
-  [[ "$(inp -- set on)" == saved ]] && ok "a stale lock (a dead writer's) is cleared" || no "stale lock"
-  chmod 555 "$H/.workflow-dev"
-  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
-  chmod 755 "$H/.workflow-dev"
-  [[ "$out" == unavailable && $took -le 1 ]] && ok "a read-only folder fails at once, without waiting for the lock" || no "read-only folder (out=$out took=${took}s)"
-  touch "$H/.workflow-dev/.config.json.lock"
-  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
-  rm -f "$H/.workflow-dev/.config.json.lock"
-  [[ "$out" == unavailable && $took -le 1 ]] && ok "a file at the lock's path fails at once" || no "file at lock path (out=$out took=${took}s)"
-  ln -s "$H/nowhere" "$H/.workflow-dev/.config.json.lock"
-  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
-  rm -f "$H/.workflow-dev/.config.json.lock"
-  [[ "$out" == unavailable && $took -le 1 ]] && ok "a dangling symlink at the lock's path fails at once" || no "dangling symlink at lock path (out=$out took=${took}s)"
-  mkdir "$H/elsewhere"; ln -s "$H/elsewhere" "$H/.workflow-dev/.config.json.lock"
-  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
-  rm -f "$H/.workflow-dev/.config.json.lock"
-  [[ "$out" == unavailable && $took -le 1 && -d "$H/elsewhere" ]] && ok "a symlink to a folder at the lock's path fails at once and is left alone" || no "symlink to dir at lock path (out=$out took=${took}s)"
-  rm -rf "$H"
-fi
+# --- 12c. the one write: symlink, mode, directory, concurrency ----------------
+rm -rf "$H"
+mkdir -p "$TMP/dot"; printf 'x=1\n' > "$TMP/dot/user.env"; chmod 644 "$TMP/dot/user.env"
+mkdir -p "$H/.workflow-dev"; ln -s "$TMP/dot/user.env" "$UCFG"
+inp -- set on >/dev/null
+[[ -L "$UCFG" && "$(cat "$TMP/dot/user.env")" == $'x=1\nnotifications=on' ]] && ok "a symlinked config is edited where it points, the link kept" || no "symlinked config"
+[[ -n "$(find "$TMP/dot/user.env" -perm 644)" ]] && ok "a write keeps the file's mode" || no "mode kept"
+rm -rf "$H" "$TMP/dot"
+# A chain of more than ten links is refused, so the real target is never left behind.
+mkdir -p "$TMP/dot" "$H/.workflow-dev"; printf 'notifications=on\n' > "$TMP/dot/real.env"
+prev="$TMP/dot/real.env"; for i in $(seq 1 11); do ln -s "$prev" "$TMP/dot/l$i"; prev="$TMP/dot/l$i"; done; ln -s "$prev" "$UCFG"
+[[ "$(inp -- set off)" == unavailable && -L "$TMP/dot/l1" && "$(cat "$TMP/dot/real.env")" == notifications=on ]] && ok "a chain of more than ten links is refused, every link kept" || no "long link chain"
+[[ "$(inp -- get)" == unset ]] && ok "...and reads as unset, never an 'on' that set cannot change" || no "long chain get (got: $(inp -- get))"
+rm -f "$UCFG"; ln -s "$TMP/dot/l9" "$UCFG"
+[[ "$(inp -- get)" == on && "$(inp -- set off)" == saved && "$(inp -- get)" == off && "$(cat "$TMP/dot/real.env")" == notifications=off ]] && ok "a chain of ten links is read and edited at its target" || no "ten-link chain"
+rm -rf "$H" "$TMP/dot"
+mkdir -p "$H/.workflow-dev"; mkdir "$UCFG"
+[[ "$(inp -- set on)" == unavailable && "$(inp -- get)" == unset ]] && ok "a directory at the config path is unavailable, not saved" || no "dir at config path"
+rmdir "$UCFG"
+# Five rounds of twenty writers: each write replaces the file whole, so every
+# one is saved and the file always holds one valid answer and the other lines.
+printf 'keep=me\n' > "$UCFG"
+for round in 1 2 3 4 5; do
+  for i in $(seq 1 20); do inp -- set "$([[ $((i % 2)) == 0 ]] && echo on || echo off)" > "$TMP/par.$round.$i" & done; wait
+done
+saved=$(cat "$TMP"/par.* | grep -c '^saved$'); rm -f "$TMP"/par.*
+[[ "$(grep -c '^notifications=' "$UCFG")" == 1 && "$(grep -c '^keep=me$' "$UCFG")" == 1 ]] && [[ "$(inp -- get)" == on || "$(inp -- get)" == off ]] && ok "parallel writes leave one valid answer and keep other lines" || no "parallel writes ($(cat "$UCFG"))"
+[[ $saved -eq 100 ]] && ok "every one of 100 parallel writes is saved" || no "parallel writes saved ($saved of 100)"
+[[ "$(ls -A "$H/.workflow-dev" | grep -v '^config.env.lock$')" == config.env ]] && ok "no temp file is left behind" || no "leftovers: $(ls -A "$H/.workflow-dev")"
+# A large config is written in linear time.
+{ for i in $(seq 1 3000); do printf 'pad%d=a b c d e f\n' "$i"; done; printf 'notifications=off\n'; } > "$UCFG"
+start=$SECONDS; out="$(inp -- set on)"; took=$((SECONDS - start))
+[[ "$out" == saved && $took -le 3 && "$(inp -- get)" == on && "$(grep -c '^pad' "$UCFG")" == 3000 ]] && ok "a 3000-line config is written in seconds, every line kept (${took}s)" || no "large config (out=$out took=${took}s)"
+chmod 555 "$H/.workflow-dev"
+start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
+chmod 755 "$H/.workflow-dev"
+[[ "$out" == unavailable && $took -le 1 && "$(inp -- get)" == on ]] && ok "a read-only folder fails at once and keeps the answer" || no "read-only folder (out=$out took=${took}s)"
+rm -rf "$H"
 
-# --- 12d. the perl engine: the same answer with perl and no jq ----------------
-if command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e1 >/dev/null 2>&1; then
-  mkdir -p "$TMP/perlbin"; ln -sf "$(command -v perl)" "$TMP/perlbin/perl"
-  rp() { EXTRA_PATH=":$TMP/perlbin" run "$TMP/mac" Darwin "$@"; }
-  rm -rf "$H"
-  [[ "$(rp -- get)" == unset ]] && ok "[perl] no config reads as unset" || no "[perl] fresh get"
-  [[ "$(rp -- set on)" == saved && "$(rp -- get)" == on && "$(rp -- set off)" == saved && "$(rp -- get)" == off ]] && ok "[perl] set on and off are saved and read back" || no "[perl] round trip"
-  grep -q '"notifications" *: *false' "$UCFG" && ok "[perl] the answer is a JSON boolean" || no "[perl] shape ($(cat "$UCFG"))"
-  printf '{"keep": "me", "big": 12345678901234567890, "userPref": {"notifications": {"device": "Spk"}}}\n' > "$UCFG"
-  [[ "$(rp -- get)" == unset ]] && ok "[perl] an old saved output is no answer" || no "[perl] userPref"
-  rp -- set on >/dev/null
-  grep -q '"keep" *: *"me"' "$UCFG" && grep -q 12345678901234567890 "$UCFG" && grep -q '"device" *: *"Spk"' "$UCFG" && ok "[perl] set keeps every other key (a big integer too)" || no "[perl] keeps keys ($(cat "$UCFG"))"
-  for raw in '{"notifications":"true"}' '{"notifications":1}' '{"notifications":null}' '{"notifications":[{"storyId":"T-1","device":"x"}]}'; do
-    printf '%s' "$raw" > "$UCFG"
-    [[ "$(rp -- get)" == unset ]] && ok "[perl] notifications as '$raw' reads as unset" || no "[perl] '$raw' (got: $(rp -- get))"
-  done
-  for raw in 'not json' '[1,2]'; do
-    printf '%s' "$raw" > "$UCFG"
-    [[ "$(rp -- set on)" == unavailable && "$(cat "$UCFG")" == "$raw" ]] && ok "[perl] a config of '$raw' is left untouched" || no "[perl] bad '$raw'"
-  done
-  printf '\xef\xbb\xbf{"notifications": true}' > "$UCFG"
-  [[ "$(rp -- get)" == on ]] && ok "[perl] a BOM at the start is read past" || no "[perl] BOM"
-  printf '{"notifications":true}\0junk' > "$UCFG"
-  [[ "$(rp -- get)" == unset && "$(rp -- set off)" == unavailable ]] && ok "[perl] a NUL and trailing junk read as unset" || no "[perl] NUL junk"
-  printf '{"notifications":true}\0' > "$UCFG"
-  [[ "$(rp -- get)" == on && "$(rp -- set off)" == saved && "$(rp -- get)" == off ]] && ok "[perl] a trailing NUL alone reads and writes like jq" || no "[perl] trailing NUL (got: $(rp -- get))"
-  rm -rf "$H"
-else
-  printf '  skip perl engine (no perl with JSON::PP on this machine)\n'
-fi
-
-# --- 12e. the two engines read and write alike -------------------------------
-if command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e1 >/dev/null 2>&1 && [[ -x "$TMP/jq/jq" ]]; then
-  mkdir -p "$TMP/perlbin"; ln -sf "$(command -v perl)" "$TMP/perlbin/perl"
-  agree() { # agree <name> <config text> <command...>: both engines, same answer, same file
-    local name="$1" cfg="$2" a b fa fb; shift 2
-    mkdir -p "${UCFG%/*}"
-    printf '%s' "$cfg" > "$UCFG"; a="$(run "$TMP/mac" Darwin -- "$@")"; fa="$(jq -cS . "$UCFG" 2>/dev/null)"
-    printf '%s' "$cfg" > "$UCFG"; b="$(EXTRA_PATH=":$TMP/perlbin" run "$TMP/mac" Darwin -- "$@")"; fb="$(jq -cS . "$UCFG" 2>/dev/null)"
-    [[ "$a" == "$b" && "$fa" == "$fb" ]] && ok "jq and perl agree: $name" || no "engines differ: $name (jq='$a' perl='$b' / jq-file='$fa' perl-file='$fb')"
-  }
-  for cfg in '{"notifications":true}' '{"notifications":false}' '{"notifications":"true"}' '{"notifications":0}' '{"notifications":null}' \
-             '{"notifications":[{"storyId":"T-1","device":"d"}]}' '{"userPref":{"notifications":{"device":"d"}}}' '{}' \
-             '{"notifications":true}{"notifications":false}' $'\xef\xbb\xbf{"notifications":true}' '[true]'; do
-    agree "get on '$cfg'" "$cfg" get
-    agree "set on over '$cfg'" "$cfg" set on
-  done
-  rm -rf "$H"
-fi
+# --- 12d. the answer older versions saved in config.json is ignored ----------
+rm -rf "$H"; mkdir -p "$H/.workflow-dev"; printf '{"notifications": true}\n' > "$H/.workflow-dev/config.json"
+cp "$H/.workflow-dev/config.json" "$TMP/leg-before.json"
+[[ "$(inp -- get)" == unset && ! -e "$UCFG" ]] && ok "an old config.json is no answer, and reading writes nothing" || no "old config.json read (got: $(inp -- get))"
+[[ "$(inp -- set on)" == saved && "$(cat "$UCFG")" == notifications=on ]] && ok "set saves the new answer to config.env" || no "set beside old config.json"
+cmp -s "$H/.workflow-dev/config.json" "$TMP/leg-before.json" && ok "the old config.json is left as it was" || no "old config.json changed"
+rm -rf "$H" "$TMP/leg-before.json"
 
 out="$(run "$TMP/mac" Darwin -- arm done extra 2>/dev/null)"; rc=$?
 [[ $rc -eq 2 ]] && ok "three arguments are a usage error" || no "three arguments (rc=$rc)"

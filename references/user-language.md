@@ -63,7 +63,7 @@ These stay as they are, in any language:
   exception: the commit hooks' permission dialogs. Those follow the
   conversation's language through `scripts/hook-language.sh`, which reads the
   user's recent messages, then Claude Code's `language` setting, then
-  `language` in `.workflow-dev/config.json`. The limits that remain: they ship
+  `language` in `.workflow-dev/config.env`. The limits that remain: they ship
   ten languages (en, es, fr, pt, de, it, zh, ja, ko, ru) and fall back to
   English for any other; the technical detail in the marker-directory note
   stays English; a `language` set in managed settings or through `--settings`

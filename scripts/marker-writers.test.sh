@@ -124,8 +124,8 @@ chmod 700 "$MARKER_DIR"
 # The decision lives in the repository config (coauthor-decision.sh); fixtures
 # are built here, never typed into a shell command the live hook would deny.
 coauthor_cfg() {
-  if [[ -n "$1" ]]; then printf '{ "gitignored": true, "agentCoauthorship": "%s" }' "$1"; else printf '{ "gitignored": true }'; fi \
-    > "$PROJ/.workflow-dev/config.json"
+  if [[ -n "$1" ]]; then printf 'gitignored=true\nagentCoauthorship=%s\n' "$1"; else printf 'gitignored=true\n'; fi \
+    > "$PROJ/.workflow-dev/config.env"
 }
 TRAILER='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 PRLINE='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
@@ -142,7 +142,7 @@ coauthor_cfg ""
 expect_mark "no decision: the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
 coauthor_cfg YES
 expect_mark "a value other than "yes": the trailer is refused" "$(marks "$(printf 'Add a thing\n\n%s' "$TRAILER")")" refused
-rm -f "$PROJ/.workflow-dev/config.json"
+rm -f "$PROJ/.workflow-dev/config.env"
 
 # Without the rule's helper nothing is marked (it used to mark, with an error).
 NOHELPER="$TMP/nohelper"

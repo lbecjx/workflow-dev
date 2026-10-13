@@ -178,8 +178,9 @@ never for the whole machine:
 
 - **This story:** add the row `| <today> | Tiering: default model | Human |` to the
   Decisions table of the active story's file in `.workflow-dev/context/`.
-- **This repo:** set `"tiering": "default"` in `.workflow-dev/config.json`, keeping
-  its other keys.
+- **This repo:** run `"$PLUGIN_ROOT"/scripts/config-env.sh set tiering default`
+  in the project root (it writes `tiering=default` to `.workflow-dev/config.env`
+  and keeps the other keys).
 
 Write one of them only if the user chooses it.
 

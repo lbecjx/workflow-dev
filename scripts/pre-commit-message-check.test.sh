@@ -455,8 +455,8 @@ rm -f "$HOME/.claude/settings.json"
 # A yes recorded in the repository config lets through the harness's trailer and PR
 # line, as whole lines, and nothing else; every other state denies as before.
 coauthor_cfg() {
-  if [[ -n "$1" ]]; then printf '{ "gitignored": true, "agentCoauthorship": "%s" }' "$1"; else printf '{ "gitignored": true }'; fi \
-    > "$PROJ/.workflow-dev/config.json"
+  if [[ -n "$1" ]]; then printf 'gitignored=true\nagentCoauthorship=%s\n' "$1"; else printf 'gitignored=true\n'; fi \
+    > "$PROJ/.workflow-dev/config.env"
 }
 TRAILER='Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 PRLINE='🤖 Generated with [Claude Code](https://claude.com/claude-code)'
@@ -527,7 +527,7 @@ coauthor_cfg ""
 expect_word "no decision: the trailer → block" "$(status "$QUOTED_COMMIT")" block
 coauthor_cfg YES
 expect_word "a value other than "yes": the trailer → block" "$(status "$QUOTED_COMMIT")" block
-rm -f "$PROJ/.workflow-dev/config.json"
+rm -f "$PROJ/.workflow-dev/config.env"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

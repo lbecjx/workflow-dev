@@ -45,7 +45,7 @@ is asked about first; see "Asked at init"). The agent records the row
   human asks for autonomous mode mid-conversation — ask once whether the commit
   and the PR should mention the agent as co-author
   (`../skills/validate/references/rules.md` §12.3). Skip it when the repo's
-  `.workflow-dev/config.json` already holds `agentCoauthorship`: the answer is
+  `.workflow-dev/config.env` already holds `agentCoauthorship`: the answer is
   per repository, asked once. It is asked here because the run asks no fixed
   question later, and `summarize-changes` must not stop an unattended run to
   ask it.
