@@ -65,9 +65,16 @@ the Free Software Foundation, either version 3 of the License, or
   (WD-0029). It emits only `additionalContext`, never a permission decision,
   on both the events it fires on.
 - The compaction-state save point (`scripts/save-read-unsaved.sh`,
-  `scripts/save-mark-saved.sh`) keeps how far each story's last save read in
-  `.workflow-dev/context/.compaction-state/<STORY>.json`: the transcript path the
-  hooks recorded and a line count into it.
+  `scripts/save-mark-saved.sh`) keeps how far each story's last save read, per
+  session: the transcript path the hooks recorded and a line count into it. The two compaction hooks
+  (`scripts/pre-compact-check.sh`, `scripts/post-compaction-save-check.sh`) mark
+  and announce only the stories the current session worked — an assistant tool
+  call wrote their context file, or a workflow-dev story skill was launched with
+  their code — and only while they are In Progress (WD-0081). Both ask
+  `scripts/session-story.sh`, the one owner of that rule. Each session keeps its
+  own save point per story (`.compaction-state/<STORY>/<key>.json`,
+  `scripts/compaction-state.sh`), so no compaction replaces another session's,
+  and a save reads what every session left unsaved.
 - **Autonomous mode needs no change to these hooks, and none is made** (WD-0039).
   An autonomous run keeps the commit/PR hooks quiet through the markers the
   skills already write — `validate`'s diff marker and `summarize-changes`'

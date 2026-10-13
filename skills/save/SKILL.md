@@ -89,7 +89,9 @@ This prints everything in the live conversation transcript since the last time t
 
 If the extract had content, state this at the top of the Step 4 summary, before the per-file changes — e.g. "Source: read N lines of unsaved transcript for [STORY-ID]." Silently having used it isn't enough; the human should be able to tell this save is more thorough than a normal one, not just take it on faith.
 
-**The save point.** `.workflow-dev/context/.compaction-state/[STORY-ID].json` keeps the Claude Code transcript the hooks recorded and a line count into it. A state written by an older version — one that also recorded a second source — still reads: its Claude Code position is used, and the extra keys are dropped on the next save.
+**The save point.** Each session that worked the story keeps its own: `.workflow-dev/context/.compaction-state/[STORY-ID]/<key>.json` holds the Claude Code transcript the hooks recorded and a line count into it. What a session never saved is never dropped: the extract covers the unsaved part of every session's save point, one header per session, including a session that has since ended. A single-file `[STORY-ID].json` written by an older version is read the same way, and a state that also recorded a second source still reads: its Claude Code position is used, and the extra keys are dropped on the next save. The script reads only a `.jsonl` transcript inside Claude Code's own projects folder, of a session that ran in this project: a state file can name any other file (a cloned repo can carry one), and then the script says so and skips it — never read that file yourself.
+
+**More than one session.** Several sessions may feed the same story, at once or one after another. So always compare what this save is about to write with what the story file already says: another session may have saved there since this one last read it. The extract adds two notes that make this explicit: several sessions worked the story without saving, or another save of the story read part of it and is still waiting for its confirmation. Where the versions agree, or one only adds to the other, save it all. Where they disagree (two different decisions, progress that contradicts the file, the same AC closed one way and reopened another), do not pick one: tell the human that different or new content from another session was found and conflicts, show each version briefly, ask which one holds, and recommend working the story in a single session. This ask holds in autonomous mode too: a conflict between sessions is not something to infer.
 
 Scan everything discussed since the "Last updated" timestamp and classify each item:
 
@@ -153,7 +155,7 @@ Show only the section that has changes if the other file has none.
 
 Confirmed → update both files with the identified changes and bump the "Last updated" timestamp on each modified file.
 
-"No," or wants edits → ask what to remove or change, then save.
+"No," or wants edits → ask what to remove or change, then save. When the human declines the save altogether, drop the read so it does not pass for another session saving: `"$PLUGIN_ROOT"/scripts/save-mark-saved.sh [STORY-ID] [READ-ID] --discard` (its lines stay unsaved for the next save).
 
 ### Step 6: Advance the story's save point
 
@@ -161,18 +163,20 @@ Only if Step 3 actually ran `save-read-unsaved.sh` and got a real extract (not "
 
 ```sh
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
-"$PLUGIN_ROOT"/scripts/save-mark-saved.sh [STORY-ID]
+"$PLUGIN_ROOT"/scripts/save-mark-saved.sh [STORY-ID] [READ-ID]
 ```
+
+`[READ-ID]` is the id Step 3's read printed on its last line (`Read id: …`). Pass it every time: another session may be saving the same story, and the id is what makes this mark cover exactly what this save read, and nothing that only the other save showed.
 
 This is not optional — do it as part of completing Step 5, not as a "nice to have" afterthought, and only after Step 5's write actually happened (never before — marking content as caught up when it was never actually persisted means a future read would silently skip it forever). Don't hand-roll this by writing the state file yourself: the save point advances to precisely the line Step 3's read stopped at, not a value recomputed now, since the live transcript may have grown further since Step 3 ran — get this arithmetic wrong and content nobody actually saved goes missing from every future read. A script gets it right every time; a model re-deriving it from prose is exactly the kind of task that drifts.
 
 Relay the script's own stdout verbatim as part of the save confirmation — it already reports what line the story is now marked saved through, in local time, e.g.:
 
 ```
-Marked [STORY-ID] as saved through line 1234 (2026-01-01 at 5:00 PM) — future reads will only include what comes after.
+Marked [STORY-ID] as saved through line 1234 of /path/to/session.jsonl (2026-01-01 at 5:00 PM) — future reads will only include what comes after.
 ```
 
-This has actually happened, wrong, in a real session: the confirmation shown to the human used a shorter line Claude wrote itself instead of relaying the script's output, sourcing the raw UTC `dateTime` from `.compaction-state/[STORY-ID].json` and displaying it as if it were already local — several hours off from the real local time. Never read that JSON file's `dateTime` field yourself for this purpose, no matter how tempting it is to write a shorter or differently-styled summary line — that field exists in UTC specifically for `save-mark-saved.sh` to convert, not for direct display, and the script's own sentence above is what belongs in the confirmation, unedited.
+This has actually happened, wrong, in a real session: the confirmation shown to the human used a shorter line Claude wrote itself instead of relaying the script's output, sourcing the raw UTC `dateTime` from the story's save-point JSON under `.compaction-state/` and displaying it as if it were already local — several hours off from the real local time. Never read that JSON file's `dateTime` field yourself for this purpose, no matter how tempting it is to write a shorter or differently-styled summary line — that field exists in UTC specifically for `save-mark-saved.sh` to convert, not for direct display, and the script's own sentence above is what belongs in the confirmation, unedited.
 
 ### Step 7: Record the run's end
 

@@ -18,9 +18,9 @@
 # transcript stay identical while the file grows) and is never deleted —
 # session .jsonl files sit under ~/.claude/projects/... indefinitely. That
 # means there is nothing to back up: the original is always there to read
-# later. This hook's only job is to keep the story's compaction-state JSON
-# current and, when there's content since the last save, flip its
-# `pendingSave` flag so post-compaction-save-check.sh (registered on
+# later. This hook's only job is to keep the compaction-state JSON of each
+# story this session worked current and, when there's content since the last
+# save, flip its `pendingSave` flag so post-compaction-save-check.sh (registered on
 # UserPromptSubmit and PostToolUse, which DO reliably get additionalContext
 # to Claude) raises the reminder at the next opportunity. The actual
 # extraction of what's unsaved happens later, live, in save-read-unsaved.sh
@@ -34,26 +34,16 @@
 CONTEXT_DIR=".workflow-dev/context"
 [[ -d "$CONTEXT_DIR" ]] || exit 0
 
-# Tolerant to how the Implementation Status section is actually worded — the
-# template says "### Implementation Status: In Progress" on one line, but a
-# real /workflow-dev:init run paraphrased it as a "## Implementation Status"
-# heading with the value on its own "**Status:** In Progress" line below.
-# Rather than trust the model to reproduce the template byte-for-byte every
-# time, scan the whole section (heading to next heading) for "In Progress".
-is_in_progress() {
-  awk '
-    /^#+[[:space:]].*[Ii]mplementation Status/ {
-      in_section=1
-      if ($0 ~ /In Progress/) { found=1; exit }
-      next
-    }
-    in_section && /^#+[[:space:]]/ { exit }
-    in_section && /In Progress/ { found=1; exit }
-    END { exit !found }
-  ' "$1"
-}
+# Which stories this session worked, and whether each is still open, come from
+# one shared owner (session-story.sh), so this hook and the reminder agree.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=session-story.sh
+source "$HERE/session-story.sh"
 
 STATE_DIR="$CONTEXT_DIR/.compaction-state"
+# Where each story's save point for this session lives (one per transcript).
+# shellcheck source=compaction-state.sh
+source "$HERE/compaction-state.sh"
 
 # The state's shape is the one save-mark-saved.sh writes —
 # {"claudePath":…,"claudeLength":N,"dateTime":…,"pendingSave":…} — and the
@@ -90,60 +80,60 @@ json_get_number() {
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
 
-# Check every story file, not just one — a project can have several
-# (done, won't-do, in-progress) and only the in-progress ones matter here.
-while IFS= read -r STORY_FILE; do
-  # Our own Implementation Status, not the section 1.1 Story `Status` (which
-  # just mirrors the source ticket and is a separate, independent clock).
-  if is_in_progress "$STORY_FILE"; then
-    if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
-      mkdir -p "$STATE_DIR"
-      ensure_gitignored
-      STORY_NAME=$(basename "$STORY_FILE" .md)
-      STATE_FILE="$STATE_DIR/${STORY_NAME}.json"
+[[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]] || exit 0
 
-      EXISTING_PATH=""
-      if [[ -f "$STATE_FILE" ]]; then
-        EXISTING_JSON=$(cat "$STATE_FILE")
-        EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "claudePath")
-        [[ -n "$EXISTING_PATH" ]] || EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "transcriptPath")
-      fi
+# Only the stories this session worked, each one marked: a compaction can drop
+# what was said about any of them. Every other context file is left alone, an
+# open story of another session included. Our own Implementation Status, not
+# the section 1.1 Story `Status` (which mirrors the source ticket).
+ARMED=0
+# Unique per compaction: a save that read this save point before it was armed
+# again must see that it changed (save-mark-saved.sh keeps the flag then).
+ARMED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)-$$"
+while IFS= read -r STORY_NAME; do
+  mkdir -p "$STATE_DIR"
+  ensure_gitignored
+  adopt_legacy "$STORY_NAME" "$TRANSCRIPT_PATH"
+  STATE_FILE="$(state_path "$STORY_NAME" "$TRANSCRIPT_PATH")"
+  state_writable "$STATE_FILE" || continue
+  mkdir -p "$(dirname "$STATE_FILE")"
 
-      if [[ "$EXISTING_PATH" == "$TRANSCRIPT_PATH" ]]; then
-        # Same file this story is already tracking — only worth a reminder
-        # if there's actually new content past what was last saved.
-        EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "claudeLength")
-        [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "length")
-        [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=0
-        CURRENT_TOTAL=$(wc -l < "$TRANSCRIPT_PATH" | tr -d '[:space:]')
-        if [[ "$CURRENT_TOTAL" -le "$EXISTING_LENGTH" ]]; then
-          printf '{"terminalSequence":"\\u0007"}'
-          exit 0
-        fi
-        EXISTING_DATETIME=$(json_get_string "$EXISTING_JSON" "dateTime")
-        DATETIME_JSON="null"
-        [[ -n "$EXISTING_DATETIME" ]] && DATETIME_JSON="\"$EXISTING_DATETIME\""
-        printf '{"claudePath":"%s","claudeLength":%s,"dateTime":%s,"pendingSave":true}' \
-          "$TRANSCRIPT_PATH" "$EXISTING_LENGTH" "$DATETIME_JSON" > "$STATE_FILE"
-      else
-        # No state yet, or it belongs to a different transcript file (a new
-        # session) — (re)start tracking from zero for this file, with
-        # content already pending by definition (anything in a freshly
-        # tracked transcript is, by construction, not yet saved). A prior
-        # save against the OLD transcript, if any, is untouched: the old
-        # state file simply gets overwritten, but nothing on disk related
-        # to it is destroyed — it's just no longer what this story tracks.
-        printf '{"claudePath":"%s","claudeLength":0,"dateTime":null,"pendingSave":true}' "$TRANSCRIPT_PATH" > "$STATE_FILE"
-      fi
-    fi
-    # terminalSequence is the one field documented as "supported on all
-    # events" — it can't carry the reason text, just ring the terminal bell
-    # as a best-effort signal, emitted here as the JSON escape for the BEL
-    # control character rather than a raw byte, which would make the JSON
-    # output invalid.
-    printf '{"terminalSequence":"\\u0007"}'
-    exit 0
+  EXISTING_PATH=""
+  EXISTING_JSON=""
+  if [[ -f "$STATE_FILE" ]]; then
+    EXISTING_JSON=$(cat "$STATE_FILE")
+    EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "claudePath")
+    [[ -n "$EXISTING_PATH" ]] || EXISTING_PATH=$(json_get_string "$EXISTING_JSON" "transcriptPath")
   fi
-done < <(find "$CONTEXT_DIR" -maxdepth 1 -name "*.md" ! -name "REPO.md")
+
+  if [[ "$EXISTING_PATH" == "$TRANSCRIPT_PATH" ]]; then
+    # Same file this story is already tracking — only worth a reminder
+    # if there's actually new content past what was last saved.
+    EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "claudeLength")
+    [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=$(json_get_number "$EXISTING_JSON" "length")
+    [[ -n "$EXISTING_LENGTH" ]] || EXISTING_LENGTH=0
+    CURRENT_TOTAL=$(wc -l < "$TRANSCRIPT_PATH" | tr -d '[:space:]')
+    [[ "$CURRENT_TOTAL" -gt "$EXISTING_LENGTH" ]] || continue
+    EXISTING_DATETIME=$(json_get_string "$EXISTING_JSON" "dateTime")
+    DATETIME_JSON="null"
+    [[ -n "$EXISTING_DATETIME" ]] && DATETIME_JSON="\"$EXISTING_DATETIME\""
+    printf '{"claudePath":"%s","claudeLength":%s,"dateTime":%s,"pendingSave":true,"armedAt":"%s"}' \
+      "$TRANSCRIPT_PATH" "$EXISTING_LENGTH" "$DATETIME_JSON" "$ARMED_AT" > "$STATE_FILE"
+  else
+    # No save point yet for this session — start tracking this transcript
+    # from zero, with content already pending by definition (anything in a
+    # freshly tracked transcript is, by construction, not yet saved). Other
+    # sessions' save points for the story are separate files, left untouched.
+    printf '{"claudePath":"%s","claudeLength":0,"dateTime":null,"pendingSave":true,"armedAt":"%s"}' "$TRANSCRIPT_PATH" "$ARMED_AT" > "$STATE_FILE"
+  fi
+  ARMED=1
+done < <(session_stories "$TRANSCRIPT_PATH" "$CONTEXT_DIR")
+
+# terminalSequence is the one field documented as "supported on all
+# events" — it can't carry the reason text, just ring the terminal bell
+# as a best-effort signal, emitted here as the JSON escape for the BEL
+# control character rather than a raw byte, which would make the JSON
+# output invalid. Once per compaction, however many stories were marked.
+[[ "$ARMED" == 1 ]] && printf '{"terminalSequence":"\\u0007"}'
 
 exit 0
