@@ -665,9 +665,17 @@ if [[ $HAVE_JQ -eq 1 ]]; then
   mkdir -p "$H/.workflow-dev"; mkdir "$UCFG"
   [[ "$(inp -- set on)" == unavailable && "$(inp -- get)" == unset ]] && ok "a directory at the config path is unavailable, not saved" || no "dir at config path"
   rmdir "$UCFG"
+  # Five rounds of twenty writers: a writer that finds the lock just released
+  # must take it, not give up as if the folder were read-only. Twenty at once is
+  # what it takes to hit that moment; ten never did, and each round still takes
+  # about a second against the 10 s wait.
   printf '{"keep":true}\n' > "$UCFG"
-  for i in 1 2 3 4 5 6 7 8 9 10; do inp -- set "$([[ $((i % 2)) == 0 ]] && echo on || echo off)" >/dev/null & done; wait
-  jq -e '.keep == true and (.notifications | type) == "boolean"' "$UCFG" >/dev/null && ok "ten parallel writes leave one valid answer and keep other keys" || no "parallel writes ($(cat "$UCFG"))"
+  for round in 1 2 3 4 5; do
+    for i in $(seq 1 20); do inp -- set "$([[ $((i % 2)) == 0 ]] && echo on || echo off)" > "$TMP/par.$round.$i" & done; wait
+  done
+  saved=$(cat "$TMP"/par.* | grep -c '^saved$'); rm -f "$TMP"/par.*
+  jq -e '.keep == true and (.notifications | type) == "boolean"' "$UCFG" >/dev/null && ok "parallel writes leave one valid answer and keep other keys" || no "parallel writes ($(cat "$UCFG"))"
+  [[ $saved -eq 100 ]] && ok "every one of 100 parallel writes is saved" || no "parallel writes saved ($saved of 100)"
   [[ ! -d "$H/.workflow-dev/.config.json.lock" ]] && ok "the write lock is released" || no "lock left behind"
   # A large pretty-printed config is written in linear time.
   { printf '{\n  "notifications": false,\n  "pad": [\n'; for i in $(seq 1 3000); do printf '    "a b c d e f",\n'; done; printf '    "end"\n  ]\n}\n'; } > "$UCFG"
@@ -683,6 +691,14 @@ if [[ $HAVE_JQ -eq 1 ]]; then
   start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
   rm -f "$H/.workflow-dev/.config.json.lock"
   [[ "$out" == unavailable && $took -le 1 ]] && ok "a file at the lock's path fails at once" || no "file at lock path (out=$out took=${took}s)"
+  ln -s "$H/nowhere" "$H/.workflow-dev/.config.json.lock"
+  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
+  rm -f "$H/.workflow-dev/.config.json.lock"
+  [[ "$out" == unavailable && $took -le 1 ]] && ok "a dangling symlink at the lock's path fails at once" || no "dangling symlink at lock path (out=$out took=${took}s)"
+  mkdir "$H/elsewhere"; ln -s "$H/elsewhere" "$H/.workflow-dev/.config.json.lock"
+  start=$SECONDS; out="$(inp -- set off)"; took=$((SECONDS - start))
+  rm -f "$H/.workflow-dev/.config.json.lock"
+  [[ "$out" == unavailable && $took -le 1 && -d "$H/elsewhere" ]] && ok "a symlink to a folder at the lock's path fails at once and is left alone" || no "symlink to dir at lock path (out=$out took=${took}s)"
   rm -rf "$H"
 fi
 

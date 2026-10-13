@@ -298,7 +298,7 @@ config_target() { # config_target <path>
 # invalid UTF-8 or a lone surrogate escape (as U+FFFD), so such a file is
 # normalised on write instead of refused.
 json_edit() { # json_edit <file> set <on|off>
-  local file="$1" dir lock rc wait_s=10 deadline
+  local file="$1" dir lock rc wait_s=10 deadline strikes
   shift
   # How long to wait for the lock, in real seconds (a count of tries drifts:
   # each try also forks `find` and `sleep`). 2 s dropped the last of ten queued
@@ -312,13 +312,22 @@ json_edit() { # json_edit <file> set <on|off>
   # read the old file, and the last write would drop the other's keys.
   lock="$dir/.config.json.lock"
   deadline=$((SECONDS + wait_s))
+  strikes=0
   until mkdir "$lock" 2>/dev/null; do
-    # Wait only while another writer holds it: a read-only folder, or a file at
-    # the lock's path, will not clear by waiting.
-    [[ -d "$lock" ]] || return 1
-    # A lock a minute old belongs to a writer that died.
-    [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+    # Only a real directory is another writer's lock. Nothing there (a read-only
+    # folder, a full disk, a sandbox), a file or a symlink will not clear by
+    # waiting, but one look can catch a lock just released: give up only after
+    # three looks in a row.
+    if [[ -L "$lock" || ! -d "$lock" ]]; then
+      strikes=$((strikes + 1))
+      [[ $strikes -ge 3 ]] && return 1
+    else
+      strikes=0
+      # A lock a minute old belongs to a writer that died.
+      [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+    fi
     [[ $SECONDS -ge $deadline ]] && return 1
+    # Poll every 50 ms: a write holds the lock for tens of milliseconds.
     sleep 0.05
   done
   # A writer killed here (the human interrupts `init`) must not leave the lock.
