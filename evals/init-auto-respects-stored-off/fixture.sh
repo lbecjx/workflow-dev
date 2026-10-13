@@ -24,7 +24,7 @@ git config user.name "Eval Fixture"
 mkdir -p .workflow-dev/context stories
 
 # Phase 0 already answered. `fixture.sh` is ignored so the tree is clean.
-printf '{ "gitignored": true, "tiering": "default" }\n' > .workflow-dev/config.json
+printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 cat > .workflow-dev/context/REPO.md <<'MD'

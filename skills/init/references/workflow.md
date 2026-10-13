@@ -39,12 +39,15 @@ Context splits into two files:
 
 `.workflow-dev/context/` is a fixed path — never detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only real question is whether the folder is tracked in git, and it's resolved once per project.
 
-1. Check for `.workflow-dev/config.json` at the project root.
-2. **Exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (create `.gitignore` if the project has none, add the line if it's missing). If `false`, leave `.gitignore` untouched — the folder is meant to be tracked. Don't ask again either way.
-3. **Doesn't exist** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Persist the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` to match. In autonomous mode, don't ask: use `{ "gitignored": true }` and record it as an inferred decision (`../SKILL.md` Phase 0).
-4. **Every run:** set `"language"` in `.workflow-dev/config.json` to the ISO 639-1 code of the conversation's language, keeping the other keys — `../SKILL.md` Phase 0 step 4 owns the rule.
+The answers below live in `.workflow-dev/config.env`, read and written only
+through `scripts/config-env.sh get|set` (`../SKILL.md` Phase 0 shows the call).
 
-If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
+1. Run `config-env.sh get gitignored` at the project root.
+2. **Prints `true` or `false`:** if `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (create `.gitignore` if the project has none, add the line if it's missing). If `false`, leave `.gitignore` untouched — the folder is meant to be tracked. Don't ask again either way.
+3. **Prints nothing** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Save the answer with `config-env.sh set gitignored true|false`, and update `.gitignore` to match. In autonomous mode, don't ask: use `true` and record it as an inferred decision (`../SKILL.md` Phase 0).
+4. **Every run:** `config-env.sh set language <code>` with the ISO 639-1 code of the conversation's language; the other keys are kept — `../SKILL.md` Phase 0 step 4 owns the rule.
+
+If `gitignored` is `true`, the entire `.workflow-dev/` folder — including `config.env` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 
 ### Step 1: Parse the input
 
@@ -150,7 +153,7 @@ That one word is the whole decision surface:
 | `unmapped` | one or more role files are missing | run the `setup-models` flow inline, then resume here |
 | `stale` | every file exists, but its embedded hash predates the registry | same — the flow regenerates the definitions while keeping the models already chosen |
 | `incomplete` | some role files are missing and others are stale | same |
-| `opted-out` | a default model was chosen for this repo (`tiering: default` in `.workflow-dev/config.json`) or this story (a `Tiering: default model` row in its Decisions) | skip silently — never re-offer what they already declined |
+| `opted-out` | a default model was chosen for this repo (`tiering=default` in `.workflow-dev/config.env`) or this story (a `Tiering: default model` row in its Decisions) | skip silently — never re-offer what they already declined |
 | `no-harness` / `no-registry` | not running under Claude Code, or the role registry can't be read | do not block: say tiering couldn't be set up and that everything runs on the default model, then continue |
 | `not-ours` | the payload named no skill of ours (the no-argument bug above) | not a state to handle — fix the call |
 

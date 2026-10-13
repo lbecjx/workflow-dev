@@ -29,8 +29,10 @@ with exactly these options in this order:
    Offer this option only when the current git branch name carries that story's
    code (for example `wd-0045-…`), because the hook finds the story through the
    branch; otherwise offer only options 1 and 3.
-3. **Default model for this repo.** Set `"tiering": "default"` in
-   `.workflow-dev/config.json`, keeping its other keys.
+3. **Default model for this repo.** In the project root, run
+   `scripts/config-env.sh set tiering default` (at the plugin root), which
+   writes `tiering=default` to `.workflow-dev/config.env` and keeps its other
+   keys.
 
 Some roles need strong reasoning, so `setup-models` lets the user keep the default
 for any role, and a weak model there does more harm than the default.

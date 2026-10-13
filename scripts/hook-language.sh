@@ -22,7 +22,7 @@
 # It asks four sources in order; one that cannot answer passes to the next:
 #   1. the conversation: the newest typed prompts in the payload's transcript
 #   2. Claude Code's own `language` setting
-#   3. `language` in .workflow-dev/config.json (init writes it)
+#   3. `language` in .workflow-dev/config.env (init writes it)
 #   4. English
 # A source that does answer stops the chain, even with a language this file has
 # no text for: the human said which language they want, so a lower source must
@@ -244,10 +244,14 @@ settings_lang() {
   done
 }
 
-# Source 3: what init recorded for this project.
+# Source 3: what init recorded for this project, through config-env.sh.
 config_lang() {
-  local v
-  v="$(json_language "$(project_dir)/.workflow-dev/config.json")"
+  local v dir
+  dir="${BASH_SOURCE[0]%/*}"
+  [[ "$dir" != "${BASH_SOURCE[0]}" ]] || dir=.
+  # shellcheck source=config-env.sh
+  . "$dir/config-env.sh" 2>/dev/null || return 0
+  v="$(repo_config_get "$(project_dir)" language)"
   [[ -n "$v" ]] && normalize_lang "$v"
   return 0
 }

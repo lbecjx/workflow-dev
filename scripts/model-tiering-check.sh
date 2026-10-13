@@ -64,13 +64,14 @@ status() { emit "$1"; exit 0; }
 # Is the default model chosen for the project containing $1 — or for its active
 # story? Prints `repo` or `story`, nothing when neither (WD-0045). The choice is
 # only ever per repo or per story, never per user or per machine:
-#   repo   .workflow-dev/config.json carries "tiering": "default"
+#   repo   .workflow-dev/config.env carries tiering=default
 #   story  the Decisions table of the story the branch names (wd-0045-… →
 #          WD-0045) carries a `Tiering: default model` row
 default_scope() {
   local root branch code
   root="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 0
-  if grep -qs '"tiering"[[:space:]]*:[[:space:]]*"default"' "$root/.workflow-dev/config.json"; then
+  # shellcheck source=config-env.sh
+  if . "$HERE/config-env.sh" 2>/dev/null && [[ "$(repo_config_get "$root" tiering)" == default ]]; then
     printf 'repo'; return 0
   fi
   branch="$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null)" || return 0

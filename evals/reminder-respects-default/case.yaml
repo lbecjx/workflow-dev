@@ -2,7 +2,7 @@ schema_version: "1.1"
 name: reminder-respects-default
 description: >
   Guard for the model-tiering reminder added in WD-0015. With a default model chosen
-  for the repo (`tiering: default` in .workflow-dev/config.json), running a workflow-dev skill must NOT surface an
+  for the repo (`tiering=default` in .workflow-dev/config.env), running a workflow-dev skill must NOT surface an
   ask to configure model tiering. The inverse — unbound roles must ask — is
   covered by scripts/model-tiering-check.test.sh (hermetic, a throwaway HOME),
   because forcing "unbound" here would mean removing the operator's real agent

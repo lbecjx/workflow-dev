@@ -9,7 +9,7 @@
 # deterministic, which is what lets the graders say anything meaningful about
 # where it stopped.
 #
-# A default model for the repo (`"tiering": "default"` in its .workflow-dev/config.json)
+# A default model for the repo (`tiering=default` in its .workflow-dev/config.env)
 # is the state to use here, not a bound-and-current one. Reaching `ok` needs real
 # files under ~/.claude/agents/, and evals run as the user with no HOME isolation
 # and no teardown hook — so that fixture would overwrite the agent files a real
@@ -27,7 +27,7 @@ mkdir -p .workflow-dev/context
 # `fixture.sh` is ignored too: the scaffold harness's own file isn't part of the
 # repo under test, and leaving it untracked would make init's repo check report a
 # dirty tree — noise the case isn't about.
-printf '{ "gitignored": true }\n' > .workflow-dev/config.json
+printf 'gitignored=true\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 cat > .workflow-dev/context/REPO.md <<'MD'
@@ -82,6 +82,6 @@ git add .gitignore eval-story.md
 git commit -q -m "chore: baseline"
 
 mkdir -p .workflow-dev
-printf '{ "gitignored": true, "tiering": "default" }' > .workflow-dev/config.json
+printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
 
 echo "fixture ready"

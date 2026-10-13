@@ -305,13 +305,13 @@ case "$(hook "$(with_transcript "$COMMIT" "$TMP/missing.jsonl")")" in
 esac
 rm -f "$HOME/.claude/settings.json"
 
-# init records the conversation's language in config.json; it is the last source.
-printf '{"gitignored":true,"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+# init records the conversation's language in config.env; it is the last source.
+printf 'gitignored=true\nlanguage=es\n' > "$PROJ/.workflow-dev/config.env"
 case "$(hook "$COMMIT")" in
-  *'"permissionDecision":"ask"'*"No hay un registro"*) ok "config.json language es, nothing else → Spanish" ;;
-  *) no "config.json language es, nothing else → Spanish (got: $(hook "$COMMIT"))" ;;
+  *'"permissionDecision":"ask"'*"No hay un registro"*) ok "config.env language es, nothing else → Spanish" ;;
+  *) no "config.env language es, nothing else → Spanish (got: $(hook "$COMMIT"))" ;;
 esac
-rm -f "$PROJ/.workflow-dev/config.json"
+rm -f "$PROJ/.workflow-dev/config.env"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 exit $((fail == 0 ? 0 : 1))

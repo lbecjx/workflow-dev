@@ -2,7 +2,7 @@ schema_version: "1.1"
 name: init-checks-before-research
 description: >
   Guard for the tiering detection init gained in WD-0018. With a default
-  model chosen for the repo (`tiering: default` in .workflow-dev/config.json),
+  model chosen for the repo (`tiering=default` in .workflow-dev/config.env),
   /workflow-dev:init must still
   invoke its role-binding check on the way through, and must not interrupt the
   human to configure tiering. The two halves are asserted separately on purpose:

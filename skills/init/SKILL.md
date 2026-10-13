@@ -88,18 +88,30 @@ starts").
 
 `.workflow-dev/context/` is a fixed path — do not detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only open question is whether this folder is tracked in git or gitignored, and that's answered once per project, not once per run.
 
-1. Check for `.workflow-dev/config.json` at the project root.
-2. **If it exists:** read `gitignored`. If `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (add it, and create `.gitignore` if the project has none, when it's missing). If `false`, do nothing further — the folder is meant to be tracked. Either way, don't ask the human again.
-3. **If it doesn't exist** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Write the answer to `.workflow-dev/config.json` as `{ "gitignored": true }` or `{ "gitignored": false }`, and update `.gitignore` accordingly. In autonomous mode, don't ask: use `{ "gitignored": true }` (private, and reversible later), and record it in the story's Decisions as `Agent (inferred)` in Phase 6.
-4. **Every run:** set `"language"` in `.workflow-dev/config.json` to the ISO
+The repo's one-time answers live in `.workflow-dev/config.env`, one
+`key=value` per line. Read and write them only through the plugin's script,
+never by hand; the `config.json` of older versions is ignored, so the questions
+below come once again there. Run each `set` on its own, one after
+the other, never two in parallel:
+
+```
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+"$PLUGIN_ROOT"/scripts/config-env.sh get gitignored
+"$PLUGIN_ROOT"/scripts/config-env.sh set gitignored true
+```
+
+1. Run `config-env.sh get gitignored` at the project root.
+2. **If it prints `true` or `false`:** if `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (add it, and create `.gitignore` if the project has none, when it's missing). If `false`, do nothing further — the folder is meant to be tracked. Either way, don't ask the human again.
+3. **If it prints nothing** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Save the answer with `config-env.sh set gitignored true` or `config-env.sh set gitignored false`, and update `.gitignore` accordingly. In autonomous mode, don't ask: use `true` (private, and reversible later), and record it in the story's Decisions as `Agent (inferred)` in Phase 6.
+4. **Every run:** run `config-env.sh set language <code>` with the ISO
    639-1 code of the conversation's language (`es`, `en`, …), inferred the way
-   `references/user-language.md` says, and keep the file's other keys. Never ask
+   `references/user-language.md` says; the file's other keys are kept. Never ask
    and never record it: it only follows the conversation. The commit hooks read
    it to word their permission dialogs when neither the conversation nor
    Claude Code's `language` setting can tell them (`hooks/README.md` at the
    plugin root).
 
-If `gitignored: true`, the entire `.workflow-dev/` folder — including `config.json` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
+If `gitignored` is `true`, the entire `.workflow-dev/` folder — including `config.env` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 
 ### Phase 1: Extract from Jira (skip if a `.md` path was given — use Phase 1-alt instead)
 
@@ -231,7 +243,7 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    keeping the Mac awake right away, without asking; with an `on` row turned
    `off`, stop it (`references/autonomous-mode.md`, "Keeping the Mac awake").
    With the row `on`, also ask the agent co-authorship question once, unless
-   `.workflow-dev/config.json` already holds `agentCoauthorship` — the
+   `config-env.sh get agentCoauthorship` already prints `yes` or `no` — the
    question, its options, and where the answer goes are
    `../summarize-changes/SKILL.md` Step 1's, and when to ask is
    `references/autonomous-mode.md`, "The signal". The answer is the human's,

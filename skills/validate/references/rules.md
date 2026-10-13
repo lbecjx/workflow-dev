@@ -247,9 +247,9 @@ Think about what CI will check after push:
 
 ## Part 10: Context Hygiene
 
-Applies only when `.workflow-dev/config.json` exists in the project.
+Applies only when the project has a `.workflow-dev/config.env`.
 
-- [ ] Read `gitignored` from `.workflow-dev/config.json`.
+- [ ] Read `gitignored` with `scripts/config-env.sh get gitignored` (at the plugin root), run in the project root.
 - [ ] If `true`: `.workflow-dev/` must actually be excluded via `.gitignore`, and `git status` must show nothing under it as staged or tracked.
 - [ ] If `false`: `.workflow-dev/` must actually be tracked — not silently excluded by an unrelated `.gitignore` pattern (e.g. a broad `*.local` or `context/` rule shadowing it).
 
@@ -827,10 +827,10 @@ was fixed — worse than saying nothing.
       otherwise add. Whether to credit the agent is the human's call, not the
       plugin's: some teams must declare AI help, others must not. So the
       human is asked once per repository, and the answer is recorded in
-      `.workflow-dev/config.json` as `"agentCoauthorship": "yes"` or `"no"`;
+      `.workflow-dev/config.env` as `agentCoauthorship=yes` or `=no`;
       it changes only when the human asks. **No is the default and wins every
       doubt**: no answer, an ambiguous one, a missing, malformed, or
-      duplicated key, any value but `"yes"`, or a decision that cannot be
+      duplicated line, any value but `yes`, or a decision that cannot be
       read all mean no. Only
       an explicit yes allows exactly two lines, each on a line of its own and
       copied as the harness supplies them: the commit's `Co-Authored-By:
@@ -929,7 +929,7 @@ reviewed.sh` refuses to mark a message carrying attribution the human's
 decision does not allow, and `pre-commit-message-check.sh` **denies** the
 commit/PR outright (not "ask," the only rule in this file that does) if it
 slips through some other way. Both read the decision from
-`.workflow-dev/config.json` in the working directory (none there, as in a
+`.workflow-dev/config.env` in the working directory (none there, as in a
 subdirectory, reads as no) and share one definition of the patterns
 (`scripts/coauthor-decision.sh`). The hook applies a yes only to a plain command — exactly `git commit …` or
 `gh pr create|edit …`, one command, no `cd`, wrapper (`bash -c`, `eval`), git

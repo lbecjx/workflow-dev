@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scaffolds a scratch repo for the tiering-default eval and records a default model
-# for that repo (`"tiering": "default"` in its .workflow-dev/config.json), so the
+# for that repo (`tiering=default` in its .workflow-dev/config.env), so the
 # reminder must stay silent. Everything lives in the scratch repo — nothing is
 # written to the real $HOME, so this case is safe on a daily driver.
 set -e
@@ -14,6 +14,6 @@ git add README.md
 git commit -q -m "chore: baseline"
 
 mkdir -p .workflow-dev
-printf '{ "gitignored": true, "tiering": "default" }' > .workflow-dev/config.json
+printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
 
 echo "fixture ready"

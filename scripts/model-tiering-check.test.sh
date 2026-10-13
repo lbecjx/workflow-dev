@@ -262,7 +262,7 @@ has "$FIRST_ROLE	default" "$(RR)" "a missing role file reads as default"
 
 # Default model chosen for the repo the reader runs in (WD-0045).
 RR_REPO="$TMP/rr-repo"; mkdir -p "$RR_REPO/.workflow-dev"; git -C "$RR_REPO" init -q
-printf '{ "tiering": "default" }' > "$RR_REPO/.workflow-dev/config.json"
+printf 'tiering=default\n' > "$RR_REPO/.workflow-dev/config.env"
 has "$FIRST_ROLE	opt-out" "$(cd "$RR_REPO" && RR)" "a repo default reads as opt-out"
 rm -rf "$RR_REPO"
 
@@ -338,11 +338,19 @@ CWD_PAYLOAD="{\"tool_name\":\"Skill\",\"cwd\":\"$REPO_DIR\",\"tool_input\":{\"sk
 rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
 OUT="$(hook "" "$CWD_PAYLOAD")"
 has '"permissionDecision":"allow"' "$OUT" "no repo/story default → the question still comes first"
-printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
+printf 'gitignored=true\ntiering=default\n' > "$REPO_DIR/.workflow-dev/config.env"
 OUT="$(hook "" "$CWD_PAYLOAD")"
 [[ -z "$OUT" ]] && ok "repo default → silent" || no "repo default → silent (got: $OUT)"
 OUT="$(hook --status "$CWD_PAYLOAD")"
 [[ "$OUT" == "opted-out" ]] && ok "repo default → --status opted-out" || no "repo default → --status opted-out (got: $OUT)"
+rm -f "$REPO_DIR/.workflow-dev/config.env"
+printf 'tiering=defaults\n' > "$REPO_DIR/.workflow-dev/config.env"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"allow"' "$OUT" "tiering=defaults is not the default → the question still comes"
+rm -f "$REPO_DIR/.workflow-dev/config.env"
+printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
+OUT="$(hook "" "$CWD_PAYLOAD")"
+has '"permissionDecision":"allow"' "$OUT" "an older config.json is ignored → the question comes again"
 rm -f "$REPO_DIR/.workflow-dev/config.json"
 # A prose mention of the row must not count — only a Decisions table row does.
 printf 'The row `| date | Tiering: default model | Human |` is what silences it.\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
@@ -361,7 +369,7 @@ rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR
 for m in "" --expansion --status; do
   hook "$m" "$VALIDATE" >/dev/null
 done
-[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" ]] \
+[[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" && ! -e "$REPO_DIR/.workflow-dev/config.env" ]] \
   && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
 
 # --- WD-0050: the `wd-architect` role ---------------------------------------

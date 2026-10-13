@@ -8,7 +8,7 @@
 # (at your option) any later version. See LICENSE for the full text.
 #
 # Tests for coauthor-decision.sh: when the repository's decision in
-# .workflow-dev/config.json means yes (only one shape does), what a yes lets
+# .workflow-dev/config.env means yes (only one shape does), what a yes lets
 # through, and which commands it may apply to. Every case that is not an
 # explicit, readable yes must read as no — that is what keeps the attribution
 # deny exactly as it was. Runs in a throwaway project, never against this
@@ -30,65 +30,71 @@ expect() { [[ "$2" == "$3" ]] && ok "$1" || no "$1 (got: $2, want: $3)"; }
 
 PROJ="$TMP/proj"
 mkdir -p "$PROJ/.workflow-dev/context"
-CFG="$PROJ/.workflow-dev/config.json"
+CFG="$PROJ/.workflow-dev/config.env"
+LEG="$PROJ/.workflow-dev/config.json"
 cfg() { printf '%s' "$1" > "$CFG"; }
 decision() { ( cd "$PROJ" && bash -c 'source "$1"; coauthor_decision' _ "$HERE/coauthor-decision.sh" ); }
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "  skip  jq isn't installed — the decision needs it (and reads as no without it)"
-  exit 0
-fi
-
 # --- 1: the repository's decision --------------------------------------------
-cfg '{ "gitignored": true, "agentCoauthorship": "yes" }'
-expect "agentCoauthorship \"yes\" → yes" "$(decision)" yes
-cfg '{"agentCoauthorship":"yes"}'
-expect "compact JSON → yes" "$(decision)" yes
-cfg '{ "gitignored": true, "agentCoauthorship": "no" }'
-expect "agentCoauthorship \"no\" → no" "$(decision)" no
-cfg '{ "gitignored": true }'
-expect "no key → no" "$(decision)" no
+cfg $'gitignored=true\nagentCoauthorship=yes\n'
+expect "agentCoauthorship=yes → yes" "$(decision)" yes
+cfg 'agentCoauthorship=yes'
+expect "no final newline → yes" "$(decision)" yes
+cfg $'agentCoauthorship=yes\r\n'
+expect "a CRLF line → yes" "$(decision)" yes
+cfg $'gitignored=true\nagentCoauthorship=no\n'
+expect "agentCoauthorship=no → no" "$(decision)" no
+cfg $'gitignored=true\n'
+expect "no line → no" "$(decision)" no
 rm -f "$CFG"
-expect "no config.json → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "YES" }'
-expect "\"YES\" is not the recorded value → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "sí" }'
-expect "\"sí\" → no" "$(decision)" no
-cfg '{ "agentCoauthorship": true }'
-expect "a boolean true → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "yes", "agentCoauthorship": "no" }'
-expect "the key twice → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "no", "agentCoauthorship": "yes" }'
-expect "the key twice, yes last → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "yes" '
-expect "malformed JSON → no" "$(decision)" no
-cfg '{ "note": "agentCoauthorship", "agentCoauthorship": "yes" }'
-expect "the key name also in a value → no (ambiguous)" "$(decision)" no
-cfg '{ "x": { "agentCoauthorship": "yes" } }'
-expect "the key nested, not top-level → no" "$(decision)" no
-cfg '{"agentCoauthorship":"yes"}{}'
-expect "two JSON documents → no" "$(decision)" no
-cfg '["x"]
-{"agentCoauthorship":"yes"}'
-expect "an erroring document before the yes → no" "$(decision)" no
-cfg '{"agentCoauthorship":"no","agentCoauthorship":"yes"}'
-expect "an escaped duplicate key → no" "$(decision)" no
-cfg '{"agentCoauthorship":"yes\n"}'
-expect "\"yes\\n\" → no" "$(decision)" no
-cfg '{"agentCoauthorship":"yes\u0000"}'
-expect "\"yes\\u0000\" → no" "$(decision)" no
-printf '{"agentCoauthorship":"y\000es"}' > "$CFG"
-expect "a raw NUL byte in the file → no" "$(decision)" no
-cfg '{ "agentCoauthorship": "yes" }'
+expect "no config.env → no" "$(decision)" no
+for v in YES Yes sí '"yes"' "'yes'" 'yes ' ' yes' true 1 '' 'yes # comment'; do
+  cfg "agentCoauthorship=$v"
+  expect "agentCoauthorship=$v → no" "$(decision)" no
+done
+cfg $'agentCoauthorship=yes\nagentCoauthorship=no\n'
+expect "the line twice → no" "$(decision)" no
+cfg $'agentCoauthorship=no\nagentCoauthorship=yes\n'
+expect "the line twice, yes last → no" "$(decision)" no
+cfg $'agentCoauthorship=yes\nagentCoauthorship=yes\n'
+expect "the same yes twice → no" "$(decision)" no
+cfg ' agentCoauthorship=yes'
+expect "an indented line is not the key → no" "$(decision)" no
+cfg 'export agentCoauthorship=yes'
+expect "an export line is not the key → no" "$(decision)" no
+cfg $'agentCoauthorship=no\ragentCoauthorship=yes'
+expect "a yes after a lone CR → no" "$(decision)" no
+printf 'agentCoauthorship=yes\000junk\n' > "$CFG"
+expect "a raw NUL byte after the yes → no" "$(decision)" no
+printf 'agentCoauthorship=y\000es\n' > "$CFG"
+expect "a raw NUL byte inside the value → no" "$(decision)" no
+# shellcheck disable=SC2016 # the code must reach the file unexpanded
+printf 'agentCoauthorship=$(touch %s/pwned)\n' "$TMP" > "$CFG"
+expect "a value that looks like code → no" "$(decision)" no
+[[ ! -e "$TMP/pwned" ]] && ok "...and nothing ran" || no "a value was executed"
+cfg 'agentCoauthorship=yes'
 mkdir -p "$PROJ/sub"
 expect "run from a subdirectory → no (the config is read from the working directory)" "$( ( cd "$PROJ/sub" && bash -c 'source "$1"; coauthor_decision' _ "$HERE/coauthor-decision.sh" ) )" no
 if [[ $(id -u) -ne 0 ]]; then
   chmod 000 "$CFG"
-  expect "an unreadable config.json → no" "$(decision)" no
+  expect "an unreadable config.env → no" "$(decision)" no
   chmod 644 "$CFG"
 else
   echo "  skip  unreadable file (running as root)"
 fi
+
+mkdir -p "$TMP/victim"; printf 'agentCoauthorship=yes\n' > "$TMP/victim/env"
+rm -f "$CFG"; ln -s "$TMP/victim/env" "$CFG"
+expect "config.env as a link to a yes elsewhere → no" "$(decision)" no
+rm -f "$CFG"
+
+# --- 2: an older config.json is ignored --------------------------------------
+rm -f "$CFG"; printf '{ "gitignored": true, "agentCoauthorship": "yes" }' > "$LEG"
+expect "config.json with \"yes\" and no config.env → no" "$(decision)" no
+[[ ! -e "$CFG" ]] && ok "...and nothing is written" || no "a config.env was written"
+cfg 'agentCoauthorship=yes'
+expect "config.env decides, config.json is not read" "$(decision)" yes
+rm -f "$CFG" "$LEG"
 
 # --- 4: what a yes lets through ----------------------------------------------
 # Fixtures are built here, never typed into a shell command: the live hook would

@@ -122,8 +122,8 @@ No per-step skill arms during the run.
 ## Alerts on this machine
 
 The alerts are one yes or no for the whole machine: the answer lives in
-`~/.workflow-dev/config.json` (`notifications`), holds for every story of every
-repo, and nothing turns it off when a story ends. No answer means no sound at
+`~/.workflow-dev/config.env` (`notifications=on` or `notifications=off`), holds
+for every story of every repo, and nothing turns it off when a story ends. No answer means no sound at
 all, `need` and `permission` included. Every sound plays on the system's
 default output, so nothing else is asked. `init` asks (its Phase 7, in either
 run mode, while the human is still there), but only while the machine has no
@@ -142,9 +142,8 @@ answer. Resolve `PLUGIN_ROOT` as in "How to arm":
    `attention-alert.sh set off`. On `Yes`, then run
    `attention-alert.sh play start`, and say this tip in one line: *"If you step
    away from the computer, turn on your speakers so you hear the alerts from
-   afar."* If `set` prints `unavailable` (no `jq` or `perl`, or an unreadable
-   `config.json`), say in one line that the alerts need `jq` or `perl` and go on
-   without them.
+   afar."* If `set` prints `unavailable` (the folder `~/.workflow-dev` cannot
+   be written), say so in one line and go on without the alerts.
 
 Keep every sentence the human reads to one or two short ones.
 
@@ -157,7 +156,7 @@ when nobody can answer (unattended), run `attention-alert.sh set on` and
 ## Off, CI and unattended
 
 Whether anything sounds is decided once per machine (see "Alerts on this
-machine"). The human changes it later by editing `notifications` in
-`~/.workflow-dev/config.json`, or by asking the agent to run
+machine"). The human changes it later by editing `notifications=on|off` in
+`~/.workflow-dev/config.env`, or by asking the agent to run
 `attention-alert.sh set on` or `set off`. No environment variable changes it. The alerts are silent in CI and in a non-interactive
 session. Arm the same way regardless: the script decides whether anything plays.

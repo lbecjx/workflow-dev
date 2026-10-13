@@ -14,16 +14,24 @@
 # live here, so the two scripts cannot drift apart: they used to keep a copy of
 # the pattern each, "byte-identical by hand", which only a comment enforced.
 #
-# The decision is the repository's, kept in `.workflow-dev/config.json` beside
+# The decision is the repository's, kept in `.workflow-dev/config.env` beside
 # its other one-time answers (`gitignored`, `tiering`), written by
 # summarize-changes or init when the human answers, and changed only when the
 # human asks:
-#   { "gitignored": true, "agentCoauthorship": "yes" }
-# Only that key, present once, with the string value "yes", means yes.
-# Everything else means no, which keeps the deny exactly as it was: no file, an
-# unreadable or malformed one, no key, the key twice, or any other value.
+#   agentCoauthorship=yes
+# Only that line, present once, with exactly `yes`, means yes. Everything else
+# means no, which keeps the deny exactly as it was: no file, an unreadable one,
+# no line, the line twice, a NUL byte anywhere, or any other value (`"yes"`,
+# `Yes`, `yes ` included). The file is read through config-env.sh, never
+# sourced. The older `config.json` is ignored: no answer there, so no.
 #
 # Defines functions and patterns only — sourcing it has no side effects.
+
+# Parameter expansion, not `dirname`: a hook may run with a bare PATH.
+_wd_coauthor_dir="${BASH_SOURCE[0]%/*}"
+[[ "$_wd_coauthor_dir" != "${BASH_SOURCE[0]}" ]] || _wd_coauthor_dir=.
+# shellcheck source=config-env.sh
+. "$_wd_coauthor_dir/config-env.sh"
 
 # Phrases that credit an AI with the work in prose. They are part of the
 # attribution pattern below, and are also checked on their own against the two
@@ -48,22 +56,18 @@ AI_ATTRIBUTION_PATTERN='(co-authored-by:.*(claude|anthropic|openai|chatgpt|copil
 AI_COAUTHOR_ALLOWED_LINE_PATTERN='^[[:space:]]*(Co-Authored-By: [A-Za-z0-9][A-Za-z0-9._-]*( [A-Za-z0-9._-]+){0,3} <[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+>|🤖 Generated with \[[A-Za-z0-9][A-Za-z0-9._-]*( [A-Za-z0-9._-]+){0,3}\]\(https?://[A-Za-z0-9./_-]+\))[[:space:]]*["'"'"']*[[:space:]]*$'
 
 # yes or no for the working directory's repository. Never fails: any error is
-# no. The whole test runs inside jq on the file itself: exactly one JSON
-# document, an object, whose top-level `agentCoauthorship` is the string "yes"
-# — compared in jq, so "yes\n" or "yes\u0000" never pass through a bash capture
-# that would trim them. Before that, the raw text must name the key once and
-# hold no `\u` escape and no NUL byte, since jq would silently resolve a
-# duplicate written as an escape ("agentCoauthorship") to the last one.
-# Reading JSON needs jq: without it the answer is no.
+# no. Two answers (the line twice) are refused instead of taking the last one,
+# as the other keys do: this one lets attribution into a commit, so it never
+# guesses which answer the human meant. The NUL check stays because bash's
+# `read` stops a line at a NUL, so `yes<NUL>junk` would otherwise read as yes.
 coauthor_decision() {
-  local f=".workflow-dev/config.json"
-  command -v jq >/dev/null 2>&1 || { printf 'no'; return 0; }
-  [[ -f "$f" && -r "$f" ]] || { printf 'no'; return 0; }
-  [[ "$(wc -c < "$f")" == "$(tr -d '\000' < "$f" | wc -c)" ]] || { printf 'no'; return 0; }
-  grep -q '\\u' "$f" && { printf 'no'; return 0; }
-  [[ "$(grep -o 'oauthorship' "$f" | grep -c .)" == "1" ]] || { printf 'no'; return 0; }
-  jq -e --slurp 'length == 1 and (.[0] | type) == "object" and .[0].agentCoauthorship == "yes"' "$f" >/dev/null 2>&1 \
-    && printf 'yes' || printf 'no'
+  local f value
+  f="$(repo_config_file .)" || { printf 'no'; return 0; }
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || { printf 'no'; return 0; }
+  [[ "$(wc -c < "$f")" == "$(LC_ALL=C tr -d '\000' < "$f" | wc -c)" ]] || { printf 'no'; return 0; }
+  [[ "$(grep -c '^agentCoauthorship=' "$f")" == "1" ]] || { printf 'no'; return 0; }
+  value="$(config_env_get "$f" agentCoauthorship)" || { printf 'no'; return 0; }
+  [[ "$value" == "yes" ]] && printf 'yes' || printf 'no'
 }
 
 # $1 = text, $2 = the decision (yes|no; anything else is no). Succeeds when the

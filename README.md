@@ -24,7 +24,7 @@ Progress is tracked as you go. Decisions and discoveries are saved with `/workfl
 - Claude Code.
 - `gh` (GitHub CLI), if you want the agent to open pull requests.
 - MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. Don't use them, or would rather not? Try [`local-backlog`](https://github.com/lbecjx/local-backlog): describe what you want built and you have a structured story in your repo in seconds, ready to hand to `init`. No account, no setup.
-- `jq` (or `perl`, which you almost certainly have), recommended.
+- `jq`, recommended.
 
 **Platform.** workflow-dev was built, used day to day and tested on macOS. It has not been tested on Windows or Linux.
 
@@ -129,9 +129,9 @@ It stays quiet the rest of the time: not after every response, and not in CI or 
 
 **You choose once.** The first time you start a story, workflow-dev asks whether to turn the alerts on. Your answer holds for every story in every repo on this machine, and nothing turns the alerts off when a story ends. Turning them on is the recommended answer: you hear "Ok, let's start!" right away, so you know the sound works. With the alerts off, workflow-dev is silent, questions and permission prompts included.
 
-The alerts play on whatever output your system is using, at its volume, so with the volume low or on mute you will not hear them. If you step away from the computer, turn on your speakers so you hear the alerts from afar. They need [`jq`](https://jqlang.org/) or `perl` installed (macOS and nearly every Linux already have `perl`); with neither, workflow-dev says so and carries on without alerts.
+The alerts play on whatever output your system is using, at its volume, so with the volume low or on mute you will not hear them. If you step away from the computer, turn on your speakers so you hear the alerts from afar.
 
-**Changing your mind.** Your answer is `notifications` in `~/.workflow-dev/config.json`: set it to `true` or `false`, or ask the agent to change it. There is nothing to configure in the environment. Older versions read `WORKFLOW_DEV_ATTENTION`, `WORKFLOW_DEV_ATTENTION_SOUND` and `WORKFLOW_DEV_ATTENTION_DEVICE` from your settings; they are ignored now, so you can remove them. Older versions also asked for each story and which output to use; that choice is no longer read, so you are asked once again.
+**Changing your mind.** Your answer is the line `notifications=on` or `notifications=off` in `~/.workflow-dev/config.env`: edit it, or ask the agent to change it. There is nothing to configure in the environment. Older versions read `WORKFLOW_DEV_ATTENTION`, `WORKFLOW_DEV_ATTENTION_SOUND` and `WORKFLOW_DEV_ATTENTION_DEVICE` from your settings; they are ignored now, so you can remove them. Older versions also asked for each story and which output to use; that choice is no longer read, so you are asked once again.
 
 **Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
@@ -144,7 +144,7 @@ Put the heavy thinking on a strong model and the routine checks on a fast one, a
 ```
 
 - **Not set up yet?** The first time, it asks whether to set the roles up or keep your default model. Until you do, everything runs on your default model, and it tells you so.
-- **Keep the default model on purpose,** for a repo or a single story: pick that answer when it asks. For a repo, it is `"tiering": "default"` in `.workflow-dev/config.json`.
+- **Keep the default model on purpose,** for a repo or a single story: pick that answer when it asks. For a repo, it is the line `tiering=default` in `.workflow-dev/config.env`.
 - **Models outside Claude** need a gateway in front of Claude Code.
 - **Updates keep your choice.** If a release changes a role, it asks you to run `setup-models` again, and keeps the model you picked.
 - `init` also recommends a model for the session itself, once per story.

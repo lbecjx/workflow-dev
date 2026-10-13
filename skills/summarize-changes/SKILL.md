@@ -75,13 +75,23 @@ into the end-of-run report instead of presenting it to a human per task group.
 **Agent co-authorship** (`../validate/references/rules.md` §12.3). Before
 drafting, settle whether the commit and PR credit the agent as co-author. The
 answer is the human's, once per repository, and it lives in
-`.workflow-dev/config.json` beside the other one-time answers:
+`.workflow-dev/config.env` beside the other one-time answers:
 
-```json
-{ "gitignored": true, "agentCoauthorship": "no" }
+```
+gitignored=true
+agentCoauthorship=no
 ```
 
-- **The key is set to `"yes"` or `"no"`** → use it; never ask again.
+Read and write it only through the plugin's script (the `config.json` of older
+versions is ignored, so the question comes once again there):
+
+```
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+"$PLUGIN_ROOT"/scripts/config-env.sh get agentCoauthorship
+"$PLUGIN_ROOT"/scripts/config-env.sh set agentCoauthorship no
+```
+
+- **`get` prints `yes` or `no`** → use it; never ask again.
 - **Otherwise, human-piloted** (no key, or a malformed one) → ask with the
   ask-question tool, worded per `references/user-language.md`, before
   drafting:
@@ -91,14 +101,15 @@ answer is the human's, once per repository, and it lives in
   - **Option 1:** `No (Recommended)` — "Nothing in the text credits the agent."
   - **Option 2:** `Yes` — "Add the agent's co-author line to commit and PR."
 
-  Write the answer as that one key, keeping the file's other keys. No answer,
+  Save the answer with `config-env.sh set agentCoauthorship yes|no`. No answer,
   or an answer you cannot read as yes or no, is **no**, and writes nothing.
 - **Otherwise, autonomous** → **no**, without asking and without writing
   (the question belongs right after the human chose autonomous —
   `references/autonomous-mode.md`), and say so in the hand-back.
 
 **Changing it.** When the human asks, at any point, to change whether the agent
-is credited, rewrite the key to their answer — no skill needs to be running.
+is credited, save their answer with `config-env.sh set agentCoauthorship` —
+no skill needs to be running.
 Never change it on your own.
 
 Every doubt resolves to **no** — the recommended option and the behavior

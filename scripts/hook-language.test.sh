@@ -12,7 +12,7 @@
 # decide a result.
 #
 # What it pins:
-#   - the source order: conversation → Claude Code setting → config.json → en;
+#   - the source order: conversation → Claude Code setting → config.env → en;
 #   - which transcript lines count as the human (typed prompts only);
 #   - every bad input (missing, empty, malformed, oversized, crafted) passes to
 #     the next source or lands on English — never an error, never raw text;
@@ -52,7 +52,7 @@ reply() { jq -cn --arg t "$1" '{type:"assistant",message:{role:"assistant",conte
 payload() { jq -cn --arg p "$1" '{tool_name:"Bash",transcript_path:$p,tool_input:{command:"git commit -m x"}}'; }
 
 lang_of() { ( cd "$PROJ" && hook_language "$1" ); }
-reset() { rm -f "$PROJ/.claude/"*.json "$PROJ/.workflow-dev/config.json" "$HOME/.claude/settings.json" "$TMP"/t*.jsonl; }
+reset() { rm -f "$PROJ/.claude/"*.json "$PROJ/.workflow-dev/config.json" "$PROJ/.workflow-dev/config.env" "$HOME/.claude/settings.json" "$TMP"/t*.jsonl; }
 expect() { [[ "$2" == "$3" ]] && ok "$1" || no "$1 (got: $2, want: $3)"; }
 
 ES_PROMPT="¿Puedes revisar el plan y decirme qué falta?"
@@ -99,7 +99,7 @@ expect "undecided newest prompts are skipped (es, ok, tie → es)" "$(lang_of "$
 
 # --- 3: a bad transcript passes, never fails ---------------------------------
 reset
-printf '{"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+printf 'language=es\n' > "$PROJ/.workflow-dev/config.env"
 expect "nonexistent transcript → next source" "$(lang_of "$(payload "$TMP/nope.jsonl")")" es
 : > "$TMP/t10.jsonl"
 expect "empty transcript → next source" "$(lang_of "$(payload "$TMP/t10.jsonl")")" es
@@ -185,11 +185,11 @@ printf '{"language":"es-MX"}' > "$PROJ/.claude/settings.local.json"
 expect "local setting beats project setting" "$(lang_of '{}')" es
 reset
 printf '{"language":"esperanto"}' > "$HOME/.claude/settings.json"
-printf '{"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+printf 'language=es\n' > "$PROJ/.workflow-dev/config.env"
 expect "a language with no text stops the chain at en (config not read)" "$(lang_of '{}')" en
 reset
 printf '{"language":' > "$HOME/.claude/settings.json"
-printf '{"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+printf 'language=es\n' > "$PROJ/.workflow-dev/config.env"
 expect "malformed settings → next source" "$(lang_of '{}')" es
 printf '{"language":42}' > "$HOME/.claude/settings.json"
 expect "non-string setting → next source" "$(lang_of '{}')" es
@@ -204,9 +204,9 @@ printf '{"language":"spanish"}' > "$PROJ/.claude/settings.json"
 GOT="$( cd "$PROJ/sub/dir" && CLAUDE_PROJECT_DIR="$PROJ" hook_language '{}' )"
 expect "cwd in a subfolder, CLAUDE_PROJECT_DIR set → project setting read (es)" "$GOT" es
 rm -f "$PROJ/.claude/settings.json"
-printf '{"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+printf 'language=es\n' > "$PROJ/.workflow-dev/config.env"
 GOT="$( cd "$PROJ/sub/dir" && CLAUDE_PROJECT_DIR="$PROJ" hook_language '{}' )"
-expect "…and the project config.json too (es)" "$GOT" es
+expect "…and the project config.env too (es)" "$GOT" es
 GOT="$( cd "$PROJ/sub/dir" && CLAUDE_PROJECT_DIR="$TMP/gone" hook_language '{}' )"
 expect "CLAUDE_PROJECT_DIR not a directory → the current directory (en)" "$GOT" en
 
@@ -236,12 +236,20 @@ else
   expect "no jq → every file source passes → en" "$GOT" en
 fi
 
-# --- 5: config.json ----------------------------------------------------------
+# --- 5: config.env -----------------------------------------------------------
+reset
+printf 'gitignored=true\nlanguage=es\n' > "$PROJ/.workflow-dev/config.env"
+expect "config language es → es" "$(lang_of '{}')" es
+printf 'gitignored=true\nlanguage=en\n' > "$PROJ/.workflow-dev/config.env"
+expect "config language en → en" "$(lang_of '{}')" en
+reset
+# shellcheck disable=SC2016 # the code must reach the file unexpanded
+printf 'language=$(touch %s/pwned3)\n' "$TMP" > "$PROJ/.workflow-dev/config.env"
+expect "a code-looking language → en" "$(lang_of '{}')" en
+[[ ! -e "$TMP/pwned3" ]] && ok "a code-looking language runs nothing" || no "a code-looking language runs nothing"
 reset
 printf '{"gitignored":true,"language":"es"}' > "$PROJ/.workflow-dev/config.json"
-expect "config language es → es" "$(lang_of '{}')" es
-printf '{"gitignored":true,"language":"en"}' > "$PROJ/.workflow-dev/config.json"
-expect "config language en → en" "$(lang_of '{}')" en
+expect "an older config.json is ignored → en" "$(lang_of '{}')" en
 
 # --- 6: crafted values only ever pick a built-in code ------------------------
 reset
@@ -261,7 +269,7 @@ GOT="$(lang_of "$(payload "$TMP/t15.jsonl")")"
 # hang is a child process of its pipeline. Stand-in scan: a pipeline whose first
 # stage sleeps far past the budget; the next source must answer, in time.
 reset
-printf '{"language":"es"}' > "$PROJ/.workflow-dev/config.json"
+printf 'language=es\n' > "$PROJ/.workflow-dev/config.env"
 GOT="$( cd "$PROJ" && transcript_lang() { sleep 47 | cat; echo en; } && HOOK_LANG_BUDGET_TICKS=10 && START=$(date +%s) && r="$(hook_language '{}')" && printf '%s %s' "$r" $(( $(date +%s) - START )) )"
 expect "a hanging scan is cut off and the next source answers (es)" "${GOT% *}" es
 [[ "${GOT#* }" -le 2 ]] && ok "…within the budget (${GOT#* }s for a 0.5 s budget)" || no "…within the budget (took ${GOT#* }s)"

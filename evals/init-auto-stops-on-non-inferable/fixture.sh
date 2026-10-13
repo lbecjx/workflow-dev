@@ -16,7 +16,7 @@ git config user.name "Eval Fixture"
 
 mkdir -p .workflow-dev/context local-backlog
 
-printf '{ "gitignored": true, "tiering": "default", "agentCoauthorship": "no" }\n' > .workflow-dev/config.json
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 printf '{ "prefix": "EVAL" }\n' > local-backlog/.backlog-config.json
