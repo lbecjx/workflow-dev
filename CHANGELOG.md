@@ -16,6 +16,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.51.0
+
+- The agent now answers on its own what the story, the repo, its history or its docs already settle, and notes where it found each answer so you can correct it. It asks you only what the evidence cannot settle, such as a product call, a preference or a missing value. An autonomous run waits for that answer instead of guessing, and a run with nobody to answer stops the story with the question written down.
+- Alerts are now one yes or no for the whole machine, asked once, and they no longer switch off when a story ends. They always play on your system's current output; change the answer with `notifications` in `~/.workflow-dev/config.json`.
+- Settings now live in `config.env` files, one `key=value` per line, and no longer need `jq` or `perl`; an existing `config.json` is ignored, so each answer is asked once more.
+- Turning the alerts on or off no longer fails at random when another write to the same settings file finishes at the same moment.
+- The three Git History Disclosure evals for release notes now load and run: their case definitions held a second YAML document the eval runner refuses, so they had been skipped. A test now fails on any eval case written that way.
+
 ## 1.50.0
 
 - `validate` and `summarize-changes` now find a repository's changelog and release-note files in whatever layout it uses, and review the ones a change touches for tone and disclosure, like a commit message.
