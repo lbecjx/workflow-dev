@@ -14,6 +14,13 @@ git init -q
 git config user.email "eval@example.com"
 git config user.name "Eval Fixture"
 
+# A default model chosen for the repo keeps the model-tiering question out of
+# the run: that question is required even unattended, so without it validate
+# stops before reviewing anything, for a reason this case is not about.
+mkdir -p .workflow-dev
+printf '{ "gitignored": true, "tiering": "default" }\n' > .workflow-dev/config.json
+printf '.workflow-dev/\nfixture.sh\n' > .gitignore
+
 mkdir -p changes
 cat > README.md <<'MD'
 # Eval fixture
@@ -24,7 +31,7 @@ MD
 echo "Placeholder note." > changes/ABC-1.fix.md
 echo "Placeholder note." > changes/ABC-2.misc.md
 
-git add README.md changes
+git add .gitignore README.md changes
 git commit -q -m "chore: baseline"
 
 # The diff under review — uncommitted on purpose.
