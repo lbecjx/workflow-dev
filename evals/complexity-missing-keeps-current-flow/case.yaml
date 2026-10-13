@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: complexity-missing-keeps-current-flow
+description: >
+  Guard for the no-level fallback added in WD-0084. The active story has a
+  Decisions table but no `Complexity:` row, and the diff is real but low-risk
+  logic (the same pure function as validates-adversarial-depth-ask). With no
+  level, /workflow-dev:validate must keep today's flow: it may report an
+  inferred level, but it must still surface the no-repro/complete depth choice
+  instead of applying an inferred `moderada` and dropping the adversarial pass.
+  If a future edit treats a missing level as `moderada`, this should start
+  failing.
+tags: [complexity, regression]
+context:
+  scaffold_script: fixture.sh

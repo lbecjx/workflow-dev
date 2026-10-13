@@ -96,4 +96,21 @@ run "$R" .github/scripts; rc=$?
 check "a failing script in the named directory: exit 1" [ "$rc" -eq 1 ]
 check "a failing script in the named directory: says so" grep -q 'one or more test scripts failed' "$R/out.txt"
 
+# Parallel runs: a slow first script still prints first, and whole.
+R="$TMP/parallel"
+mkdir -p "$R/scripts"
+printf '#!/bin/bash\nsleep 1\necho slow-out\nexit 1\n' > "$R/scripts/a.test.sh"
+printf '#!/bin/bash\necho fast-out\n' > "$R/scripts/b.test.sh"
+printf '#!/bin/bash\necho third-out\n' > "$R/scripts/c.test.sh"
+(cd "$R" && RUN_TESTS_JOBS=3 "$RUN" > out.txt 2> progress.txt </dev/null); rc=$?
+check "parallel: a failure still exits 1" [ "$rc" -eq 1 ]
+check "parallel: output keeps the file order" [ "$(grep -E '^(=== |slow-out|fast-out|third-out)' "$R/out.txt" | tr '\n' '|')" = "=== scripts/a.test.sh|slow-out|=== scripts/b.test.sh|fast-out|=== scripts/c.test.sh|third-out|" ]
+check "parallel: progress names each script as it starts and ends" [ "$(grep -c 'run-tests.sh: started' "$R/progress.txt")" -eq 3 ] && grep -q 'finished scripts/a.test.sh (exit 1)' "$R/progress.txt"
+(cd "$R" && RUN_TESTS_JOBS=1 "$RUN" > seq.txt 2>/dev/null </dev/null)
+check "parallel: one job at a time gives the same log" cmp -s "$R/out.txt" "$R/seq.txt"
+for bad in abc 00 0 '' 99999999999999999999; do
+  (cd "$R" && RUN_TESTS_JOBS="$bad" "$RUN" > bad.txt 2>&1 </dev/null); rc=$?
+  check "parallel: RUN_TESTS_JOBS='$bad' falls back and still runs all" [ "$rc" -eq 1 ] && grep -q third-out "$R/bad.txt"
+done
+
 finish

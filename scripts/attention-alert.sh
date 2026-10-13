@@ -381,8 +381,14 @@ json_jq() { # json_jq <op> [args...], the document on stdin
 # the result in its place. Exit 1, file untouched, when there is no JSON tool,
 # the file is not one JSON object, or the write fails.
 json_edit() { # json_edit <file> <op: set_pref|activate|deactivate> [args...]
-  local file="$1" dir lock link tries=0 hops=0 rc
+  local file="$1" dir lock link hops=0 rc wait_s=10 deadline
   shift
+  # How long to wait for the lock, in real seconds (a count of tries drifts:
+  # each try also forks `find` and `sleep`). 2 s dropped the last of ten queued
+  # writers on a busy machine, so the agent's own writes (`init`'s activate,
+  # set-pref) wait up to 10 s. `deactivate` runs inside the Stop hook, whose
+  # timeout is 5 s and which has already done work by then, so it waits 3 s.
+  [[ "${1:-}" == deactivate ]] && wait_s=3
   [[ -n "$(json_engine)" ]] || return 1
   # A symlinked config (dotfiles) is edited where it points, so the link stays.
   while [[ -L "$file" && $hops -lt 10 ]]; do
@@ -396,14 +402,14 @@ json_edit() { # json_edit <file> <op: set_pref|activate|deactivate> [args...]
   # One writer at a time: a Stop deleting an entry and an `init` adding one
   # would otherwise each read the old file and the last write would win.
   lock="$dir/.config.json.lock"
+  deadline=$((SECONDS + wait_s))
   until mkdir "$lock" 2>/dev/null; do
     # Wait only while another writer holds it: a read-only folder, or a file at
     # the lock's path, will not clear by waiting.
     [[ -d "$lock" ]] || return 1
     # A lock a minute old belongs to a writer that died.
     [[ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
-    tries=$((tries + 1))
-    [[ $tries -gt 40 ]] && return 1
+    [[ $SECONDS -ge $deadline ]] && return 1
     sleep 0.05
   done
   # A writer killed here (the human interrupts `init`) must not leave the lock.

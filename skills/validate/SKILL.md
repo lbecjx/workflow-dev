@@ -65,6 +65,8 @@ Build a command map: `{ build: "...", typecheck: "...", lint: "...", format: "..
 
 For Part 11 (Adversarial Correctness) and Part 14 (AC Coverage), also read the Acceptance Criteria table from the active `.workflow-dev/context/[STORY-ID].md`, if one exists — and, for Part 14, the `Validates: AC #X` line of the task group marked In Progress in Plan Progress, which says which ACs this change claims (§14.2; in single-diff scope, no such group → AC Coverage is SKIP — the batched/story-end scope judges every AC regardless). If no active story context exists, proceed without ACs and note that in the report — don't block on it (§14.5).
 
+From the same story file, read the story's complexity: the last `Complexity:` row in Working Memory → Decisions and, when it says `simple`, the `Validations for simple:` row after it, plus any `kept as one story` row (`../plan/references/complexity.md`, "Where the level is stored" and "Raise when the diff says so"). No story context, no `Complexity:` row, or a value other than exactly `simple`, `moderada` or `compleja` → no level; Step 3 says what that means.
+
 ### Step 2: Determine scope
 
 Two scopes, not one — which applies depends on why this is running:
@@ -99,6 +101,10 @@ Two scopes, not one — which applies depends on why this is running:
 
 > **Gates for this step** — the moves that leave no artifact of their own, so
 > a miss is easy to overlook. Do them, don't just read them:
+> - **Story level first:** the story's `Complexity` (Step 1) decides whether
+>   Adversarial runs at all and, for `simple`, which dimensions run. No level →
+>   today's flow; never apply `moderada` on your own.
+>   → `../plan/references/complexity.md`
 > - **Gate depth:** decide the *set* first (below) and state it in the report —
 >   a no-logic diff runs the reduced set, not the full one.
 > - **Brief = content, not a command:** give each dimension the changed files'
@@ -113,6 +119,30 @@ Two scopes, not one — which applies depends on why this is running:
 >   autonomous mode — `references/autonomous-mode.md` at the plugin root — →
 >   §11.0's depth defaults, not a silent pick.) → `references/rules.md` §11.0
 
+**The story's complexity sets the shape; the diff sets the set.** `plan`'s
+judge recorded a level for the story (Step 1). The criteria and the full
+per-level table live in `../plan/references/complexity.md`; this step only
+applies them:
+
+- **`compleja`, or no level** → today's flow, exactly as the rest of this step
+  describes, except that a `compleja` story keeps Security in the reduced set.
+  With no level, infer one from the ACs and the diff and report it
+  (`Complexity: not recorded — inferred: <level>`), but never apply it: an
+  inferred `moderada` must not drop the adversarial pass.
+- **`moderada`** → the reduced or full set, chosen by the diff as below, with
+  Security kept in the reduced set. Adversarial is
+  `SKIP — (story level: moderada)`, and its depth is not asked.
+- **`simple`** → the checks complexity.md says always run (Security,
+  Verification, AC Coverage, the drift check, Part 12), plus the dimensions in
+  the `Validations for simple:` row, even on a docs-only diff. Every other
+  pick-list dimension (Code quality, Testing, Architecture, Algorithmic
+  Integrity, Scope, CI/CD), and Adversarial, is `SKIP — (story level: simple)`.
+- **Raise when the diff says so** (complexity.md, "Raise when the diff says
+  so"): before applying a level, or the no-level flow, check the story file and
+  the diff against it. A raise runs the raised level's flow (`moderada` or
+  `compleja`, as complexity.md says) and goes in the report's header with its
+  reason. Report the raise only: this skill never writes the story file.
+
 **Decide the gate's depth first — the set, not just the adversarial depth.**
 This is §11.0's idea (spend where the risk is) applied to the whole dimension
 list, and it is the **default**, not an opt-in:
@@ -125,7 +155,9 @@ list, and it is the **default**, not an opt-in:
   `.workflow-dev/` ↔ `config.json` drift check, and a direct read of any in-scope `CHANGELOG.md`
   entry. The judgment dimensions (Code quality, Testing, Architecture,
   Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
-  break, a fresh pair of eyes adds cost and no signal. The one judgment
+  break, a fresh pair of eyes adds cost and no signal. One exception: when the
+  story has a level (`simple`, `moderada` or `compleja`), Security still runs,
+  and so do the dimensions a `simple` story listed (above). The one judgment
   sub-agent the reduced set keeps is **AC Coverage** (Part 14), when the change
   claims ACs: a docs-only diff has no logic to break, but the ACs are still the
   contract, and a docs change can leave one unmet. State the set plainly in the
@@ -189,7 +221,8 @@ artifact, reviewed at a different moment — that's
 `/workflow-dev:summarize-changes`, not this step.
 
 **Adversarial correctness (Part 11) is the exception even within a full set:
-it starts with a question, not a run.** For anything with real logic, suggest a
+it starts with a question, not a run** — when the story's level lets it run
+(above). For anything with real logic, suggest a
 depth per §11.0 — with a one-line reason — and **ask the human to pick no-repro or
 complete**:
 
@@ -252,7 +285,7 @@ fix in proportion, and stop at the caps §11.3 sets on the fix rounds.
 Once every sub-agent returns, present a unified report:
 
 ```
-Validation Results (set: full — the diff carries logic):
+Validation Results (set: full — the diff carries logic; story level: compleja, from the plan):
 
 | Dimension        | Result | Findings |
 |-------------------|--------|----------|
@@ -281,6 +314,10 @@ Warnings — each needs a disposition before the run closes:
 **State the set.** The header names whether this ran the **reduced** or **full**
 set (Step 3). A reduced run lists only the checks it actually ran — it does not
 print the skipped judgment/adversarial dimensions as if they had passed.
+The header also names the story's level and where it came from: `from the
+plan`, `not recorded — inferred: <level>` (today's flow ran), or `raised to
+<level> — <reason>` (`moderada` or `compleja`). A dimension the level removed shows as
+`SKIP — (story level: <level>)`.
 
 **Close every WARN.** Before the run ends, give each warning a **disposition** —
 *fixed here*, *spun into a new story*, or *accepted* (with why). A WARN with no
@@ -467,11 +504,11 @@ Every run ends here, full or reduced, PASS or FAIL, after everything above.
 
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
-- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry — plus AC Coverage when the change claims ACs), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial.
+- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry — plus AC Coverage when the change claims ACs), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial. It also scales with the story: the level `plan`'s judge recorded removes the adversarial pass (`moderada`), or everything but Security and the listed dimensions (`simple`); no level → the diff-only rule above (`../plan/references/complexity.md`).
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not the whole rulebook), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
 - **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment, `wd-adversary` for the Adversarial Correctness pair; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
-- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0).
+- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0). Whether it runs at all is the story's level (`moderada` and `simple` skip it); the depth, when it runs, is §11.0's.
 - **Algorithmic integrity is judgment, not a linter** — the project's own linters (run by Verification, Part 6) already catch the mechanical loop/overflow shapes; Part 13 is the layer those tools cannot reach: does *this* loop or recursion terminate on *this* input, and is the growth class fit for the `n` this code actually sees. It requires a concrete trigger and `n` for every finding, and follows Part 11's NEEDS TESTING rule for any claim whose truth depends on execution.
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, a CONFIRMED adversarial-correctness finding (at either depth), a CONFIRMED algorithmic-integrity finding, and an AC confirmed NOT COVERED block. A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.

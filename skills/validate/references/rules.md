@@ -279,7 +279,10 @@ The other dimensions always run — they're cheap enough that skipping them
 saves nothing worth the risk. This one is different: it's expensive enough
 that running the full version by default, on every change regardless of what
 the change actually is, wastes real time and tokens for no real return on a
-change with nothing much to break. There are three levels, not two — **`Skip`**,
+change with nothing much to break. Whether this dimension runs at all is first
+the story's complexity (`../../plan/references/complexity.md`): a `moderada`
+or `simple` story skips it, unless its diff raises it to `compleja`. This section decides the depth once it runs, and
+applies unchanged to a story with no level. There are three levels, not two — **`Skip`**,
 **`no-repro`** (*Adversarial without reproduction*), and **`complete`**
 (*Adversarial complete*):
 
