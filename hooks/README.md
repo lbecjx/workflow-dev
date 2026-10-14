@@ -134,6 +134,35 @@ the Free Software Foundation, either version 3 of the License, or
   the question file and asking before any of `init`'s steps, with no error line.
   `init`'s Phase 0 checks again and asks what is still missing, so a run where
   the hook did not fire keeps the same order.
+- **Library-docs lookups run with no dialog, unless they look private** (WD-0090).
+  The plugin ships the Context7 server (`../.mcp.json`) so skills can look up a
+  library's docs (`../references/library-docs.md`). Its tools need permission on
+  first use, and a lookup behind a dialog is one nobody waits for in an
+  autonomous run. A plugin cannot ship permission rules (`plugin.json`
+  `settings` keeps only `agent` and `subagentStatusLine`), so
+  `scripts/context7-query-check.sh`, on `PreToolUse` with the matcher
+  `mcp__plugin_workflow-dev_context7__.*`, returns `allow` — the main agent's
+  and a sub-agent's call both ran with no dialog (probed on Claude Code
+  2.1.287). A matcher on the bare server name never fires for a plugin server.
+  - A lookup that looks like it carries a credential, a path on this machine,
+    or pasted code gets `deny`, the second deliberate exception to "ask, never
+    deny" (owner's decision, WD-0090). Its reason, in the conversation's
+    language (`scripts/hook-language.sh`, key `library_query_rewrite`), tells
+    the agent to rewrite the lookup with only the library, its version and a
+    short question, tell the human in the chat, and call again; it never
+    quotes what matched. Not `ask`: a dialog pauses an autonomous run until
+    someone answers, and headless it is a denial with nothing to act on, so
+    the lookup would be lost. The rule is the reference file's; this is its
+    backstop.
+  - The user keeps the off switch: a `permissions.deny` on the server, or
+    turning it off in `/mcp`, removes the tools before any hook runs (probed).
+  - Only the two tools the plugin uses (`resolve-library-id`, `query-docs`) get
+    `allow`; a tool the server adds later was never reviewed and gets no output.
+    The same for input it cannot read, or a machine with neither `jq` nor
+    `python3` to decode it: Claude Code's own permission flow applies.
+  - Every string under `tool_input` is checked, not a list of known fields: the
+    server is remote and can rename or add fields without a plugin release. The
+    size check runs first, so a long paste is held before any slower check.
 - **The attention sounds play only when workflow-dev needs the human** (WD-0052).
   `scripts/attention-alert.sh` is registered four times, and each entry only
   ever plays a sound — it prints nothing, never asks or denies, and exits 0:

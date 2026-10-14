@@ -284,7 +284,7 @@ ls "$TMPDIR"/wd-hook-lang.* >/dev/null 2>&1 && no "no temp file left behind" || 
 # Every code × key: present, its own text, safe inside a JSON string, and the
 # names a reader must still recognize kept as they are.
 for code in $HOOK_LANG_CODES; do
-  for key in validate_deferred validate_unrecorded attribution_deny attribution_ask review_ask trust_note; do
+  for key in validate_deferred validate_unrecorded attribution_deny attribution_ask review_ask trust_note library_query_rewrite; do
     m="$(hook_msg "$code" "$key")"
     [[ -n "$m" ]] || { no "$key/$code is not empty"; continue; }
     printf '{"r":"%s"}' "$m" | jq -e . >/dev/null 2>&1 || no "$key/$code is JSON-safe"
@@ -294,12 +294,13 @@ for code in $HOOK_LANG_CODES; do
   case "$(hook_msg "$code" attribution_ask)" in *"Part 12.3"*) ;; *) no "$code wrapped-attribution ask keeps Part 12.3" ;; esac
   case "$(hook_msg "$code" review_ask)" in *"Part 12"*"git-message-mark-reviewed.sh"*) ;; *) no "$code review ask keeps Part 12 and the script name" ;; esac
   case "$(hook_msg "$code" validate_unrecorded)" in *"/workflow-dev:validate"*) ;; *) no "$code validate ask keeps the command" ;; esac
+  case "$(hook_msg "$code" library_query_rewrite)" in *"Context7"*"references/library-docs.md"*) ;; *) no "$code library-docs rewrite keeps Context7 and the reference" ;; esac
   # The trust note is a printf format: exactly one %s, no other % sequence.
   tn="$(hook_msg "$code" trust_note)"; rest="${tn/\%s/}"
   [[ "$tn" == *"%s"* && "$rest" != *"%"* ]] || no "$code trust_note has one %s and nothing else"
   ok "$code: every message present, distinct, JSON-safe, names kept"
 done
-for key in validate_deferred validate_unrecorded attribution_deny attribution_ask review_ask trust_note; do
+for key in validate_deferred validate_unrecorded attribution_deny attribution_ask review_ask trust_note library_query_rewrite; do
   [[ "$(hook_msg xx "$key")" == "$(hook_msg en "$key")" ]] && ok "$key: unknown code → English" || no "$key: unknown code → English"
 done
 [[ -z "$(hook_msg es no_such_key)" ]] && ok "unknown key → nothing" || no "unknown key → nothing"

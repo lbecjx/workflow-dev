@@ -318,6 +318,7 @@ hook_msg() {
     es:attribution_ask) printf '%s' "Este comando puede ser un commit/PR (va dentro de algo que el hook no puede leer) y contiene atribución o coautoría de una IA, un agente o un LLM que la decisión de este repositorio no permite (validate Part 12.3; lo predeterminado es no). Si es un commit/PR, quita la atribución antes de ejecutarlo." ;;
     es:review_ask) printf '%s' "Este mensaje de commit / descripción de PR no pasó la revisión de Git History Disclosure (validate Part 12 — formalidad, sin narrar incidentes de seguridad, sin exponer datos personales ni el flujo de trabajo interno). Confirma que se puede usar tal cual, o ejecuta la revisión y márcalo como revisado antes con git-message-mark-reviewed.sh." ;;
     es:trust_note) printf '%s' " (No se puede confiar en el directorio de marcadores: %s.)" ;;
+    es:library_query_rewrite) printf '%s' "Consulta a Context7 rechazada: va a un servicio de terceros y parece llevar algo privado (un secreto, una ruta de esta máquina o código pegado). Reescríbela solo con la librería, su versión y una pregunta corta, avisa al usuario en una línea que la reescribiste y vuelve a consultar (references/library-docs.md)." ;;
 
     fr:validate_deferred) printf '%s' "Validation reportée pour ce groupe de tâches, comme prévu — elle sera exécutée une seule fois à la fin de la story." ;;
     fr:validate_unrecorded) printf '%s' "Ce projet utilise les contrôles qualité de workflow-dev. Aucun enregistrement /workflow-dev:validate ne correspond aux changements actuels — confirmez que ce commit a bien été validé avant de l'approuver, ou approuvez-le quand même s'il saute validate volontairement." ;;
@@ -325,6 +326,7 @@ hook_msg() {
     fr:attribution_ask) printf '%s' "Cette commande est peut-être un commit/PR (elle est enveloppée dans quelque chose que le hook ne peut pas lire) et elle contient une attribution ou une co-paternité IA/agent/LLM que la décision de ce dépôt ne permet pas (validate Part 12.3 ; non par défaut). Si c'est un commit/PR, retirez l'attribution avant de l'exécuter." ;;
     fr:review_ask) printf '%s' "Ce message de commit / cette description de PR n'est pas passé par la revue Git History Disclosure (validate Part 12 — ton formel, pas de récit d'incident de sécurité, pas d'exposition de données personnelles ni du flux de travail interne). Confirmez qu'il peut être utilisé tel quel, ou lancez la revue et marquez-le comme revu avec git-message-mark-reviewed.sh." ;;
     fr:trust_note) printf '%s' " (Le répertoire des marqueurs n'est pas fiable : %s.)" ;;
+    fr:library_query_rewrite) printf '%s' "Recherche Context7 refusée : elle part vers un service tiers et semble contenir quelque chose de privé (un secret, un chemin de cette machine ou du code collé). Réécris-la avec seulement la bibliothèque, sa version et une courte question, dis à l'utilisateur en une ligne que tu l'as réécrite et relance-la (references/library-docs.md)." ;;
 
     pt:validate_deferred) printf '%s' "Validação adiada para este grupo de tarefas, conforme previsto — será executada uma vez no fim da story." ;;
     pt:validate_unrecorded) printf '%s' "Este projeto usa os controles de qualidade do workflow-dev. Não há registro de /workflow-dev:validate que corresponda às mudanças atuais — confirme que este commit foi validado antes de aprová-lo, ou aprove mesmo assim se ele pula o validate de propósito." ;;
@@ -332,6 +334,7 @@ hook_msg() {
     pt:attribution_ask) printf '%s' "Este comando pode ser um commit/PR (está dentro de algo que o hook não consegue ler) e contém atribuição ou coautoria de IA/agente/LLM que a decisão deste repositório não permite (validate Part 12.3; o padrão é não). Se for um commit/PR, remova a atribuição antes de executá-lo." ;;
     pt:review_ask) printf '%s' "Esta mensagem de commit / descrição de PR não passou pela revisão Git History Disclosure (validate Part 12 — formalidade, sem narrar incidentes de segurança, sem expor dados pessoais nem o fluxo de trabalho interno). Confirme que pode ser usada como está, ou rode a revisão e marque-a como revisada antes com git-message-mark-reviewed.sh." ;;
     pt:trust_note) printf '%s' " (Não é possível confiar no diretório de marcadores: %s.)" ;;
+    pt:library_query_rewrite) printf '%s' "Consulta ao Context7 recusada: vai para um serviço de terceiros e parece levar algo privado (um segredo, um caminho desta máquina ou código colado). Reescreva-a só com a biblioteca, sua versão e uma pergunta curta, avise o usuário em uma linha que a reescreveu e consulte de novo (references/library-docs.md)." ;;
 
     de:validate_deferred) printf '%s' "Validierung für diese Aufgabengruppe wie geplant aufgeschoben — sie läuft einmal am Ende der Story." ;;
     de:validate_unrecorded) printf '%s' "Dieses Projekt nutzt die Qualitätsprüfungen von workflow-dev. Für die aktuellen Änderungen gibt es keinen passenden /workflow-dev:validate-Eintrag — bestätige vor dem Freigeben, dass dieser Commit validiert wurde, oder gib ihn trotzdem frei, wenn er validate absichtlich auslässt." ;;
@@ -339,6 +342,7 @@ hook_msg() {
     de:attribution_ask) printf '%s' "Dieser Befehl ist vielleicht ein Commit/PR (er steckt in etwas, das der Hook nicht lesen kann) und enthält eine KI-/Agenten-/LLM-Zuschreibung oder Co-Autorschaft, die die Entscheidung dieses Repositorys nicht erlaubt (validate Part 12.3; Standard ist nein). Wenn es ein Commit/PR ist, entferne die Zuschreibung, bevor du ihn ausführst." ;;
     de:review_ask) printf '%s' "Diese Commit-Nachricht / PR-Beschreibung hat das Git-History-Disclosure-Review nicht durchlaufen (validate Part 12 — formeller Ton, keine Schilderung von Sicherheitsvorfällen, keine Preisgabe persönlicher Daten oder interner Abläufe). Bestätige, dass sie so verwendet werden kann, oder führe das Review aus und markiere sie vorher mit git-message-mark-reviewed.sh als geprüft." ;;
     de:trust_note) printf '%s' " (Dem Marker-Verzeichnis kann nicht vertraut werden: %s.)" ;;
+    de:library_query_rewrite) printf '%s' "Context7-Abfrage abgelehnt: Sie geht an einen Drittanbieterdienst und scheint etwas Privates zu enthalten (ein Geheimnis, einen Pfad auf diesem Rechner oder eingefügten Code). Schreib sie nur mit der Bibliothek, ihrer Version und einer kurzen Frage neu, sag dem Nutzer in einer Zeile, dass du sie neu geschrieben hast, und frag erneut (references/library-docs.md)." ;;
 
     it:validate_deferred) printf '%s' "Validazione rimandata per questo gruppo di attività, come previsto — verrà eseguita una sola volta alla fine della story." ;;
     it:validate_unrecorded) printf '%s' "Questo progetto usa i controlli di qualità di workflow-dev. Non c'è un registro di /workflow-dev:validate che corrisponda alle modifiche attuali — conferma che questo commit è stato validato prima di approvarlo, oppure approvalo comunque se salta validate di proposito." ;;
@@ -346,6 +350,7 @@ hook_msg() {
     it:attribution_ask) printf '%s' "Questo comando potrebbe essere un commit/PR (è racchiuso in qualcosa che l'hook non riesce a leggere) e contiene un'attribuzione o una coautorialità di IA/agente/LLM che la decisione di questo repository non consente (validate Part 12.3; il default è no). Se è un commit/PR, rimuovi l'attribuzione prima di eseguirlo." ;;
     it:review_ask) printf '%s' "Questo messaggio di commit / descrizione di PR non è passato dalla revisione Git History Disclosure (validate Part 12 — tono formale, nessun racconto di incidenti di sicurezza, nessuna esposizione di dati personali o del flusso di lavoro interno). Conferma che si può usare così com'è, oppure esegui la revisione e segnalo come revisionato prima con git-message-mark-reviewed.sh." ;;
     it:trust_note) printf '%s' " (La directory dei marcatori non è affidabile: %s.)" ;;
+    it:library_query_rewrite) printf '%s' "Ricerca Context7 rifiutata: va a un servizio di terzi e sembra contenere qualcosa di privato (un segreto, un percorso di questa macchina o codice incollato). Riscrivila solo con la libreria, la sua versione e una breve domanda, di' all'utente in una riga che l'hai riscritta e riprova (references/library-docs.md)." ;;
 
     zh:validate_deferred) printf '%s' "已按计划推迟此任务组的验证 — 将在 story 结束时统一运行一次。" ;;
     zh:validate_unrecorded) printf '%s' "此项目使用 workflow-dev 的质量检查。当前改动没有对应的 /workflow-dev:validate 记录 — 批准前请确认此 commit 已经验证；如果是有意跳过 validate，也可以直接批准。" ;;
@@ -353,6 +358,7 @@ hook_msg() {
     zh:attribution_ask) printf '%s' "此命令可能是一个 commit/PR（它被包在 hook 无法读取的内容里），并且含有本仓库的决定不允许的 AI/智能体/LLM 署名或共同作者信息（validate Part 12.3；默认为否）。如果它是 commit/PR，请在运行前删除署名。" ;;
     zh:review_ask) printf '%s' "此 commit 信息 / PR 描述尚未通过 Git History Disclosure 审查（validate Part 12 — 正式语气，不叙述安全事件，不暴露个人信息或内部工作流程）。请确认它可以原样使用，或先运行审查并用 git-message-mark-reviewed.sh 将其标记为已审查。" ;;
     zh:trust_note) printf '%s' "（标记目录不可信：%s。）" ;;
+    zh:library_query_rewrite) printf '%s' "已拒绝这次 Context7 查询：它会发送到第三方服务，而且看起来带有私密内容（密钥、本机路径或粘贴的代码）。请只用库名、版本和一个简短问题重写，用一行告诉用户你已重写，然后再次查询（references/library-docs.md）。" ;;
 
     ja:validate_deferred) printf '%s' "計画どおり、このタスクグループの検証は延期されました — story の最後に一度だけ実行されます。" ;;
     ja:validate_unrecorded) printf '%s' "このプロジェクトは workflow-dev の品質チェックを使っています。現在の変更に一致する /workflow-dev:validate の記録がありません — 承認する前にこの commit が検証済みか確認してください。意図的に validate を省く場合は、そのまま承認してもかまいません。" ;;
@@ -360,6 +366,7 @@ hook_msg() {
     ja:attribution_ask) printf '%s' "このコマンドは commit/PR かもしれません（hook が読めない形で包まれています）。また、このリポジトリの決定が許可しない AI・エージェント・LLM による帰属表示または共同著者の記載が含まれています（validate Part 12.3。既定は「いいえ」）。commit/PR であれば、実行前に帰属表示を削除してください。" ;;
     ja:review_ask) printf '%s' "この commit メッセージ / PR 説明は Git History Disclosure のレビューを通っていません（validate Part 12 — 丁寧な文体、セキュリティインシデントの経緯を書かない、個人情報や内部の作業手順を出さない）。このまま使ってよいか確認するか、先にレビューを実行し、git-message-mark-reviewed.sh でレビュー済みにしてください。" ;;
     ja:trust_note) printf '%s' "（マーカーディレクトリは信頼できません: %s。）" ;;
+    ja:library_query_rewrite) printf '%s' "Context7 への検索を拒否しました。第三者サービスに送られ、私的な内容（秘密情報、このマシンのパス、貼り付けたコード）を含んでいるようです。ライブラリ名、バージョン、短い質問だけで書き直し、書き直したことをユーザーに一行で伝えてから、もう一度検索してください（references/library-docs.md）。" ;;
 
     ko:validate_deferred) printf '%s' "계획대로 이 작업 그룹의 검증을 미뤘습니다 — story 마지막에 한 번 실행됩니다." ;;
     ko:validate_unrecorded) printf '%s' "이 프로젝트는 workflow-dev 품질 검사를 사용합니다. 현재 변경 사항과 일치하는 /workflow-dev:validate 기록이 없습니다 — 승인하기 전에 이 commit이 검증되었는지 확인하세요. 의도적으로 validate를 건너뛰는 경우라면 그대로 승인해도 됩니다." ;;
@@ -367,6 +374,7 @@ hook_msg() {
     ko:attribution_ask) printf '%s' "이 명령은 commit/PR일 수 있습니다 (hook이 읽을 수 없는 형태로 감싸져 있습니다). 또한 이 저장소의 결정이 허용하지 않는 AI/에이전트/LLM 귀속 표기 또는 공동 저자 표기가 있습니다 (validate Part 12.3, 기본값은 아니오). commit/PR이라면 실행하기 전에 귀속 표기를 지우세요." ;;
     ko:review_ask) printf '%s' "이 commit 메시지 / PR 설명은 Git History Disclosure 검토를 거치지 않았습니다 (validate Part 12 — 격식 있는 어조, 보안 사고 경위 서술 금지, 개인 정보나 내부 작업 흐름 노출 금지). 그대로 써도 되는지 확인하거나, 먼저 검토를 실행하고 git-message-mark-reviewed.sh로 검토 완료 표시를 하세요." ;;
     ko:trust_note) printf '%s' " (마커 디렉터리를 신뢰할 수 없습니다: %s.)" ;;
+    ko:library_query_rewrite) printf '%s' "Context7 조회를 거부했습니다. 제3자 서비스로 전송되며 비공개 내용(비밀 값, 이 컴퓨터의 경로, 붙여 넣은 코드)이 들어 있는 것으로 보입니다. 라이브러리, 버전, 짧은 질문만으로 다시 쓰고, 다시 썼다는 사실을 사용자에게 한 줄로 알린 뒤 다시 조회하세요 (references/library-docs.md)." ;;
 
     ru:validate_deferred) printf '%s' "Проверка этой группы задач отложена, как и планировалось, — она запустится один раз в конце story." ;;
     ru:validate_unrecorded) printf '%s' "В этом проекте используются проверки качества workflow-dev. Для текущих изменений нет подходящей записи /workflow-dev:validate — перед одобрением убедитесь, что этот commit прошёл проверку, или одобрите его всё равно, если validate пропущен намеренно." ;;
@@ -374,6 +382,7 @@ hook_msg() {
     ru:attribution_ask) printf '%s' "Эта команда может быть commit/PR (она обёрнута во что-то, что hook не может прочитать) и содержит указание авторства или соавторства ИИ/агента/LLM, которое решение этого репозитория не разрешает (validate Part 12.3; по умолчанию нет). Если это commit/PR, уберите указание авторства перед запуском." ;;
     ru:review_ask) printf '%s' "Это сообщение commit / описание PR не прошло проверку Git History Disclosure (validate Part 12 — деловой тон, без описания инцидентов безопасности, без раскрытия личных данных или внутреннего порядка работы). Подтвердите, что его можно использовать как есть, или сначала запустите проверку и отметьте его как проверенное с помощью git-message-mark-reviewed.sh." ;;
     ru:trust_note) printf '%s' " (Каталогу маркеров нельзя доверять: %s.)" ;;
+    ru:library_query_rewrite) printf '%s' "Запрос к Context7 отклонён: он уходит в сторонний сервис и, похоже, содержит что-то личное (секрет, путь на этой машине или вставленный код). Перепиши его, оставив только библиотеку, её версию и короткий вопрос, сообщи пользователю одной строкой, что переписал его, и запроси снова (references/library-docs.md)." ;;
 
     *:validate_deferred) printf '%s' "Validation deferred for this task group, as planned — will run once at story end." ;;
     *:validate_unrecorded) printf '%s' "This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate." ;;
@@ -381,5 +390,6 @@ hook_msg() {
     *:attribution_ask) printf '%s' "This command may be a commit/PR (it is wrapped in something the hook cannot read) and it contains AI/agent/LLM attribution or co-authorship this repository's decision does not allow (validate Part 12.3; no is the default). If it is a commit/PR, remove the attribution before running it." ;;
     *:review_ask) printf '%s' "This commit message / PR description has not been through the Git History Disclosure review (validate Part 12 — formality, no security-incident narration, no personal or internal-workflow exposure). Confirm it is safe to use as-is, or run the check and mark it reviewed first with git-message-mark-reviewed.sh." ;;
     *:trust_note) printf '%s' " (The marker directory cannot be trusted: %s.)" ;;
+    *:library_query_rewrite) printf '%s' "Context7 lookup rejected: it goes to a third-party service and looks like it carries something private (a secret, a path on this machine, or pasted code). Rewrite it with only the library, its version and a short question, tell the user in one line that you rewrote it, and call again (references/library-docs.md)." ;;
   esac
 }
