@@ -92,7 +92,9 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && p
 ```
 
 - **`get` prints `yes` or `no`** → use it; never ask again.
-- **Otherwise, human-piloted** (no key, or a malformed one) → ask with the
+- **Otherwise, human-piloted** (no key, or a malformed one) → `init` asks this
+  in its Phase 0 configuration block before any work, so you reach this only
+  for a story that never ran that `init`, or whose answer is gone. Ask with the
   ask-question tool, worded per `references/user-language.md`, before
   drafting:
   - **Question:** should the commit and the PR of this repo mention the agent
@@ -102,10 +104,12 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && p
   - **Option 2:** `Yes` — "Add the agent's co-author line to commit and PR."
 
   Save the answer with `config-env.sh set agentCoauthorship yes|no`. No answer,
-  or an answer you cannot read as yes or no, is **no**, and writes nothing.
-- **Otherwise, autonomous** → **no**, without asking and without writing
-  (the question belongs right after the human chose autonomous —
-  `references/autonomous-mode.md`), and say so in the hand-back.
+  or an answer you cannot read as yes or no, is **no**: save `no`, so the
+  question does not come back before every skill (WD-0108).
+- **Otherwise, autonomous** → **no**, without asking: save `no` and say so in
+  the hand-back. The question belongs before the run mode is chosen, with the
+  other setup questions (`../init/SKILL.md`, Phase 0), so this is only a
+  backstop.
 
 **Changing it.** When the human asks, at any point, to change whether the agent
 is credited, save their answer with `config-env.sh set agentCoauthorship` —

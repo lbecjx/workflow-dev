@@ -27,7 +27,9 @@ mkdir -p .workflow-dev/context
 # `fixture.sh` is ignored too: the scaffold harness's own file isn't part of the
 # repo under test, and leaving it untracked would make init's repo check report a
 # dirty tree — noise the case isn't about.
-printf 'gitignored=true\n' > .workflow-dev/config.env
+# agentCoauthorship=no keeps the co-authorship question out of the run: init
+# asks it up front when it is missing, and this case is not about it.
+printf 'gitignored=true\nagentCoauthorship=no\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 cat > .workflow-dev/context/REPO.md <<'MD'
@@ -82,6 +84,8 @@ git add .gitignore eval-story.md
 git commit -q -m "chore: baseline"
 
 mkdir -p .workflow-dev
-printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
+# agentCoauthorship=no keeps the co-authorship question out of the run: init
+# asks it up front when it is missing, and this case is not about it.
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 
 echo "fixture ready"

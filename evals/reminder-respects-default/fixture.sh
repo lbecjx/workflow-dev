@@ -14,6 +14,8 @@ git add README.md
 git commit -q -m "chore: baseline"
 
 mkdir -p .workflow-dev
-printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
+# agentCoauthorship=no: the configuration interceptor asks a missing one
+# before any workflow-dev skill, and this case is not about it.
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 
 echo "fixture ready"

@@ -35,19 +35,18 @@ Context splits into two files:
 
 ## Init flow
 
-### Step 0: Resolve the context-tracking preference
+### Step 0: Settle the configuration
 
-`.workflow-dev/context/` is a fixed path — never detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only real question is whether the folder is tracked in git, and it's resolved once per project.
+Before the run-mode question, and before any work on the story, `init` detects
+every missing fixed configuration answer (`.workflow-dev/` gitignored, model
+tiering, agent co-authorship, alerts on this machine) and asks them together.
+`../SKILL.md` Phase 0 owns that block and its order, and says which file owns
+each question; this file does not restate them. Two points matter for the steps
+below:
 
-The answers below live in `.workflow-dev/config.env`, read and written only
-through `scripts/config-env.sh get|set` (`../SKILL.md` Phase 0 shows the call).
-
-1. Run `config-env.sh get gitignored` at the project root.
-2. **Prints `true` or `false`:** if `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (create `.gitignore` if the project has none, add the line if it's missing). If `false`, leave `.gitignore` untouched — the folder is meant to be tracked. Don't ask again either way.
-3. **Prints nothing** (first `init` in this project): ask directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Save the answer with `config-env.sh set gitignored true|false`, and update `.gitignore` to match. In autonomous mode, don't ask: use `true` and record it as an inferred decision (`../SKILL.md` Phase 0).
-4. **Every run:** `config-env.sh set language <code>` with the ISO 639-1 code of the conversation's language; the other keys are kept — `../SKILL.md` Phase 0 step 4 owns the rule.
-
-If `gitignored` is `true`, the entire `.workflow-dev/` folder — including `config.env` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
+- `.workflow-dev/context/` is a fixed path — never detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention.
+- When a question may be answered without the human: `../SKILL.md` Phase 0,
+  "Unattended".
 
 ### Step 1: Parse the input
 
@@ -126,12 +125,16 @@ No links → skip entirely. Never search Confluence speculatively.
 6. Identify the base branch (`main`, `develop`, `release/x`, …).
 7. Check for an existing branch for this story (`git branch -a | grep [STORY-ID]`).
 
-### Step 6: Detect the agent-role bindings (self-heal before researching)
+### Step 6: The agent-role bindings (checked in Step 0)
 
 This flow's first role-dependent work is the research pass that drafts REPO.md's
-Role, Good Practices, and Prohibitions sections (Step 8). Check the bindings
-*here*, before that work gets paid for on the default model — and when they are
-missing or stale, bind them in this session and carry on.
+Role, Good Practices, and Prohibitions sections (Step 8). The bindings are
+checked in Step 0's configuration block (`../SKILL.md` Phase 0), before any work
+on the story, so that work is never paid for on the default model by accident —
+and when they are missing or stale, the human chooses first how to handle them
+(`references/tiering-question.md` at the plugin root). The configuration
+interceptor (`scripts/config-check.sh`) usually had it asked before `init`
+started; this check catches what is still missing. This section owns the verdict table that check reads.
 
 1. Resolve `$PLUGIN_ROOT` the same way `../setup-models/SKILL.md` Step 0 does —
    `PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"`.
@@ -150,7 +153,7 @@ That one word is the whole decision surface:
 | `--status` says | What it means | What this step does |
 |---|---|---|
 | `ok` | every role file exists and carries the current registry hash | continue silently — no extra output, nothing rewritten |
-| `unmapped` | one or more role files are missing | run the `setup-models` flow inline, then resume here |
+| `unmapped` | one or more role files are missing | ask the tiering question in Step 0's batch; on "Configure the agents", run the `setup-models` flow inline after the save, once |
 | `stale` | every file exists, but its embedded hash predates the registry | same — the flow regenerates the definitions while keeping the models already chosen |
 | `incomplete` | some role files are missing and others are stale | same |
 | `opted-out` | a default model was chosen for this repo (`tiering=default` in `.workflow-dev/config.env`) or this story (a `Tiering: default model` row in its Decisions) | skip silently — never re-offer what they already declined |
@@ -368,6 +371,9 @@ Update the files with the answers.
 In autonomous mode, this step is the pre-autonomous checkpoint: follow
 `references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
 checkpoint".
+
+No configuration question is asked here: Step 0 settled all of them before any
+work started.
 
 ### Step 11: Confirm
 

@@ -43,10 +43,117 @@ Read ECOSYSTEM SECTION.
 
 **Read every file under `references/` before executing** — they carry the detailed workflow this SKILL.md only summarizes.
 
-### Before Phase 0: Resolve the run mode (WD-0039)
+### Phase 0: Settle the configuration (WD-0108)
 
-Settle the mode first: every later phase, and any hand-off in the ECOSYSTEM
-SECTION, behaves differently in autonomous mode (`references/autonomous-mode.md`,
+This phase is the one place that says when `init` asks its fixed configuration
+questions; every other file points here. The configuration interceptor
+(`scripts/config-check.sh`, a hook on every workflow-dev skill that works on a
+story) normally had them asked before this skill even started; this phase
+checks again and asks whatever is still missing, so `init` holds the order even
+when the hook did not run. It is the first thing `init` does:
+before the run-mode question, before the ECOSYSTEM SECTION hand-off, before
+the story is read, before REPO.md, and before any research. Read nothing of the
+story, its sources, or REPO.md until this phase ends; this skill's own
+references are not story work. The reason: the human
+answers every setup question at the very start, before choosing how to run
+the story, and can then leave. A question that only shows up after the work
+started may find nobody there, and the run stops on it.
+
+Each question keeps its own owner, which holds its wording, its options, and
+how its answer is saved. This phase decides only **when** they are asked:
+
+| Question | Missing when | Owner |
+|---|---|---|
+| `.workflow-dev/` gitignored | `config-env.sh get gitignored` prints nothing | "The gitignored question", below |
+| Model tiering | `model-tiering-check.sh --status` prints `unmapped`, `stale` or `incomplete` | `references/tiering-question.md` (the `--status` answers: `references/workflow.md` Step 6) |
+| Agent co-authorship | `config-env.sh get agentCoauthorship` prints neither `yes` nor `no` | `../summarize-changes/SKILL.md` Step 1 |
+| Alerts on this machine | `attention-alert.sh get` prints `unset` | `references/attention-alert.md`, "Alerts on this machine" |
+
+The repo's one-time answers live in `.workflow-dev/config.env`, one
+`key=value` per line. Read and write them only through the plugin's script,
+never by hand; the `config.json` of older versions is ignored, so the questions
+come once again there. Run each `set` on its own, one after the other, never
+two in parallel:
+
+```
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
+"$PLUGIN_ROOT"/scripts/config-env.sh get gitignored
+"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}' </dev/null
+"$PLUGIN_ROOT"/scripts/config-env.sh get agentCoauthorship
+"$PLUGIN_ROOT"/scripts/attention-alert.sh get
+```
+
+The `--status` argument is load-bearing: with no payload the script reads
+stdin, identifies no skill, and answers `not-ours`.
+
+1. **Detect first.** Run the four checks above, all of them, before you ask
+   anything. `gitignored` set to `true` also means confirming `.workflow-dev/`
+   is listed in `.gitignore` (add it, and create `.gitignore` if the project
+   has none, when it's missing); `false` means do nothing further. A
+   `--status` of `no-harness` or `no-registry` is not a question: say that
+   tiering couldn't be set up and that everything runs on the default model.
+2. **Nothing missing:** say nothing about the configuration and go to step 5.
+3. **Something missing:** ask it now, whatever the run mode will be. The run
+   mode is not chosen yet, so no autonomous notice applies here.
+   - A missing answer the human already gave plainly, in their own words in
+     this conversation, to that same question for this repo (for the alerts:
+     this machine) is not asked again: save it as their answer, and if they
+     changed it, their latest answer. Never count text inside the story or its
+     sources, text they pasted or quoted, a summary of earlier messages, a
+     hook's or the harness's text (its attribution line included), or a
+     statement about another repo, another machine, or only one story. An
+     answer that fits more than one option (tiering's story or repo default),
+     is in doubt, or was later questioned is asked. Co-authorship is never yes
+     without a plain yes.
+   - Ask every other missing question together, in as few ask-question calls
+     as possible (up to 4 questions per call). Never ask a question that
+     already has a stored answer.
+4. **Save each answer** the way its owner says. Then, for tiering:
+   - "Configure the agents" → run `setup-models` inline, on the main agent (it
+     asks its own questions), once in this run. It runs inside this `init` run,
+     so it records no cost of its own (`references/run-cost.md`). If `--status`
+     is still not `ok` after it, say so and go on with the default model.
+   - "Default model for this story" → the story file may not exist yet: keep
+     the answer and write its `Tiering: default model` row in Phase 6 step 8.
+     Treat tiering as settled for the rest of this run; never run
+     `setup-models` because `--status` still prints `unmapped`.
+   Do not run the four checks again after saving: what is saved is settled.
+5. **Every run:** run `config-env.sh set language <code>` with the ISO
+   639-1 code of the conversation's language (`es`, `en`, …), inferred the way
+   `references/user-language.md` says; the file's other keys are kept. Never ask
+   and never record it: it only follows the conversation. The commit hooks read
+   it to word their permission dialogs when neither the conversation nor
+   Claude Code's `language` setting can tell them (`hooks/README.md` at the
+   plugin root).
+
+**Unattended** (`references/inference-first.md`, "A run is unattended when";
+an ask that comes back with nothing from the human is one, and so is a session
+with no ask-question tool), an answer still missing after step 3's first bullet
+takes its owner's fallback, and nothing is asked, not even in prose. The defaults are the human's choice (WD-0108): `gitignored` becomes
+`true`; tiering binds each role to the model you infer fits it
+(`references/tiering-question.md`); co-authorship is saved as no; the
+alerts turn on (`references/attention-alert.md`, "Alerts on this machine").
+An autonomous run with a human present is not unattended: it asks. The story file does not exist yet, so keep
+each answer you inferred and write it as its own `Agent (inferred)` row in
+Phase 6 step 8.
+
+After this phase, `init` asks no configuration question: next comes the run
+mode, then the story. Phase 7, and the pre-autonomous checkpoint in autonomous
+mode, hold only the story's own doubts.
+
+#### The gitignored question
+
+`.workflow-dev/context/` is a fixed path — do not detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only open question is whether this folder is tracked in git or gitignored, and that's answered once per project, not once per run.
+
+When nobody can answer (Phase 0, "Unattended"), save `true`: the human's chosen default (WD-0108), private and reversible later. Otherwise, ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Save the answer with `config-env.sh set gitignored true` or `config-env.sh set gitignored false`, and update `.gitignore` accordingly.
+
+If `gitignored` is `true`, the entire `.workflow-dev/` folder — including `config.env` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
+
+### After Phase 0: Resolve the run mode (WD-0039)
+
+Settle the mode right after the configuration, before anything else: every
+later phase, and any hand-off in the ECOSYSTEM SECTION, behaves differently in
+autonomous mode (`references/autonomous-mode.md`,
 "Resolved before any hand-off").
 
 - The human's message that starts this `init` says how to run ("ve autónomo" /
@@ -75,43 +182,12 @@ SECTION, behaves differently in autonomous mode (`references/autonomous-mode.md`
   What each answer writes is the agent's mechanics, not the user's choice: keep
   it out of the option text (Phase 6 step 8).
 
-Never infer autonomous mode from silence: no answer means step by step. Ask once
-per story; later skills read the row and do not re-ask. The story file may not
+When the run is unattended (Phase 0, "Unattended"; a question dismissed with
+no words of the human counts), the run mode is autonomous: the human's choice
+of default (WD-0108), written as `Agent (inferred)` in Phase 6 step 8.
+A stored `Autonomous mode: off` row still wins: the human turned it off on
+purpose. Ask once per story; later skills read the row and do not re-ask. The story file may not
 exist yet, so keep the answer and write it in Phase 6 step 8.
-
-In autonomous mode, before the first question this run asks from here on (the
-tiering setup, co-authorship, alerts, or the checkpoint), say that autonomous
-mode has not started yet (`references/autonomous-mode.md`, "Before the run
-starts").
-
-### Phase 0: Resolve the context-tracking preference
-
-`.workflow-dev/context/` is a fixed path — do not detect or ask about `.claude/`, `.codex/`, or any other agent-specific convention. The only open question is whether this folder is tracked in git or gitignored, and that's answered once per project, not once per run.
-
-The repo's one-time answers live in `.workflow-dev/config.env`, one
-`key=value` per line. Read and write them only through the plugin's script,
-never by hand; the `config.json` of older versions is ignored, so the questions
-below come once again there. Run each `set` on its own, one after
-the other, never two in parallel:
-
-```
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && pwd -P)}"
-"$PLUGIN_ROOT"/scripts/config-env.sh get gitignored
-"$PLUGIN_ROOT"/scripts/config-env.sh set gitignored true
-```
-
-1. Run `config-env.sh get gitignored` at the project root.
-2. **If it prints `true` or `false`:** if `true`, confirm `.workflow-dev/` is actually listed in `.gitignore` (add it, and create `.gitignore` if the project has none, when it's missing). If `false`, do nothing further — the folder is meant to be tracked. Either way, don't ask the human again.
-3. **If it prints nothing** (first `init` run in this project): ask the human directly — do you want to keep the `.workflow-dev/` folder gitignored? This is where the skill's configuration and your persistent context live: gitignored means both are private, per-machine, and regenerated from scratch on a fresh clone; tracked means both travel with the repo, survive a fresh clone, and can double as visible engineering documentation. Save the answer with `config-env.sh set gitignored true` or `config-env.sh set gitignored false`, and update `.gitignore` accordingly. In autonomous mode, don't ask: use `true` (private, and reversible later), and record it in the story's Decisions as `Agent (inferred)` in Phase 6.
-4. **Every run:** run `config-env.sh set language <code>` with the ISO
-   639-1 code of the conversation's language (`es`, `en`, …), inferred the way
-   `references/user-language.md` says; the file's other keys are kept. Never ask
-   and never record it: it only follows the conversation. The commit hooks read
-   it to word their permission dialogs when neither the conversation nor
-   Claude Code's `language` setting can tell them (`hooks/README.md` at the
-   plugin root).
-
-If `gitignored` is `true`, the entire `.workflow-dev/` folder — including `config.env` — is excluded; nothing under it travels with the repo. That's the point of choosing `true`. On a fresh clone, `.workflow-dev/` simply won't exist yet — treat that exactly like a first `init` run and ask again.
 
 ### Phase 1: Extract from Jira (skip if a `.md` path was given — use Phase 1-alt instead)
 
@@ -153,33 +229,12 @@ before Phase 0 has settled whether `.workflow-dev/` is gitignored.
 4. Check for uncommitted changes and warn if the tree is dirty.
 5. Identify or create the work branch.
 
-### Phase 4: Detect the agent-role bindings (self-heal before researching)
+### Phase 4: The agent-role bindings
 
-The first role-dependent work in this flow is the research pass in Phase 5, so
-catch a missing or stale binding here — before it is paid for on the default
-model.
-
-Resolve `$PLUGIN_ROOT` the way `setup-models` does, then ask the one script that
-owns the verdict, passing this skill's name as the payload **argument**:
-
-```
-"$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}'
-```
-
-The argument is load-bearing — with no payload the script reads stdin, identifies
-no skill, and answers `not-ours`, making this step a silent no-op. Then:
-
-- `ok` → continue silently.
-- `unmapped` / `stale` / `incomplete` → run the `setup-models` skill inline
-  (`/workflow-dev:setup-models`) — main agent, interactive, never a sub-agent —
-  then continue where you left off. It runs inside this `init` run, so it
-  records no cost of its own (`references/run-cost.md`).
-- `opted-out` → skip silently (a default model was chosen for this repo or this story).
-- `no-harness` / `no-registry` → say that tiering couldn't be set up and that
-  everything runs on the default model, then proceed.
-
-Full branch table, and the rules about never re-deriving the check and never
-restating the setup flow: `references/workflow.md` Step 6.
+Nothing to do here: Phase 0 checked the bindings with the rest of the
+configuration, so the research in Phase 5 never runs on the default model by
+accident. The `--status` answers and what each one means:
+`references/workflow.md` Step 6.
 
 ### Phase 5: Repo-level context (REPO.md)
 
@@ -229,25 +284,25 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    are part of this run, so the end checkpoint comes after them ("Close the
    run's cost", below).
 
-8. **Write the run mode** resolved before Phase 0. Autonomous writes
-   `| [date] | Autonomous mode: on | Human |` to Decisions, per
+8. **Write the run mode** resolved after Phase 0. Autonomous writes
+   `| [date] | Autonomous mode: on | Human |` to Decisions (`Agent (inferred)`
+   when it was the unattended default), per
    `references/autonomous-mode.md`; step by step writes no row, or `Autonomous mode: off`
    when it replaces an `on` row the human just overrode. When the human
    overrode a stored row, edit that row in place (new value, today's date);
    never append a second one, so Decisions holds exactly one
-   `Autonomous mode:` row. Skip when the row already matches. In autonomous mode, also write every answer this run
-   inferred so far (Phase 0, each REPO.md section saved without review in
-   Phase 5, the ECOSYSTEM hand-off) as its own
-   `Agent (inferred)` row.
+   `Autonomous mode:` row. Skip when the row already matches. Whatever the mode, and whether or
+   not that row was written, also write each answer this run inferred so far
+   as its own `Agent (inferred)` row: Phase 0's `gitignored`, alerts and
+   tiering bindings when the run was unattended and they were set without the
+   human, and, in
+   autonomous mode, each REPO.md section saved without review in Phase 5 and
+   the ECOSYSTEM hand-off. Write Phase 0's `Tiering: default model` answer here
+   too, as the human's (`references/tiering-question.md`).
    Then, whether or not the row was rewritten: with the row `on`, start
    keeping the Mac awake right away, without asking; with an `on` row turned
    `off`, stop it (`references/autonomous-mode.md`, "Keeping the Mac awake").
-   With the row `on`, also ask the agent co-authorship question once, unless
-   `config-env.sh get agentCoauthorship` already prints `yes` or `no` — the
-   question, its options, and where the answer goes are
-   `../summarize-changes/SKILL.md` Step 1's, and when to ask is
-   `references/autonomous-mode.md`, "The signal". The answer is the human's,
-   never inferred; no answer means no and writes nothing.
+   The co-authorship question is not asked here: Phase 0 asked it.
 
 9. **Recommend a tier for the session's model** (WD-0050). The session's model
    is the orchestrator: it talks with the human, implements each task group, and
@@ -302,10 +357,8 @@ In autonomous mode, this phase is the pre-autonomous checkpoint: follow
 `references/autonomous-mode.md` (at the plugin root), "The pre-autonomous
 checkpoint", instead of the steps above.
 
-**Alerts on this machine.** In both modes, while the human is still here,
-follow `references/attention-alert.md` (at the plugin root), "Alerts on this
-machine": it asks whether to turn the alerts on only while this machine has no
-answer yet.
+This phase asks no configuration question: Phase 0 settled all of them before
+any work started.
 
 ### Close the run's cost
 
@@ -349,8 +402,9 @@ Rules:
    `local-backlog/<CODE>-*.md` (`<CODE>` is only the `<PREFIX>-XXXX` part
    of the filename, e.g. `LB-0018`, not the whole slug), and
    `local-backlog/.backlog-config.json` exists at the repo root, invoke
-   `/local-backlog:update-status <CODE> "In Progress"` before any of
-   Phase 1-alt's extraction steps run. In autonomous mode, pre-answer the
+   `/local-backlog:update-status <CODE> "In Progress"` after Phase 0 has
+   settled the configuration and before any of Phase 1-alt's extraction
+   steps run. In autonomous mode, pre-answer the
    invocation (`ECOSYSTEM.md`, "Pre-answered invocations"): Planner board:
    yes; note: a one-line note inferred from the transition. With no
    autonomous mode, pass no answers. If the marker file doesn't exist,

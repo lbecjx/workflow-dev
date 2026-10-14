@@ -1,0 +1,24 @@
+schema_version: "1.1"
+name: init-asks-config-first
+description: >
+  Guard for WD-0108. init settles its fixed configuration in one block first
+  (skills/init/SKILL.md, Phase 0), before the run-mode question and before any
+  work on the story: before the backlog status hand-off, before reading the story or
+  REPO.md, before any research. The fixture stores no answer for the
+  `.workflow-dev/` gitignored choice and none for agent co-authorship, so both
+  are missing when init starts. The graders check that both are settled before
+  the hand-off, that they are put together when they are asked, and that the
+  gitignored choice is never inferred without a trace.
+
+  The eval runner is non-interactive (`claude -p`) and the run has no answer
+  in its prompt, so it is unattended: Phase 0 asks nothing and saves each
+  owner's default. Graders with no judge check the order of the tool calls
+  (each setting saved before the story's context file is written: the
+  one story step that always uses one tool, Write), the saved
+  `config.env`, and the `Agent (inferred)` trace in the story's Decisions;
+  `asked-together` is the one judged grader. Tiering is stored
+  (`tiering=default`) so the run does not spend its turns binding agents; the
+  init-config-answers-* cases start with no `config.env` at all.
+tags: [init, configuration, regression]
+context:
+  scaffold_script: fixture.sh

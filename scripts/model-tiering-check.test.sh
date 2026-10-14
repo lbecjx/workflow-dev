@@ -57,32 +57,24 @@ VALIDATE='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:validate"}}'
 SETUP='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:setup-models"}}'
 INIT='{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:init"}}'
 
-# --- 1: a skill that isn't this plugin's is left alone ----------------------
-OUT="$(hook "" "$NOT_OURS")"
-[[ -z "$OUT" ]] && ok "another plugin's skill → silent" || no "another plugin's skill → silent (got: $OUT)"
+# --- 1: a skill that isn't this plugin's is not ours -------------------------
+OUT="$(hook --status "$NOT_OURS")"
+[[ "$OUT" == "not-ours" ]] && ok "another plugin's skill → not-ours" || no "another plugin's skill → not-ours (got: $OUT)"
 
-# --- 2: the setup command itself never triggers the reminder ----------------
-OUT="$(hook "" "$SETUP")"
-[[ -z "$OUT" ]] && ok "setup-models → silent" || no "setup-models → silent (got: $OUT)"
+# --- 2: the setup command itself is never reported as missing ----------------
+OUT="$(hook --status "$SETUP")"
+[[ "$OUT" == "not-ours" ]] && ok "setup-models → not-ours" || no "setup-models → not-ours (got: $OUT)"
 
-# --- 3: unbound → allow, with the question in the agent's context -------------
-QFILE="$HERE/../references/tiering-question.md"
+# --- 2b: no longer a hook (WD-0108) ------------------------------------------
+# config-check.sh asks the tiering question with the other setup questions; this
+# script only answers --status and --role-models. Called bare it says nothing.
 OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"allow"' "$OUT" "unbound role → allow: no \"Error:\" line, no dialog (WD-0046)"
-has '"additionalContext"' "$OUT" "unbound role → the question rides as context the agent reads"
-case "$OUT" in
-  *'"ask"'*|*'"deny"'*|*permissionDecisionReason*) no "unbound role must neither ask nor deny (got: $OUT)" ;;
-  *) ok "unbound role neither asks nor denies" ;;
-esac
-has 'do not start the skill' "$OUT" "the context says to hold the skill until the user answers"
-has 'Then continue the skill.' "$OUT" "the context says to continue the skill, not call it again"
-has 'it is required, also in autonomous mode' "$OUT" "the context says the question is required in autonomous mode"
-has 'references/tiering-question.md' "$OUT" "the question file is named for the agent"
-json_ok "$OUT" "unbound output is valid JSON"
-# Everything but the context stays out of the user's sight, and the context stays
-# short: the instructions live in the question file.
-OUT_LEN=${#OUT}
-[[ $OUT_LEN -lt 900 ]] && ok "the hook output stays short ($OUT_LEN chars)" || no "the hook output is too long ($OUT_LEN chars)"
+[[ -z "$OUT" ]] && ok "bare call → silent: the hook role moved to config-check.sh" || no "bare call → silent (got: $OUT)"
+OUT="$(hook --expansion "$VALIDATE")"
+[[ -z "$OUT" ]] && ok "--expansion → silent" || no "--expansion → silent (got: $OUT)"
+
+# --- 3: the tiering question file (asked by config-check.sh) -----------------
+QFILE="$HERE/../references/tiering-question.md"
 [[ -f "$QFILE" ]] && ok "the question file exists" || no "the question file is missing: $QFILE"
 Q="$(cat "$QFILE")"
 # WD-0045: a deny opens no dialog, so there is no "don't ask again"; the file the
@@ -92,30 +84,10 @@ has '1. **Configure the agents.**' "$Q" "question file puts configuring first"
 has '2. **Default model for this story.**' "$Q" "question file offers a per-story default"
 has '3. **Default model for this repo.**' "$Q" "question file offers a per-repo default"
 has "Offer this option only when the current git branch name carries that story's" "$Q" "the per-story option is offered only on a branch the hook can match"
-has 'The question is required, also in autonomous mode: never choose an answer for' "$Q" "the question is required in autonomous mode too"
+has 'The question is required, also in autonomous mode: while a human can answer,' "$Q" "the question is required in autonomous mode too"
+has 'When nobody can answer (unattended' "$Q" "question file: the unattended default binds the roles (WD-0108)"
 has 'There is no machine-wide opt-out' "$Q" "question file: no machine-wide opt-out"
 has 'a weak model there does more harm than the default' "$Q" "question file carries the reasoning note"
-# The reminder (carried in the typed path's context) still names the fix and the
-# story/repo default.
-OUT="$(hook --expansion "$VALIDATE")"
-has '/workflow-dev:setup-models' "$OUT" "reminder names the command that fixes it"
-has 'or choose the default model for this story or this repo' "$OUT" "reminder offers the story/repo default, not a machine-wide opt-out"
-case "$OUT" in
-  *optOut*|*tiering.json*) no "the machine-wide opt-out is gone (got: $OUT)" ;;
-  *) ok "no mention of a machine-wide opt-out" ;;
-esac
-
-# --- 4: the typed path gets context, never an ask ---------------------------
-OUT="$(hook --expansion "$VALIDATE")"
-has '"hookEventName":"UserPromptExpansion"' "$OUT" "expansion → UserPromptExpansion output"
-has '"additionalContext"' "$OUT" "expansion → advisory context"
-has 'references/tiering-question.md' "$OUT" "expansion context points at the same question file"
-json_ok "$OUT" "expansion output is valid JSON"
-case "$OUT" in
-  *permissionDecision*) no "expansion must not emit a permission decision" ;;
-  *) ok "expansion must not emit a permission decision" ;;
-esac
-
 # --- 5: --status reports the state (what skills/init asks) -----------------
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "unmapped" ]] && ok "--status → unmapped" || no "--status → unmapped (got: $OUT)"
@@ -128,8 +100,6 @@ while IFS= read -r role; do
     "$role" "$HASH" > "$HOME_DIR/.claude/agents/$role.md"
 done < <(grep '^### ' "$ROLES" | sed -E 's/^### `([^`]+)`.*/\1/')
 
-OUT="$(hook "" "$VALIDATE")"
-[[ -z "$OUT" ]] && ok "bound and current → silent" || no "bound and current → silent (got: $OUT)"
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "ok" ]] && ok "--status → ok" || no "--status → ok (got: $OUT)"
 
@@ -139,12 +109,6 @@ printf -- '---\nname: %s\ndescription: d\nmodel: whatever\n---\nbody\n\n<!-- wor
   "$FIRST_ROLE" > "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" == "stale" ]] && ok "--status → stale" || no "--status → stale (got: $OUT)"
-OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"allow"' "$OUT" "stale roles also raise the question"
-json_ok "$OUT" "stale output is valid JSON"
-OUT="$(hook --expansion "$VALIDATE")"
-has 'stale' "$OUT" "stale reminder says the roles are stale"
-has 'or choose the default model for this story or this repo' "$OUT" "stale reminder offers the story/repo default"
 
 # --- 8: one role stale + another missing → incomplete ----------------------
 # Rebuild from a clean slate so this doesn't depend on the prior test's state:
@@ -166,8 +130,6 @@ mv "$ROLES.bak" "$ROLES"
 # the reminder: the default is chosen per repo or per story only.
 mkdir -p "$HOME_DIR/.workflow-dev"
 printf '{"optOut": true}' > "$HOME_DIR/.workflow-dev/tiering.json"
-OUT="$(hook "" "$VALIDATE")"
-has '"permissionDecision":"allow"' "$OUT" "a leftover user-level optOut file is ignored"
 OUT="$(hook --status "$VALIDATE")"
 [[ "$OUT" != "opted-out" && -n "$OUT" ]] && ok "--status ignores the leftover optOut file" || no "--status ignores the leftover optOut file (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/tiering.json"
@@ -211,14 +173,6 @@ done < <(grep '^### ' "$ROLES" | sed -E 's/^### `([^`]+)`.*/\1/')
 OUT="$(env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT" --status "$INIT" < /dev/null)"
 [[ "$OUT" == "ok" ]] && ok "init payload as an argument, bound and current → ok" \
   || no "init payload as an argument, bound and current → ok (got: $OUT)"
-
-# --- 15: bound and current → init is never asked (AC #8) --------------------
-# The reminder must go quiet for `init` itself once the bindings are current,
-# not only for the skills the other tests here use — otherwise an init that just
-# healed its own bindings would be nagged for the rest of its run.
-OUT="$(hook "" "$INIT")"
-[[ -z "$OUT" ]] && ok "bound and current → init raises no ask" \
-  || no "bound and current → init raises no ask (got: $OUT)"
 
 # --- 16: re-running the check changes nothing (AC #7) -----------------------
 # The check reports; it must never write. Comparing the generated agent files
@@ -326,49 +280,44 @@ printf '\xEF\xBB\xBF---\nname: %s\nmodel: sonnet\n---\n<!-- workflow-dev:roles-h
 has "$FIRST_ROLE	bound	sonnet" "$(RR)" "a leading BOM does not hide the binding"
 rm -f "$HOME_DIR/.claude/agents/$FIRST_ROLE.md"
 
-# init offers the same menu; its Phase 4 only finds the roles bound if option 1 ran.
-OUT="$(hook "" "$INIT")"
-has 'references/tiering-question.md' "$OUT" "init gets the same question (its Phase 4 stays the backstop)"
-json_ok "$OUT" "init output is valid JSON"
+# init's Phase 0 reads --status for init itself.
+OUT="$(hook --status "$INIT")"
+[[ "$OUT" == "unmapped" ]] && ok "unbound → --status for init says unmapped" || no "unbound → --status for init says unmapped (got: $OUT)"
 
-# --- WD-0045: the repo and story defaults silence the reminder ---------------
+# --- WD-0045: the repo and story defaults read as opted-out -----------------
 REPO_DIR="$TMP/repo"; mkdir -p "$REPO_DIR/.workflow-dev/context"
 git -C "$REPO_DIR" init -q -b wd-0045-example
 CWD_PAYLOAD="{\"tool_name\":\"Skill\",\"cwd\":\"$REPO_DIR\",\"tool_input\":{\"skill\":\"workflow-dev:validate\"}}"
 rm -rf "$HOME_DIR/.claude/agents"; mkdir -p "$HOME_DIR/.claude/agents"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"allow"' "$OUT" "no repo/story default → the question still comes first"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "unmapped" ]] && ok "no repo/story default → the question still comes first" || no "no repo/story default → the question still comes first (got: $OUT)"
 printf 'gitignored=true\ntiering=default\n' > "$REPO_DIR/.workflow-dev/config.env"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-[[ -z "$OUT" ]] && ok "repo default → silent" || no "repo default → silent (got: $OUT)"
 OUT="$(hook --status "$CWD_PAYLOAD")"
 [[ "$OUT" == "opted-out" ]] && ok "repo default → --status opted-out" || no "repo default → --status opted-out (got: $OUT)"
 rm -f "$REPO_DIR/.workflow-dev/config.env"
 printf 'tiering=defaults\n' > "$REPO_DIR/.workflow-dev/config.env"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"allow"' "$OUT" "tiering=defaults is not the default → the question still comes"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "unmapped" ]] && ok "tiering=defaults is not the default → the question still comes" || no "tiering=defaults is not the default → the question still comes (got: $OUT)"
 rm -f "$REPO_DIR/.workflow-dev/config.env"
 printf '{ "gitignored": true, "tiering": "default" }' > "$REPO_DIR/.workflow-dev/config.json"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"allow"' "$OUT" "an older config.json is ignored → the question comes again"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "unmapped" ]] && ok "an older config.json is ignored → the question comes again" || no "an older config.json is ignored → the question comes again (got: $OUT)"
 rm -f "$REPO_DIR/.workflow-dev/config.json"
 # A prose mention of the row must not count — only a Decisions table row does.
 printf 'The row `| date | Tiering: default model | Human |` is what silences it.\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"allow"' "$OUT" "a story that only mentions the row does not opt out"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "unmapped" ]] && ok "a story that only mentions the row does not opt out" || no "a story that only mentions the row does not opt out (got: $OUT)"
 printf '## Decisions\n| 2026-10-08 | Tiering: default model | Human |\n' > "$REPO_DIR/.workflow-dev/context/WD-0045.md"
-OUT="$(hook "" "$CWD_PAYLOAD")"
-[[ -z "$OUT" ]] && ok "story default on the story's branch → silent" || no "story default on the story's branch → silent (got: $OUT)"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "opted-out" ]] && ok "story default on the story's branch → opted-out" || no "story default on the story's branch → opted-out (got: $OUT)"
 git -C "$REPO_DIR" checkout -q -b wd-0099-other
-OUT="$(hook "" "$CWD_PAYLOAD")"
-has '"permissionDecision":"allow"' "$OUT" "story default does not carry to another story's branch"
+OUT="$(hook --status "$CWD_PAYLOAD")"
+[[ "$OUT" == "unmapped" ]] && ok "story default does not carry to another story's branch" || no "story default does not carry to another story's branch (got: $OUT)"
 
 # --- WD-0042: no mode ever opts the user out on its own ---------------------
 # Unbound, every mode: the hook must never create a tiering file or a repo default.
 rm -rf "$HOME_DIR/.claude/agents" "$HOME_DIR/.workflow-dev"; mkdir -p "$HOME_DIR/.claude/agents"
-for m in "" --expansion --status; do
-  hook "$m" "$VALIDATE" >/dev/null
-done
+hook --status "$VALIDATE" >/dev/null
 [[ ! -e "$HOME_DIR/.workflow-dev/tiering.json" && ! -e "$REPO_DIR/.workflow-dev/config.json" && ! -e "$REPO_DIR/.workflow-dev/config.env" ]] \
   && ok "no mode writes a tiering default" || no "a mode wrote a tiering default"
 

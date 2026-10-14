@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/model-tiering-check.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/config-check.sh",
             "timeout": 5
           },
           {
@@ -129,7 +129,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/model-tiering-check.sh --expansion",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/config-check.sh --expansion",
             "timeout": 5
           },
           {

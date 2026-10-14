@@ -1,0 +1,21 @@
+schema_version: "1.1"
+name: init-config-answers-all-no
+description: >
+  Guard for WD-0108, AC 8: every setup answer is no. The repo starts with no
+  `.workflow-dev/config.env` and the run's own empty HOME has no notifications
+  answer, so all four setup answers are missing. The human's message gives
+  them; init must save each one as given, without asking it again, and before
+  any work on the story.
+
+  The runner is non-interactive (`claude -p`) and cannot answer an ask, so the
+  answers ride in the prompt, which init's Phase 0 counts as answers the human
+  already gave. Every grader but `init-fired` is computed from the run itself,
+  with no judge: the saved `config.env` and `.gitignore`, the alerts command,
+  and the order of the tool calls (each setting saved before the story's
+  context file is written: the one story step that always uses one tool, Write). Tiering is answered "default model for this repo" in
+  every scenario: it is not a yes/no question. Siblings:
+  init-config-answers-all-yes, init-config-answers-all-no,
+  init-config-answers-mixed.
+tags: [init, configuration, regression]
+context:
+  scaffold_script: fixture.sh

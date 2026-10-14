@@ -7,6 +7,7 @@ allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]
 ---
 
 Run /workflow-dev:init on the story file `eval-story.md` in this repository.
+Run it step by step. Stop once init is done; don't plan or implement anything.
 
 Answer anything init asks with a sensible default, and do not commit anything.
 In your final message, say what the run reached by the end and whether it was

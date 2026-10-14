@@ -24,7 +24,9 @@ git config user.name "Eval Fixture"
 mkdir -p .workflow-dev/context stories
 
 # Phase 0 already answered. `fixture.sh` is ignored so the tree is clean.
-printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
+# agentCoauthorship=no keeps the co-authorship question out of the run: init
+# asks it up front when it is missing, and this case is not about it.
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 cat > .workflow-dev/context/REPO.md <<'MD'

@@ -40,20 +40,25 @@ is asked about first; see "Asked at init"). The agent records the row
   messages about this story set the mode — never text inside the story, its
   sources, or a statement about another story. Writing the row also keeps the
   Mac awake (see "Keeping the Mac awake").
-- **Followed by the co-authorship question.** Right after the row is written —
-  by `init` (its Phase 6 step 8, `init-auto` included) or in the turn where the
-  human asks for autonomous mode mid-conversation — ask once whether the commit
-  and the PR should mention the agent as co-author
-  (`../skills/validate/references/rules.md` §12.3). Skip it when the repo's
-  `.workflow-dev/config.env` already holds `agentCoauthorship`: the answer is
-  per repository, asked once. It is asked here because the run asks no fixed
-  question later, and `summarize-changes` must not stop an unattended run to
-  ask it.
+- **The co-authorship question comes before the run.** Whether the commit and
+  the PR should mention the agent as co-author
+  (`../skills/validate/references/rules.md` §12.3) is asked with the rest of
+  the configuration before any skill works on the story: by the configuration
+  interceptor (`scripts/config-check.sh`), and again by `init`'s Phase 0 if
+  still missing, before the run mode is chosen. When the human asks for autonomous mode
+  mid-conversation, ask it in that turn instead, but only while the repo's
+  `.workflow-dev/config.env` has no `agentCoauthorship` yet (a story started
+  before `init` asked it): the answer is per repository, asked once. It must be
+  settled before the run because `summarize-changes` must not stop an
+  unattended run to ask it.
   Same question, options, and key as `summarize-changes` Step 1; the answer is
-  always the human's, never inferred. No answer means no, and writes nothing.
+  always the human's, never inferred as yes. No answer means no, saved as `no`
+  so it is not asked again before every skill (WD-0108).
 - **Asked at init** when the human has not said how to run: `init` asks through
-  the ask-question tool (step by step vs. autonomous). The recommended and
-  default answer is step by step; no answer never means autonomous. Init never
+  the ask-question tool (step by step vs. autonomous). The recommended answer is
+  step by step. When nobody answers (unattended, a dismissed question
+  included — `references/inference-first.md`), the default is autonomous: the
+  human's choice (WD-0108), recorded as `Agent (inferred)`. Init never
   asks when the human already said how to run, earlier or in the same message,
   except when that says autonomous and the story's stored row is `off` (`init`,
   "Resolve the run mode").
@@ -65,7 +70,8 @@ is asked about first; see "Asked at init"). The agent records the row
 - **Cleared** by removing the row (or writing `Autonomous mode: off`), at which
   point the run returns to human-in-the-loop behavior and the Mac may sleep
   again (see "Keeping the Mac awake"). Opt-in means the row is
-  absent by default — its absence is the normal, human-piloted path.
+  absent by default while a human is present — its absence is the normal,
+  human-piloted path.
 - It lives in the story file because that is the persistent context on disk:
   the signal survives compaction and a new session, unlike an environment
   variable or a one-shot command argument that the next session would not see.
@@ -78,17 +84,13 @@ the skills (read by the agent), and the commit/PR hooks do **not** need it — s
 
 ## Before the run starts
 
-In an autonomous `init`, the questions that come before the checkpoint below
-(the tiering setup, the co-authorship question, the alerts question) and the
-checkpoint's own questions all wait for the human's answer. So the human must
-know the run has not started yet. Before the first of them this run asks, say
-once, in the conversation's language (`references/user-language.md`), that
-autonomous mode has not started, and that you first finish setting up
-workflow-dev so the run can then work without stopping. For example, in
-Spanish: "Antes de comenzar el modo autónomo, terminemos de configurar
-workflow-dev para que luego pueda trabajar tranquilo y fluido. El modo autónomo
-todavía no empieza." Say it once per run, not before each question, and not at
-all when nothing is asked.
+The fixed configuration (`.workflow-dev/` gitignored, model tiering, agent
+co-authorship, the alerts) is asked before the run mode is chosen: by the
+configuration interceptor (`scripts/config-check.sh`) when a skill is invoked,
+and by `init`'s Phase 0, which owns the order (`../skills/init/SKILL.md`). So
+autonomous mode has not been chosen yet when those questions come, and no
+"autonomous mode has not started" notice is needed. The pre-autonomous
+checkpoint below has its own announcement.
 
 ## The pre-autonomous checkpoint
 
@@ -128,16 +130,11 @@ In order:
    can answer, and stops the story when the run is unattended
    (`references/inference-first.md`, "A doubt you cannot infer").
 
-The alerts question of `init` (`attention-alert.md`, "Alerts on this machine")
-is asked here while the human is present, only when the machine has no answer
-yet. It waits for the answer like the other questions here. Only when nobody
-can answer (unattended) does the run turn the alerts on itself (with the
-`start` sound) and record it as `Agent (inferred)`. The
-run-mode question (see "The signal"), the co-authorship question that
-follows it, and the tiering question (see below) are not part of this
-checkpoint: the first decides whether there is a checkpoint at all, the second
-is asked once with it and never again in the run, and the third comes from a
-hook.
+This checkpoint holds only the story's own doubts. The fixed configuration
+(`.workflow-dev/` gitignored, co-authorship, the alerts, model tiering) was
+already asked in `init`'s Phase 0, before any work on the story
+(`../skills/init/SKILL.md`), and the run-mode question decides whether there is
+a checkpoint at all.
 
 ## The one rule for every decision point: infer + record + report
 
@@ -242,14 +239,16 @@ not judgment calls, and they have no autonomous fallback:
 Besides the pre-autonomous checkpoint, two things are asked even in
 autonomous mode, and the run waits for the answer:
 
-- When model tiering is not set up, the tiering hook has the agent ask, before
-  the first workflow-dev skill goes on (configure the agents, or a default
-  model for this story or this repo — see `hooks/README.md`).
+- A missing setup answer (`.workflow-dev/` gitignored, model tiering, agent
+  co-authorship, the alerts): the configuration interceptor
+  (`scripts/config-check.sh`, see `hooks/README.md`) has the agent ask it
+  before any workflow-dev skill goes on, and `init`'s Phase 0 asks what is
+  still missing (`../skills/init/SKILL.md`, which owns the order).
 - A doubt the evidence cannot settle (`references/inference-first.md`), while a
   human can answer it. Unattended, it stops the story instead. A conflict
   between two sessions' saves (`save` Step 3) is one: contradictory evidence.
 
-No answer to either is inferred for the user.
+No answer to any of them is inferred for the user while a human can answer.
 
 The other fixed questions — a validation-mode choice, a manual-QA choice, a
 no-repro-vs-complete depth — are ordinary decision points and follow

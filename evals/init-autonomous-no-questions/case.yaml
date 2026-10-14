@@ -10,6 +10,13 @@ description: >
   pre-autonomous checkpoint (references/autonomous-mode.md) has no blocking
   question to ask: init must say it checked, ask nothing, and go autonomous.
 
+  The fixture stores every repo-level configuration answer (gitignored,
+  tiering, agentCoauthorship). init asks a missing one in its Phase 0 block,
+  in autonomous mode too, so a fixture without them would make this case ask.
+  Each eval run gets its own empty HOME, so the machine's notifications
+  answer starts missing: the run, unattended, saves the default (on) without
+  asking.
+
   The pre-answered hand-off is asserted on the Skill call itself, not on the
   run's silence: a run that skipped the hand-off would be just as quiet. "No
   questions" is asserted twice: on the tool calls (the ask-question tool is

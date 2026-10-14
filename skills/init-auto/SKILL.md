@@ -42,6 +42,6 @@ the one source of truth.
    (`/workflow-dev:init-auto <story>`); never guess one.
 2. **Invoke `/workflow-dev:init`** with that input, unchanged, followed by
    `— run this autonomously`. `init` reads that as the human saying how to run
-   this story (`../init/SKILL.md`, "Before Phase 0: Resolve the run mode") and
+   this story (`../init/SKILL.md`, "After Phase 0: Resolve the run mode") and
    carries on from there, including the case where the story was already set
    to step by step.

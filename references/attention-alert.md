@@ -125,9 +125,10 @@ The alerts are one yes or no for the whole machine: the answer lives in
 `~/.workflow-dev/config.env` (`notifications=on` or `notifications=off`), holds
 for every story of every repo, and nothing turns it off when a story ends. No answer means no sound at
 all, `need` and `permission` included. Every sound plays on the system's
-default output, so nothing else is asked. `init` asks (its Phase 7, in either
-run mode, while the human is still there), but only while the machine has no
-answer. Resolve `PLUGIN_ROOT` as in "How to arm":
+default output, so nothing else is asked. It is asked with the other missing
+setup answers, before any skill works on the story and before the run mode is
+chosen: by the configuration interceptor (`scripts/config-check.sh`), and by
+`init`'s Phase 0 if still missing, but only while the machine has no answer. Resolve `PLUGIN_ROOT` as in "How to arm":
 
 1. `"$PLUGIN_ROOT"/scripts/attention-alert.sh get` prints `on`, `off` or
    `unset`. `on` or `off`: say nothing about the alerts and go on.
@@ -147,11 +148,13 @@ answer. Resolve `PLUGIN_ROOT` as in "How to arm":
 
 Keep every sentence the human reads to one or two short ones.
 
-In autonomous mode this is part of the pre-autonomous checkpoint, only when
-`get` printed `unset`. It waits for the answer, so say first that autonomous
-mode has not started yet (`autonomous-mode.md`, "Before the run starts"). Only
-when nobody can answer (unattended), run `attention-alert.sh set on` and
-`attention-alert.sh play start`, say the tip, and record it as `Agent (inferred)`.
+It comes before the run mode is chosen, so no autonomous notice applies
+(`autonomous-mode.md`, "Before the run starts").
+
+When nobody can answer (unattended), in any run mode: run
+`attention-alert.sh set on`, say the tip, and record it as `Agent (inferred)`.
+On is the human's chosen default (WD-0108): a run nobody watches is exactly
+when the alerts are how it reaches the human.
 
 ## Off, CI and unattended
 
