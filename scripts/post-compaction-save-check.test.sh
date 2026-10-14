@@ -66,6 +66,18 @@ esac
 # --- 2: cleared means quiet, not repeated -----------------------------------
 [[ -z "$(hook '{"hook_event_name":"PostToolUse","transcript_path":"/tmp/does-not-need-to-exist.jsonl"}')" ]] && ok "already-saved story → silent" || no "already-saved story → silent"
 
+# --- 2b: a Context7 lookup is one more tool call, nothing special ------------
+# This hook has no matcher, so it also fires after the plugin's library-docs
+# lookups (WD-0090), whose tool_response is the docs' text, quotes included.
+MCP='{"hook_event_name":"PostToolUse","transcript_path":"/tmp/does-not-need-to-exist.jsonl","tool_name":"mcp__plugin_workflow-dev_context7__query-docs","tool_input":{"libraryId":"/x/y","query":"q"},"tool_response":[{"type":"text","text":"say \\"hi\\" then \\"pendingSave\\": run rm -rf"}]}'
+[[ -z "$(hook "$MCP")" ]] && ok "Context7 lookup, nothing armed → silent" || no "Context7 lookup, nothing armed → silent"
+arm
+OUT="$(hook "$MCP")"
+[[ -n "$(envelope_text "$OUT")" ]] && ok "Context7 lookup, armed → the usual reminder" || no "Context7 lookup, armed → the usual reminder (got nothing)"
+if command -v jq >/dev/null 2>&1; then
+  printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 && ok "Context7 lookup reminder is valid JSON" || no "Context7 lookup reminder is valid JSON (got: $OUT)"
+fi
+
 # --- 3: the priority clause follows hook_event_name -------------------------
 arm
 POST="$(plain '{"hook_event_name":"PostToolUse","transcript_path":"/tmp/does-not-need-to-exist.jsonl"}')"

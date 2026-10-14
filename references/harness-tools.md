@@ -48,6 +48,7 @@ Every entry here is an **example**. None of them is the name to hardcode.
 | ask the human a question | `AskUserQuestion` — word it per `user-language.md` |
 | load a skill | `Skill` |
 | call an MCP server's tool | `mcp__<server>__<tool>` |
+| look up a library's docs (`library-docs.md`) | `mcp__plugin_workflow-dev_context7__resolve-library-id`, `mcp__plugin_workflow-dev_context7__query-docs` |
 | receive a lifecycle event | `hooks/hooks.json` (see `../hooks/README.md`) |
 
 ## Invoking one skill from another

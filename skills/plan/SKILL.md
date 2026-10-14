@@ -118,7 +118,8 @@ exactly as in a plan you drafted yourself — and so does every autonomous-mode
 rule below. Read its draft against the code you explored before you present it. Settle
 each point it leaves unsettled from the evidence, and record it with that
 evidence; one the evidence cannot settle is asked, never assumed
-(`references/inference-first.md` at the plugin root).
+(`references/inference-first.md` at the plugin root). A doubt about a
+library's API or version is looked up first (`references/library-docs.md`).
 
 **An eval earns its place.** Every eval is maintenance for a small team, and
 an eval in the plan makes `validate` run it. So the plan never adds one by

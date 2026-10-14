@@ -28,6 +28,7 @@ Creates two context files under `.workflow-dev/context/`:
 - **Jira** (atlassian) — story, epic, links. Not needed when the story source is a local `.md` file.
 - **Confluence** (atlassian) — TDD, ADRs, linked docs. Not needed unless the `.md` source links out to Confluence.
 - **GitHub** — PRs, branches, repo state.
+- **Context7** — a library's current docs. Ships with the plugin; optional: without it, init goes on (`references/library-docs.md` at the plugin root).
 
 ## Input
 
@@ -355,8 +356,10 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
 
 1. Collect every ⬜ across both files.
 2. Settle each one from the evidence first, and record each answer with its
-   evidence (`references/inference-first.md` at the plugin root). Keep as a
-   question only what that file calls not inferable.
+   evidence (`references/inference-first.md` at the plugin root). A doubt
+   about a library's API or version is looked up first
+   (`references/library-docs.md`). Keep as a question only what that file
+   calls not inferable.
 3. Turn those into specific questions grounded in what's actually missing — not a generic checklist.
 4. Present them and update the context files with the answers, rewriting each `Open question:` row with its answer and `Human` as who decided.
 

@@ -49,7 +49,9 @@ Before you ask, look for the answer in this order:
 4. Git history: `git log -S <term>`, `git log -- <path>`, `git blame` on the
    lines in question, and the messages of the commits that changed them.
 5. The repo's own docs: README, `docs/`, ADRs, comments that explain why.
-6. External docs, only when a tool for them is available in this session.
+6. External docs, only when a tool for them is available in this session. A
+   doubt about a library's API or version is looked up in its docs first
+   (`library-docs.md`), before you assume it or ask.
 
 Always read the code the doubt touches (source 3), even when the story or
 REPO.md already seems to settle it: a convention written down can differ from
