@@ -105,7 +105,8 @@ During implementation, STOP and ask the human when any condition from `reference
 Before you stop, settle what the evidence settles (`references/inference-first.md`
 at the plugin root): a decision point the story, REPO.md, the code, git history or
 the docs already answer is recorded as an inferred answer with its evidence, not
-asked.
+asked. A doubt about a library's API or version is looked up first
+(`references/library-docs.md` at the plugin root).
 
 In autonomous mode, a decision point the evidence settles is not a stop — it is
 resolved by the infer + record + report rule in `references/autonomous-mode.md`:
