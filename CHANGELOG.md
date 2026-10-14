@@ -16,6 +16,10 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.52.0
+
+- workflow-dev now asks every missing setup question (keeping `.workflow-dev/` out of git, the agents' models, agent co-authorship, notifications) together as soon as you call one of its skills, before `/workflow-dev:init` asks how to run the story; when nobody can answer, it uses sensible defaults instead of stopping.
+
 ## 1.51.0
 
 - The agent now answers on its own what the story, the repo, its history or its docs already settle, and notes where it found each answer so you can correct it. It asks you only what the evidence cannot settle, such as a product call, a preference or a missing value. An autonomous run waits for that answer instead of guessing, and a run with nobody to answer stops the story with the question written down.
