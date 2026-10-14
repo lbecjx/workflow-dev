@@ -216,9 +216,9 @@ not judgment calls, and they have no autonomous fallback:
   whatever the repo's protected branch is).
 - **Never merge** (never `git merge`, never `gh pr merge`).
 - **Never skip the adversarial pass when it would run.** Whether it would run is
-  the story's complexity, decided by `plan`'s judge once the plan is written
-  (`../skills/plan/references/complexity.md`); the mode never lowers a level or
-  picks one. The depth is decided by
+  the selection judge's pick in `validate`
+  (`../skills/validate/references/selection.md`); the mode never removes a
+  picked validation and never picks one. The depth is decided by
   `validate/references/rules.md` §11.0's unattended fallback — the mode consumes
   that fallback, it never invents a shallower one (see "Adversarial depth").
 - **Never invent acceptance criteria, and never assume an answer the evidence
@@ -286,10 +286,10 @@ a normal single-diff run defaults to **no-repro**; the batched/story-end pass
 uses the depth §11.0's own criteria recommend for that cumulative diff.
 Autonomous mode consumes that fallback verbatim. It never re-debates depth, and
 "make the adversarial cheaper because nobody is watching" is a different story,
-not this one. Whether the pass runs at all is the story's complexity level
-(`../skills/plan/references/complexity.md`), and the mode consumes it the same
-way: a `moderada` or `simple` story skips the pass because of its level (unless
-its diff raises it to `compleja`), never because nobody is watching.
+not this one. Whether the pass runs at all is the selection judge's pick
+(`../skills/validate/references/selection.md`), and the mode consumes it the
+same way: the pass is skipped because the judge found nothing in the diff for
+it, never because nobody is watching.
 
 ## Hooks — no change, and that is the point
 

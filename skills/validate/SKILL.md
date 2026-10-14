@@ -56,7 +56,7 @@ workflow-dev skill whose steps are still running (`implement`), in which case
 this run is part of that one and records nothing (Step 8 says the same for the
 end).
 
-Determine the available verification commands. A fixed list of manifest files (`package.json` → npm scripts, `pyproject.toml` → pytest, and nothing else) misses any project that doesn't happen to match one of those exact shapes — a Python project using `pytest.ini`/`requirements-dev.txt` instead of `pyproject.toml`, a Ruby project, a monorepo with three stacks in different subfolders, a project whose test tool didn't exist when this list was last updated. This step is deliberately stack-agnostic instead: it reasons about what a project's own stack conventionally uses, rather than pattern-matching a short hardcoded list.
+Determine the available verification commands — only when Step 3's selection judge picks Verification or CI/CD, right after the pick: on a pass that skips both, the discovery would be paid for nothing. A fixed list of manifest files (`package.json` → npm scripts, `pyproject.toml` → pytest, and nothing else) misses any project that doesn't happen to match one of those exact shapes — a Python project using `pytest.ini`/`requirements-dev.txt` instead of `pyproject.toml`, a Ruby project, a monorepo with three stacks in different subfolders, a project whose test tool didn't exist when this list was last updated. This step is deliberately stack-agnostic instead: it reasons about what a project's own stack conventionally uses, rather than pattern-matching a short hardcoded list.
 
 1. Check `.workflow-dev/context/REPO.md` for documented test/lint/typecheck/build commands. If found and still accurate (spot-check against what's actually in the repo), skip straight to Step 2.
 2. Absent that, this is two sub-agents in sequence, not one — a survey and a confirmation search are different tasks (broad ecosystem knowledge vs. this specific repo's filesystem), and keeping them separate means the second agent's search list isn't limited to whatever the orchestrator happened to already know:
@@ -67,7 +67,7 @@ Build a command map: `{ build: "...", typecheck: "...", lint: "...", format: "..
 
 For Part 11 (Adversarial Correctness) and Part 14 (AC Coverage), also read the Acceptance Criteria table from the active `.workflow-dev/context/[STORY-ID].md`, if one exists — and, for Part 14, the `Validates: AC #X` line of the task group marked In Progress in Plan Progress, which says which ACs this change claims (§14.2; in single-diff scope, no such group → AC Coverage is SKIP — the batched/story-end scope judges every AC regardless). If no active story context exists, proceed without ACs and note that in the report — don't block on it (§14.5).
 
-From the same story file, read the story's complexity: the last `Complexity:` row in Working Memory → Decisions and, when it says `simple`, the `Validations for simple:` row after it, plus any `kept as one story` row (`../plan/references/complexity.md`, "Where the level is stored" and "Raise when the diff says so"). No story context, no `Complexity:` row, or a value other than exactly `simple`, `moderada` or `compleja` → no level; Step 3 says what that means.
+From the same story file, also read its Plan section: the task groups and their `Validates:` lines. With the ACs, they are the plan the selection judge reads in Step 3 (`references/selection.md`). No story context or no Plan section → the judge picks from the diff alone; note it in the report, don't block on it.
 
 ### Step 2: Determine scope
 
@@ -77,12 +77,16 @@ Two scopes, not one — which applies depends on why this is running:
   unstaged) defines the validation scope. Only these files are judged —
   pre-existing issues elsewhere are out of scope, not failures. This is
   what a normal, one-off call uses — including a task group validated
-  immediately under a story's "after every task group" mode, or an ad-hoc
-  "validate this one now" override (see `implement/SKILL.md` Step 5).
+  immediately under a story's "after every task group" mode (every group but
+  the last), or an ad-hoc "validate this one now" override (see
+  `implement/SKILL.md` Step 5).
 
 - **Batched/story-end scope.** Triggered when `implement`'s Step 5 reaches
-  the last task group of a story running in "once, at the end" mode, or
-  when the human explicitly asks to validate/wrap up the whole story.
+  the last task group of a story, in either validation mode, or when the
+  human explicitly asks to validate/wrap up the whole story. In "after every
+  task group" mode the last group's pass is this story-end pass: it validates
+  all the story's changes together, not only that group's, and the selection
+  judge picks over the cumulative diff.
   Scope is `git diff --name-only <merge-base-with-the-story's-base-branch>...HEAD`
   **union** any currently staged/unstaged changes — the full accumulated
   diff since the story's branch forked off its base, not just the latest
@@ -103,69 +107,32 @@ Two scopes, not one — which applies depends on why this is running:
 
 > **Gates for this step** — the moves that leave no artifact of their own, so
 > a miss is easy to overlook. Do them, don't just read them:
-> - **Story level first:** the story's `Complexity` (Step 1) decides whether
->   Adversarial runs at all and, for `simple`, which dimensions run. No level →
->   today's flow; never apply `moderada` on your own.
->   → `../plan/references/complexity.md`
-> - **Gate depth:** decide the *set* first (below) and state it in the report —
->   a no-logic diff runs the reduced set, not the full one.
+> - **Selection first:** a `wd-judge` sub-agent reads the plan and this
+>   pass's diff and picks the validations that run; Security runs on every
+>   pass; no valid pick → every validation runs. State the pick in the report.
+>   → `references/selection.md`
 > - **Brief = content, not a command:** give each dimension the changed files'
 >   contents and the diff **inline**; never a `git diff` or a file read for it to run —
 >   a command is paid once per dimension (~10× the cache reads).
 > - **Cost is recorded — no run closes without it:** a start checkpoint first
->   (Step 1), the end and its report last (Step 8). This applies to a reduced
->   run too — never silently skip it.
-> - **Adversarial depth (Part 11):** real logic in the diff → suggest no-repro or
+>   (Step 1), the end and its report last (Step 8). This applies to a pass
+>   that runs few validations too — never silently skip it.
+> - **Adversarial depth (Part 11):** when the judge picked it, suggest no-repro or
 >   complete **with a one-line reason** and **ask the human to choose**; don't run
->   a depth silently. SKIP only when there's genuinely no logic. (Unattended, or
+>   a depth silently. (Unattended, or
 >   autonomous mode — `references/autonomous-mode.md` at the plugin root — →
 >   §11.0's depth defaults, not a silent pick.) → `references/rules.md` §11.0
 
-**The story's complexity sets the shape; the diff sets the set.** `plan`'s
-judge recorded a level for the story (Step 1). The criteria and the full
-per-level table live in `../plan/references/complexity.md`; this step only
-applies them:
+**Select the validations first.** Before any validation runs, launch the
+selection judge: one `wd-judge` sub-agent whose brief carries, inline, the
+plan from Step 1 (or `no plan found`), the full diff of the Step 2 scope, the
+facts the diff cannot show, and the menu of validations. Then run what it
+picked, add Security if it was skipped, and fall back to every validation when
+the pick is not valid — exactly as `references/selection.md` says, which owns
+the brief, the answer, Security's place and the fallbacks.
 
-- **`compleja`, or no level** → today's flow, exactly as the rest of this step
-  describes, except that a `compleja` story keeps Security in the reduced set.
-  With no level, infer one from the ACs and the diff and report it
-  (`Complexity: not recorded — inferred: <level>`), but never apply it: an
-  inferred `moderada` must not drop the adversarial pass.
-- **`moderada`** → the reduced or full set, chosen by the diff as below, with
-  Security kept in the reduced set. Adversarial is
-  `SKIP — (story level: moderada)`, and its depth is not asked.
-- **`simple`** → the checks complexity.md says always run (Security,
-  Verification, AC Coverage, the drift check, Part 12), plus the dimensions in
-  the `Validations for simple:` row, even on a docs-only diff. Every other
-  pick-list dimension (Code quality, Testing, Architecture, Algorithmic
-  Integrity, Scope, CI/CD), and Adversarial, is `SKIP — (story level: simple)`.
-- **Raise when the diff says so** (complexity.md, "Raise when the diff says
-  so"): before applying a level, or the no-level flow, check the story file and
-  the diff against it. A raise runs the raised level's flow (`moderada` or
-  `compleja`, as complexity.md says) and goes in the report's header with its
-  reason. Report the raise only: this skill never writes the story file.
-
-**Decide the gate's depth first — the set, not just the adversarial depth.**
-This is §11.0's idea (spend where the risk is) applied to the whole dimension
-list, and it is the **default**, not an opt-in:
-
-- **Reduced set — no real logic in the diff** (docs/comments only, a pure
-  rename, a config-value change, a version bump). Run only checks the
-  orchestrator performs itself: the discovered commands (an `evals/` run
-  included, with its judge resolved and its spend recorded per
-  `references/rules.md` §6.1), the
-  `.workflow-dev/` ↔ `config.env` drift check, and a direct read of any in-scope release-note
-  file (changelog entry or fragment, `references/rules.md` §12.0). The judgment dimensions (Code quality, Testing, Architecture,
-  Algorithmic Integrity) and Adversarial are **SKIP** — with nothing to judge or
-  break, a fresh pair of eyes adds cost and no signal. One exception: when the
-  story has a level (`simple`, `moderada` or `compleja`), Security still runs,
-  and so do the dimensions a `simple` story listed (above). The one judgment
-  sub-agent the reduced set keeps is **AC Coverage** (Part 14), when the change
-  claims ACs: a docs-only diff has no logic to break, but the ACs are still the
-  contract, and a docs change can leave one unmet. State the set plainly in the
-  report.
-- **Full set — anything else.** The dimensions below, in parallel, plus the
-  adversarial decision.
+Everything below describes how a picked validation runs. A validation the
+judge skipped is not spawned and not run inline.
 
 **Give each dimension the content, not the whole rulebook — and not a command.**
 The brief carries, **inline**: the changed files' contents and the diff, the
@@ -193,13 +160,13 @@ or alias; the user bound each role to a model once, via
 harness has no per-sub-agent model mechanism at all — run everything on the
 default and **say so**; never silently pretend the tiering happened.
 
-Then, for a **full set**, spawn one independent sub-agent per dimension, each
+Then spawn one independent sub-agent per picked dimension, each
 under its role, with its scoped brief, reporting findings as a structured list
 (file, line, issue, severity):
 
 | Sub-agent | Role | Dimensions (from rules.md) |
 |-----------|------|-----------------------------|
-| **Verification** | `wd-operator` | Run the discovered commands (build, typecheck, lint, **test**); report failures. The **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite, run once per pass with the judge model the orchestrator resolved before briefing, into a fresh `--output-dir` the operator returns so the orchestrator records the eval's spend — `references/rules.md` §6.1) — a diff that changes tests is executed, not reasoned about. |
+| **Verification** | `wd-operator` | Run the discovered commands (build, typecheck, lint, **test**); report failures. When Verification runs, the **project's own test suite is run whenever the diff touches it** (for a plugin repo that is its `evals/` suite, run once per pass with the judge model the orchestrator resolved before briefing, into a fresh `--output-dir` the operator returns so the orchestrator records the eval's spend — `references/rules.md` §6.1) — a diff that changes tests is executed, not reasoned about. |
 | **Security** | `wd-judge` | Parts 2–3. Read the changed files for vulnerabilities. |
 | **Code quality** | `wd-operator` | Part 4. Smells, conventions, patterns. |
 | **Testing** | `wd-operator` | Part 5. Coverage of changes, test quality. |
@@ -207,10 +174,11 @@ under its role, with its scoped brief, reporting findings as a structured list
 | **Algorithmic Integrity** | `wd-judge` | Part 13. Termination/progress, complexity/scalability, and untrusted-input algorithmic risk (ACV/ReDoS). |
 | **Scope** | `wd-operator` | Part 1. Every changed file belongs to the story — a file the change didn't intend (e.g. a tool side effect) is a finding, not a silent pass. |
 | **CI/CD** | `wd-operator` | Part 7. What CI would run on merge and whether this change anticipates it (WARN-tier). |
-| **AC Coverage** | `wd-judge` | Part 14. One verdict per AC this change claims, with `file:line` evidence. Its brief is §14.1's isolated one — ACs and changed files only, never the plan — then §14.4's citation check and, when §14.4 calls for it, its confirm pass. Runs in the reduced set too. |
+| **AC Coverage** | `wd-judge` | Part 14. One verdict per AC this change claims, with `file:line` evidence. Its brief is §14.1's isolated one — ACs and changed files only, never the plan — then §14.4's citation check and, when §14.4 calls for it, its confirm pass. |
 
-**Git history disclosure** (Part 12) is conditional, not always-run. First,
-inline and for both sets, find the repository's release notes as
+**Git history disclosure** (Part 12) runs when the judge picked it. Its
+discovery runs on every pass, though, inline and before the selection, because
+the judge's brief needs its result: find the repository's release notes as
 `references/rules.md` §12.0 says — changelog files by name, the release
 tool's configuration, the repository's own instructions, and the shape of a
 fragment directory, in whatever format. Never assume one path: another
@@ -224,13 +192,13 @@ a commit message has, so this run is its enforcement. If none is in scope,
 report `SKIP` with §12.0's reason: `— (no release notes touched)` or
 `— (no changelog or release notes found in this repository)`.
 
-**Context hygiene** (Part 10) is one of the inline checks above, not a
-sub-agent. The commit message and PR title/description are a different
+**Context hygiene** (Part 10), when the judge picked it, is one of the inline
+checks above, not a sub-agent. The commit message and PR title/description are a different
 artifact, reviewed at a different moment — that's
 `/workflow-dev:summarize-changes`, not this step.
 
-**Adversarial correctness (Part 11) is the exception even within a full set:
-it starts with a question, not a run** — when the story's level lets it run
+**Adversarial correctness (Part 11) is the exception among the picked
+validations: it starts with a question, not a run** — when the judge picked it
 (above). For anything with real logic, suggest a
 depth per §11.0 — with a one-line reason — and **ask the human to pick no-repro or
 complete**:
@@ -246,7 +214,8 @@ complete**:
   Asked in plain text, the question ends the turn waiting on the human: arm the
   attention sound first with kind `need` (`references/attention-alert.md` at
   the plugin root).
-- **Genuinely zero logic** → **SKIP** (already handled by the reduced set).
+- **Genuinely zero logic** → **SKIP** (§11.0's Skip; the judge normally skips it
+  already).
 
 **Depth is about confidence, not cost — and `verify` is never dropped.**
 `no-repro` and `complete` cost about the same; `complete` only buys the ability
@@ -283,7 +252,8 @@ once looked at closely (`— (nothing to test)`).
 **Re-checking after a fix — scope it.** When a confirmed finding is fixed, do
 **not** re-run the whole set, and never a fresh `hunt` + `verify` over the whole
 diff. Re-check the **specific dimension(s) the fix touches, against the changed
-files**, plus the Verification commands — a `verify`-only pass over the claimed
+files**, plus the Verification commands when Verification was picked
+(`references/selection.md`, "After a fix") — a `verify`-only pass over the claimed
 fix is enough. This is the difference between paying once and paying for the
 whole gate twice; the reflexive second full pass is exactly where a "small fix"
 turns into a second validation run. Each fix plus its re-check is one round:
@@ -294,7 +264,12 @@ fix in proportion, and stop at the caps §11.3 sets on the fix rounds.
 Once every sub-agent returns, present a unified report:
 
 ```
-Validation Results (set: full — the diff carries logic; story level: compleja, from the plan):
+Validation Results (scope: single diff — task group 2; selection by the judge):
+Ran: Verification, Security, Code Quality, Testing, Architecture, Algorithmic Integrity, Context Hygiene, Adversarial Correctness, AC Coverage
+Skipped:
+- Scope — every changed file is in the task group's list
+- CI/CD — no workflow, script or test-runner file changed
+- Git History Disclosure — no release notes touched
 
 | Dimension        | Result | Findings |
 |-------------------|--------|----------|
@@ -305,7 +280,6 @@ Validation Results (set: full — the diff carries logic; story level: compleja,
 | Architecture      | PASS   | 0        |
 | Algorithmic Integrity | PASS | 0        |
 | Context Hygiene    | PASS   | 0        |
-| Git History Disclosure | SKIP | — (no release notes touched) |
 | Adversarial Correctness | PASS | 0 — ran at no-repro (recommended no-repro: real logic, no write/concurrency/security surface; choice surfaced) |
 | AC Coverage       | PASS   | 0 — AC #1 COVERED (src/foo.ts:30), AC #2 COVERED (src/foo.test.ts:12) |
 
@@ -320,13 +294,15 @@ Warnings — each needs a disposition before the run closes:
 2. src/foo.ts:12 — magic number 1000 could be a named constant    → accepted
 ```
 
-**State the set.** The header names whether this ran the **reduced** or **full**
-set (Step 3). A reduced run lists only the checks it actually ran — it does not
-print the skipped judgment/adversarial dimensions as if they had passed.
-The header also names the story's level and where it came from: `from the
-plan`, `not recorded — inferred: <level>` (today's flow ran), or `raised to
-<level> — <reason>` (`moderada` or `compleja`). A dimension the level removed shows as
-`SKIP — (story level: <level>)`.
+**State the selection.** The header names the pass's scope and lists what
+ran and what was skipped (Step 3, `references/selection.md`): a `Ran:` line,
+then each skipped validation with the judge's one-line reason. The table holds
+only what ran — a skipped validation never shows as if it had passed. When the
+pick did not come straight from the judge, the header says so, with one of:
+
+- `Security — added by validate (the judge skipped it; it runs on every pass)`
+- `Selection: full flow — the judge <failed | returned no valid list>`
+- `No plan found — the judge picked from the diff alone`
 
 **Close every WARN.** Before the run ends, give each warning a **disposition** —
 *fixed here*, *spun into a new story*, or *accepted* (with why). A WARN with no
@@ -484,12 +460,13 @@ a QA finding is a new, separate signal for the human).
 
 ### Step 8: Record the run's cost and show its report — every run
 
-Every run ends here, full or reduced, PASS or FAIL, after everything above.
+Every run ends here, however many validations it ran, PASS or FAIL, after
+everything above.
 
 1. Record the run's end and show its line (`references/run-cost.md`,
-   `--stage validate`): this run's spend and the story's running total. For a
-   reduced run with no sub-agents the spend is the orchestrator's own; say so
-   rather than omitting it. A cost estimated from the price table is marked
+   `--stage validate`): this run's spend and the story's running total, the
+   selection judge's included. When the judge was the only sub-agent, most of
+   the spend is the orchestrator's own; say so rather than omitting it. A cost estimated from the price table is marked
    `(estimated)`; show it as such. **Skip this when `validate` was invoked by
    `implement`**: that run already contains this one's spend.
 2. Then render the **run report** from the ledger with
@@ -513,15 +490,15 @@ Every run ends here, full or reduced, PASS or FAIL, after everything above.
 
 - **Stack-agnostic rules** — the dimensions are universal, and so is how verification commands get found: a two-agent survey-then-confirm process reasons from the project's actual stack (§Step 1) instead of pattern-matching a fixed list of manifest files, so a language or tool this file doesn't name by name still gets discovered correctly.
 - **Scope-limited** — judge changed files only; don't surface pre-existing issues.
-- **The gate scales with the diff (default)** — a diff with no real logic runs the **reduced set** (mechanical checks inline: commands, `.workflow-dev/` drift, a direct read of any changelog entry or release-note fragment — plus AC Coverage when the change claims ACs), a logic-bearing diff runs the **full set**, and the report states which ran. This is §11.0's "spend where the risk is" applied to the whole dimension list, not just adversarial. It also scales with the story: the level `plan`'s judge recorded removes the adversarial pass (`moderada`), or everything but Security and the listed dimensions (`simple`); no level → the diff-only rule above (`../plan/references/complexity.md`).
+- **The judge picks per pass, from the plan and the real diff** — before any validation runs, a `wd-judge` sub-agent reads the plan and this pass's diff and picks what runs, each skip with a one-line reason, and the report states the pick. Security runs on every pass; when the pick cannot be trusted, every validation runs and the report says so. No level, no fixed table: nothing is decided before the code exists (`references/selection.md`).
 - **Scoped, not repeated** — each dimension gets only the rules it needs (not the whole rulebook), and a fix triggers a **scoped re-check** of the touched dimension(s) + Verification, never a second full run or a fresh `hunt`+`verify` over the whole diff.
 - **Parallel** — sub-agents run independently for speed, except adversarial correctness's hunt→verify pair, which is deliberately sequential (the verify agent's whole point is checking the hunt agent's claims, not racing them). Context hygiene and command-running are inline checks, not sub-agents.
 - **Tiered by role, never by model** — each spawned sub-agent names its role (`wd-operator` for mechanical, `wd-judge` for judgment, `wd-adversary` for the Adversarial Correctness pair; `../setup-models/references/roles.md`) as its type. No model name, alias, or variant is ever written here — the user binds a role to a model once, via `/workflow-dev:setup-models`, and the harness cannot select a per-sub-agent model → run on the default and say so.
-- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0). Whether it runs at all is the story's level (`moderada` and `simple` skip it); the depth, when it runs, is §11.0's.
+- **Adversarial correctness has a depth decided per diff, not a fixed shape** — SKIP is decided directly (zero logic, nothing to test either way); for anything else, the depth is a recommendation (no-repro or complete, whichever §11.0's criteria call for) presented with a reason, and the human picks (§11.0). Whether it runs at all is the selection judge's pick; the depth, when it runs, is §11.0's.
 - **Algorithmic integrity is judgment, not a linter** — the project's own linters (run by Verification, Part 6) already catch the mechanical loop/overflow shapes; Part 13 is the layer those tools cannot reach: does *this* loop or recursion terminate on *this* input, and is the growth class fit for the `n` this code actually sees. It requires a concrete trigger and `n` for every finding, and follows Part 11's NEEDS TESTING rule for any claim whose truth depends on execution.
 - **Actionable** — every finding names a file, a line, and states the problem plainly.
 - **Non-blocking by default** — only security, broken builds/tests, context-hygiene drift, a CONFIRMED adversarial-correctness finding (at either depth), a CONFIRMED algorithmic-integrity finding, and an AC confirmed NOT COVERED block. A NEEDS TESTING finding — verify couldn't fully settle it without something that depth doesn't do — is advisory, same as everything else.
 - **Discoverable** — a command that can't be found is skipped gracefully, not treated as a failure, and a generic "test"/"spec" catch-all runs regardless of stack so an unconventional setup still surfaces instead of silently reading as "no tests exist."
 - **Git history disclosure is enforced, not just suggested** — this skill's slice of it (the repository's changelog entries and release-note fragments in scope, found per `references/rules.md` §12.0) runs as part of the normal dimension pass; the commit message/PR text slice lives in `summarize-changes`, which is required to run Part 12 on its own output and mark it reviewed, and which reviews again any release-note fragment in the change-set it describes (one written after this skill ran included). Either way, the `pre-commit-message-check.sh` hook is the actual guarantee: it fires on every `git commit`/`gh pr create`/`gh pr edit`, independent of which skill (or none) produced the text, and asks for confirmation — or denies outright for AI/agent attribution — unless the exact text was already marked reviewed. Skipping the review step doesn't make the check disappear; it just means the hook is the one that catches it, at commit time, instead of earlier.
-- **AC coverage is static and never writes the story** — Part 14 checks that the change carries evidence for each AC it claims, in every set and every mode (autonomous included: it asks nothing). It proposes Progress changes and leaves them to the human or `save`; whether the behavior works when run stays with manual QA.
+- **AC coverage is static and never writes the story** — Part 14 checks that the change carries evidence for each AC it claims, in every mode when the judge picks it (autonomous included: it asks nothing). It proposes Progress changes and leaves them to the human or `save`; whether the behavior works when run stays with manual QA.
 - **Manual QA is opt-in and decided elsewhere** — this skill *runs* manual QA (Step 7) only when `plan` recorded "yes"; it never decides that for itself, and never on a non-PASS.
