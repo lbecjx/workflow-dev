@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: selection-on-docs-only
+description: >
+  Guard for validate's selection judge (WD-0096) on a docs-only diff — no real
+  logic, no story context. /workflow-dev:validate must let the judge pick the
+  validations, run Security anyway (it runs on every pass), and report every
+  skipped validation with a one-line reason and no complexity level. If a future
+  edit drops Security for a docs-only change, hides what was skipped, or brings
+  back a level, this should start failing. It also guards the Git History
+  Disclosure SKIP (WD-0076): a release-note fragment committed before the diff,
+  and not in it, must not be reviewed.
+tags: [selection, security, git-history-disclosure, regression]
+context:
+  scaffold_script: fixture.sh

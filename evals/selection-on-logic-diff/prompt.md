@@ -7,6 +7,7 @@ allowed_tools: [Read, Glob, Grep, Bash, Skill, Agent, AskUserQuestion]
 ---
 
 Run /workflow-dev:validate on the uncommitted changes in this repository.
-The active story's context is in .workflow-dev/context/. Follow the validate
-skill exactly. In your final report, state the story's complexity level and
-what happened to the Adversarial Correctness dimension, with its reason.
+
+If validate's Adversarial Correctness dimension asks you to choose a depth,
+answer: run it at no-repro. In your final report, show which validations ran
+and which were skipped, with the reason for each skip.

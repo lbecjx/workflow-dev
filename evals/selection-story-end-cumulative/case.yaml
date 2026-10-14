@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: selection-story-end-cumulative
+description: >
+  Guard for the story-end pass in "after every task group" mode (WD-0096). The
+  story's first task group is committed on the story branch and its second, the
+  last one, is uncommitted. Validating that last group must use the
+  batched/story-end scope — every change since the branch left `main`, the
+  committed first group included — not only the uncommitted diff. If a future
+  edit validates only the last group's own diff in this mode, this should start
+  failing.
+tags: [selection, story-end, regression]
+context:
+  scaffold_script: fixture.sh

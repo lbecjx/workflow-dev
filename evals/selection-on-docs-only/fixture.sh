@@ -1,7 +1,8 @@
 #!/bin/bash
-# Scaffolds a scratch repo for the reduced-set eval: an uncommitted change that
-# touches documentation only — no logic — so validate's Step 3 gate must run the
-# reduced set and skip every judgment dimension, Algorithmic Integrity included.
+# Scaffolds a scratch repo for the selection eval: an uncommitted change that
+# touches documentation only — no logic. Validate's selection judge picks what
+# runs; Security must run anyway, and the report must list each skipped
+# validation with its reason.
 #
 # The change modifies a *tracked* file so it is inside validate's single-diff
 # scope (`git diff --name-only` lists tracked modifications, not untracked files).
@@ -25,7 +26,7 @@ printf '.workflow-dev/\n' >> .git/info/exclude
 cat > README.md <<'MD'
 # Eval fixture
 
-A throwaway repo used to check that a docs-only diff runs the reduced set.
+A throwaway repo used to check which validations a docs-only diff runs.
 MD
 mkdir -p changes
 echo "Fixed the date shown on the reports page." > changes/OLD-1.fix.md
@@ -38,7 +39,7 @@ git commit -q -m "chore: baseline"
 cat > README.md <<'MD'
 # Eval fixture
 
-A throwaway repo used to check that a docs-only diff runs the reduced set.
+A throwaway repo used to check which validations a docs-only diff runs.
 
 This sentence was reworded. No code, no logic, no behavior changed.
 MD

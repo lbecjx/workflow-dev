@@ -30,9 +30,8 @@ while it decomposes the story.
 It does **not** govern the fixed questions a skill always asks, each with its
 own owner and its own default: the run mode (`init`), the alerts
 (`attention-alert.md`), agent co-authorship (`summarize-changes`), model
-tiering (`tiering-question.md`), the validation mode and manual QA (`plan`
-Step 5), and splitting a story with more than 10 acceptance criteria (`plan`
-Step 1). Those are the human's preferences, asked on purpose.
+tiering (`tiering-question.md`), and the validation mode and manual QA (`plan`
+Step 5). Those are the human's preferences, asked on purpose.
 
 A fixed question's documented default is never evidence for an ad-hoc doubt.
 "The skill's unattended branch says X" settles only that skill's own question.

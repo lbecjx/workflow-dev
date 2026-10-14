@@ -84,7 +84,7 @@ Some figures are estimates: `≈` marks an estimate and `≥` a minimum.
 | `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
 | `/workflow-dev:plan` | Splits the story into ordered task groups for you to approve |
 | `/workflow-dev:implement` | Runs the next task group one task at a time, explaining each change |
-| `/workflow-dev:validate` | Checks the change across several dimensions to make sure the story meets its quality bar, before you commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds. The checks scale with the story: lighter stories skip what their risk does not call for, and the security check runs at every level |
+| `/workflow-dev:validate` | Checks the change across several dimensions to make sure the story meets its quality bar, before you commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds. It reads your plan and the actual change, then runs only the checks that change calls for, and tells you what it skipped and why. The security check always runs |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |

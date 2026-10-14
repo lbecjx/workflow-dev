@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: selection-on-logic-diff
+description: >
+  Guard for validate's selection judge (WD-0096) on a diff with real logic: a
+  pure function gains its edge cases. The judge must pick more than Security —
+  at least one check that reads the logic (Code Quality, Testing, Algorithmic
+  Integrity or Adversarial Correctness) — and the report must list each skipped
+  validation with its reason, with no risk grade for the story. If a future
+  edit treats every diff like documentation, or hides the pick, this should
+  start failing.
+tags: [selection, regression]
+context:
+  scaffold_script: fixture.sh
