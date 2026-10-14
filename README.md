@@ -135,6 +135,14 @@ The alerts play on whatever output your system is using, at its volume, so with 
 
 **Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
+### On your phone
+
+Walk away while an autonomous run works, and your phone still tells you when it needs you. workflow-dev sends a push notification when a question is waiting, when a permission prompt is open, when something went wrong, and when the story is complete. The rest stays on the Mac. With Remote Control on (`/rc`), tapping the notification opens the session, so you can answer from wherever you are.
+
+It uses [ntfy](https://ntfy.sh), a free app for iPhone and Android with no account and no ads. The first time you start a story, workflow-dev asks once whether you want notifications on your phone. Say yes, and it shows a QR code to install the app and gives you a private topic to paste into it; then it sends a test notification. On an iPhone, the topic is already on your Mac's clipboard. Notifications come in the language you write in, and only say which repo and story need you, never your code or your question.
+
+iOS Focus modes (Work, Do Not Disturb, …) hide ntfy unless you add it to the allowed apps. To turn the notifications off or on again, get a new private topic, or send a test, ask the agent.
+
 ## Model tiering
 
 Put the heavy thinking on a strong model and the routine checks on a fast one, and choose which is which. workflow-dev's sub-agents run under four roles (`wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`), and you bind each role to a model once:

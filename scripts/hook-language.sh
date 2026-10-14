@@ -9,7 +9,8 @@
 #
 # The one owner of "which language does this hook speak" and of the text the
 # commit hooks put in a permission dialog. Sourced, like command-match.sh and
-# marker-dir.sh, so both hooks share one resolver and one message table.
+# marker-dir.sh, so both hooks share one resolver and one message table. The
+# phone notices of attention-alert.sh (`phone_*` keys) live in the same table.
 #
 # Claude Code shows a hook's `permissionDecisionReason` verbatim. The skills
 # follow the conversation's language (references/user-language.md), but a hook
@@ -374,6 +375,60 @@ hook_msg() {
     ru:attribution_ask) printf '%s' "Эта команда может быть commit/PR (она обёрнута во что-то, что hook не может прочитать) и содержит указание авторства или соавторства ИИ/агента/LLM, которое решение этого репозитория не разрешает (validate Part 12.3; по умолчанию нет). Если это commit/PR, уберите указание авторства перед запуском." ;;
     ru:review_ask) printf '%s' "Это сообщение commit / описание PR не прошло проверку Git History Disclosure (validate Part 12 — деловой тон, без описания инцидентов безопасности, без раскрытия личных данных или внутреннего порядка работы). Подтвердите, что его можно использовать как есть, или сначала запустите проверку и отметьте его как проверенное с помощью git-message-mark-reviewed.sh." ;;
     ru:trust_note) printf '%s' " (Каталогу маркеров нельзя доверять: %s.)" ;;
+
+    # The phone notices (attention-alert.sh, WD-0109): short, because a lock
+    # screen cuts them; and never the question itself or a path, since the
+    # push service keeps what it relays.
+    es:phone_away) printf '%s' "Una pregunta te espera." ;;
+    es:phone_permission) printf '%s' "Un permiso te espera." ;;
+    es:phone_fail) printf '%s' "Algo salió mal." ;;
+    es:phone_story) printf '%s' "¡Story completa!" ;;
+    es:phone_test) printf '%s' "Aviso de prueba: tu celular está listo." ;;
+    fr:phone_away) printf '%s' "Une question vous attend." ;;
+    fr:phone_permission) printf '%s' "Une autorisation vous attend." ;;
+    fr:phone_fail) printf '%s' "Quelque chose s'est mal passé." ;;
+    fr:phone_story) printf '%s' "Story terminée !" ;;
+    fr:phone_test) printf '%s' "Notification de test : votre téléphone est prêt." ;;
+    pt:phone_away) printf '%s' "Uma pergunta espera por você." ;;
+    pt:phone_permission) printf '%s' "Uma permissão espera por você." ;;
+    pt:phone_fail) printf '%s' "Algo deu errado." ;;
+    pt:phone_story) printf '%s' "Story concluída!" ;;
+    pt:phone_test) printf '%s' "Aviso de teste: seu celular está pronto." ;;
+    de:phone_away) printf '%s' "Eine Frage wartet auf dich." ;;
+    de:phone_permission) printf '%s' "Eine Berechtigung wartet auf dich." ;;
+    de:phone_fail) printf '%s' "Etwas ist schiefgelaufen." ;;
+    de:phone_story) printf '%s' "Story abgeschlossen!" ;;
+    de:phone_test) printf '%s' "Testbenachrichtigung: dein Handy ist eingerichtet." ;;
+    it:phone_away) printf '%s' "Una domanda ti aspetta." ;;
+    it:phone_permission) printf '%s' "Un permesso ti aspetta." ;;
+    it:phone_fail) printf '%s' "Qualcosa è andato storto." ;;
+    it:phone_story) printf '%s' "Story completata!" ;;
+    it:phone_test) printf '%s' "Notifica di prova: il tuo telefono è pronto." ;;
+    zh:phone_away) printf '%s' "有一个问题在等你。" ;;
+    zh:phone_permission) printf '%s' "有一个权限请求在等你。" ;;
+    zh:phone_fail) printf '%s' "出了点问题。" ;;
+    zh:phone_story) printf '%s' "Story 完成！" ;;
+    zh:phone_test) printf '%s' "测试通知：你的手机已设置好。" ;;
+    ja:phone_away) printf '%s' "質問があなたを待っています。" ;;
+    ja:phone_permission) printf '%s' "許可のリクエストがあなたを待っています。" ;;
+    ja:phone_fail) printf '%s' "問題が発生しました。" ;;
+    ja:phone_story) printf '%s' "Story 完了！" ;;
+    ja:phone_test) printf '%s' "テスト通知：スマートフォンの設定が完了しました。" ;;
+    ko:phone_away) printf '%s' "질문이 기다리고 있습니다." ;;
+    ko:phone_permission) printf '%s' "권한 요청이 기다리고 있습니다." ;;
+    ko:phone_fail) printf '%s' "문제가 발생했습니다." ;;
+    ko:phone_story) printf '%s' "Story 완료!" ;;
+    ko:phone_test) printf '%s' "테스트 알림: 휴대폰 설정이 완료되었습니다." ;;
+    ru:phone_away) printf '%s' "Вас ждёт вопрос." ;;
+    ru:phone_permission) printf '%s' "Вас ждёт запрос разрешения." ;;
+    ru:phone_fail) printf '%s' "Что-то пошло не так." ;;
+    ru:phone_story) printf '%s' "Story завершена!" ;;
+    ru:phone_test) printf '%s' "Тестовое уведомление: телефон настроен." ;;
+    *:phone_away) printf '%s' "A question is waiting for you." ;;
+    *:phone_permission) printf '%s' "A permission request is waiting for you." ;;
+    *:phone_fail) printf '%s' "Something went wrong." ;;
+    *:phone_story) printf '%s' "Story complete!" ;;
+    *:phone_test) printf '%s' "Test notice: your phone is set up." ;;
 
     *:validate_deferred) printf '%s' "Validation deferred for this task group, as planned — will run once at story end." ;;
     *:validate_unrecorded) printf '%s' "This project uses workflow-dev quality gates. No matching /workflow-dev:validate record found for the current changes — confirm this commit was actually validated before approving it, or approve anyway if this intentionally skips validate." ;;

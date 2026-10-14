@@ -96,7 +96,7 @@ the Free Software Foundation, either version 3 of the License, or
   workflow-dev skill that works on a story (not `setup-models`, `help`, `usage`)
   while any setup answer is missing — `.workflow-dev/` gitignored, model tiering
   (read through `model-tiering-check.sh --status`), agent co-authorship, the
-  alerts — and lists them all, to be asked together before the skill's first
+  alerts, the phone notices — and lists them all, to be asked together before the skill's first
   step (for `init`, before the run-mode question). The `PreToolUse:Skill` hook can
   return `allow`, `ask`, `deny` or `defer`, plus `permissionDecisionReason`,
   `updatedInput` and `additionalContext`. Each of the first two attempts failed on
@@ -156,6 +156,12 @@ the Free Software Foundation, either version 3 of the License, or
     means silence, `need` and `permission` included.
     Every sound plays on the system's default output, and nothing is turned
     off when a story ends.
+  - **The phone** (WD-0109). The same three hooks also push `away`,
+    `permission`, `fail` and `story` to the human's phone through ntfy.sh when
+    `phone=on` (with its topic) is in that file, whatever the sounds' answer.
+    The push runs detached with a 5-second limit and prints nothing, so it never
+    holds the hook, and it is silent in CI and in a non-interactive session like
+    the sounds.
   - `UserPromptSubmit` → `--prompt` drops the session's arm: a turn the human
     interrupts ends without a `Stop`, and its arm must not sound at the end of
     the next, ordinary response.

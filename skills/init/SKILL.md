@@ -68,6 +68,7 @@ how its answer is saved. This phase decides only **when** they are asked:
 | Model tiering | `model-tiering-check.sh --status` prints `unmapped`, `stale` or `incomplete` | `references/tiering-question.md` (the `--status` answers: `references/workflow.md` Step 6) |
 | Agent co-authorship | `config-env.sh get agentCoauthorship` prints neither `yes` nor `no` | `../summarize-changes/SKILL.md` Step 1 |
 | Alerts on this machine | `attention-alert.sh get` prints `unset` | `references/attention-alert.md`, "Alerts on this machine" |
+| Phone notifications on this machine | `attention-alert.sh phone get` prints `unset` | `references/attention-alert.md`, "Phone notifications" |
 
 The repo's one-time answers live in `.workflow-dev/config.env`, one
 `key=value` per line. Read and write them only through the plugin's script,
@@ -81,12 +82,13 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd -P "<this skill's directory>/../.." && p
 "$PLUGIN_ROOT"/scripts/model-tiering-check.sh --status '{"skill":"workflow-dev:init"}' </dev/null
 "$PLUGIN_ROOT"/scripts/config-env.sh get agentCoauthorship
 "$PLUGIN_ROOT"/scripts/attention-alert.sh get
+"$PLUGIN_ROOT"/scripts/attention-alert.sh phone get
 ```
 
 The `--status` argument is load-bearing: with no payload the script reads
 stdin, identifies no skill, and answers `not-ours`.
 
-1. **Detect first.** Run the four checks above, all of them, before you ask
+1. **Detect first.** Run the five checks above, all of them, before you ask
    anything. `gitignored` set to `true` also means confirming `.workflow-dev/`
    is listed in `.gitignore` (add it, and create `.gitignore` if the project
    has none, when it's missing); `false` means do nothing further. A
@@ -106,8 +108,9 @@ stdin, identifies no skill, and answers `not-ours`.
      is in doubt, or was later questioned is asked. Co-authorship is never yes
      without a plain yes.
    - Ask every other missing question together, in as few ask-question calls
-     as possible (up to 4 questions per call). Never ask a question that
-     already has a stored answer.
+     as possible (up to 4 questions per call). When they do not fit in one
+     call, the phone question goes last: its yes leads into its own setup.
+     Never ask a question that already has a stored answer.
 4. **Save each answer** the way its owner says. Then, for tiering:
    - "Configure the agents" → run `setup-models` inline, on the main agent (it
      asks its own questions), once in this run. It runs inside this `init` run,
@@ -117,7 +120,7 @@ stdin, identifies no skill, and answers `not-ours`.
      the answer and write its `Tiering: default model` row in Phase 6 step 8.
      Treat tiering as settled for the rest of this run; never run
      `setup-models` because `--status` still prints `unmapped`.
-   Do not run the four checks again after saving: what is saved is settled.
+   Do not run the five checks again after saving: what is saved is settled.
 5. **Every run:** run `config-env.sh set language <code>` with the ISO
    639-1 code of the conversation's language (`es`, `en`, …), inferred the way
    `references/user-language.md` says; the file's other keys are kept. Never ask
@@ -133,6 +136,9 @@ takes its owner's fallback, and nothing is asked, not even in prose. The default
 `true`; tiering binds each role to the model you infer fits it
 (`references/tiering-question.md`); co-authorship is saved as no; the
 alerts turn on (`references/attention-alert.md`, "Alerts on this machine").
+The phone is the one answer with no default: its setup needs a human holding
+the phone, so nothing is saved and it is asked at the next run a human can
+answer (`references/attention-alert.md`, "Phone notifications").
 An autonomous run with a human present is not unattended: it asks. The story file does not exist yet, so keep
 each answer you inferred and write it as its own `Agent (inferred)` row in
 Phase 6 step 8.
@@ -295,7 +301,8 @@ Then draft Role, Good Practices, and Prohibitions (delegate to subagents under t
    not that row was written, also write each answer this run inferred so far
    as its own `Agent (inferred)` row: Phase 0's `gitignored`, alerts and
    tiering bindings when the run was unattended and they were set without the
-   human, and, in
+   human, the phone left unasked (`Phone notifications: not asked
+   (unattended)`, never the topic), and, in
    autonomous mode, each REPO.md section saved without review in Phase 5 and
    the ECOSYSTEM hand-off. Write Phase 0's `Tiering: default model` answer here
    too, as the human's (`references/tiering-question.md`).

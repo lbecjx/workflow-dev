@@ -44,7 +44,7 @@ no() { printf '  FAIL %s\n' "$1"; fail=$((fail + 1)); }
 # --- the sandbox PATH ---------------------------------------------------------
 SYS="$TMP/sys"
 mkdir -p "$SYS"
-for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink ln; do
+for tool in dirname tr sleep cat mv rm mkdir mktemp chmod find date basename sed grep head awk ls seq wc git rmdir cp readlink ln sort iconv; do
   real="$(command -v "$tool")" && ln -s "$real" "$SYS/$tool"
 done
 LOG="$TMP/played.log"
@@ -686,6 +686,249 @@ cp "$H/.workflow-dev/config.json" "$TMP/leg-before.json"
 [[ "$(inp -- set on)" == saved && "$(cat "$UCFG")" == notifications=on ]] && ok "set saves the new answer to config.env" || no "set beside old config.json"
 cmp -s "$H/.workflow-dev/config.json" "$TMP/leg-before.json" && ok "the old config.json is left as it was" || no "old config.json changed"
 rm -rf "$H" "$TMP/leg-before.json"
+
+# --- 13. the phone: its own answer and its secret topic (WD-0109) -------------
+CLIP="$TMP/clip"; mkdir -p "$CLIP"
+printf '#!/bin/bash\ncat > "%s/clipboard"\n' "$TMP" > "$CLIP/pbcopy"; chmod +x "$CLIP/pbcopy"
+ph() { run "$TMP/mac:$CLIP" Darwin "$@"; }
+topic_of() { sed -n 's/^topic //p' <<< "$1"; }
+fmode() { ls -l "$1" | cut -c1-10; }
+rm -rf "$H"
+[[ "$(ph -- phone get)" == unset && ! -e "$UCFG" ]] && ok "no config: the phone reads unset, and reading writes nothing" || no "phone get fresh"
+out="$(ph -- phone on)"; t1="$(topic_of "$out")"
+[[ "$t1" =~ ^wd-[a-z]{4}-[a-z]{4}-[a-z]{4}$ ]] && ok "phone on makes a wd-xxxx-xxxx-xxxx topic of letters" || no "topic shape ($out)"
+[[ "$(ph -- phone get)" == on ]] && grep -qx "phone_topic=$t1" "$UCFG" && grep -qx 'phone=on' "$UCFG" && ok "the topic and phone=on are saved" || no "phone on saved ($(cat "$UCFG"))"
+[[ "$(cat "$TMP/clipboard")" == "$t1" ]] && grep -qx 'clipboard copied' <<< "$out" && ok "the topic, and nothing else, goes to the clipboard" || no "clipboard ($(cat "$TMP/clipboard"))"
+[[ "$(fmode "$UCFG")" == "-rw-------" ]] && ok "the file holding the topic is 600" || no "mode $(fmode "$UCFG")"
+rm -f "$TMP/clipboard"
+out="$(ph -- phone on)"
+[[ "$out" == $'topic kept\nremote-control inactive' && ! -e "$TMP/clipboard" ]] && grep -qx "phone_topic=$t1" "$UCFG" && ok "phone on again keeps the topic and neither shows nor copies it" || no "phone on keeps ($out)"
+t2="$(topic_of "$(ph -- phone reset)")"; t3="$(topic_of "$(ph -- phone reset)")"
+[[ "$t2" =~ ^wd- && "$t3" =~ ^wd- && "$t2" != "$t1" && "$t3" != "$t2" ]] && ok "phone reset makes a new topic each time" || no "reset ($t1 $t2 $t3)"
+[[ "$(ph -- phone off)" == saved && "$(ph -- phone get)" == off ]] && grep -qx "phone_topic=$t3" "$UCFG" && ok "phone off is saved and keeps the topic" || no "phone off"
+rm -f "$TMP/clipboard"
+out="$(ph -- phone on)"
+[[ "$(head -1 <<< "$out")" == "topic kept" && ! -e "$TMP/clipboard" && "$(ph -- phone get)" == on ]] && grep -qx "phone_topic=$t3" "$UCFG" && ok "phone on after off reuses the kept topic without showing it" || no "on after off ($out)"
+printf 'notifications=on\nphone_topic=%s\n' "$t3" > "$UCFG"
+[[ "$(topic_of "$(ph -- phone on)")" == "$t3" ]] && ok "a topic never turned on (no phone line) is shown, so it can be subscribed" || no "unset topic shown"
+[[ "$(printf 'wd-abcd-efgh-ijkl\n' | ph -- phone on -)" == $'topic wd-abcd-efgh-ijkl\nclipboard copied\nremote-control inactive' ]] && grep -qx 'phone_topic=wd-abcd-efgh-ijkl' "$UCFG" && ok "a topic pasted on stdin from another Mac is saved" || no "pasted topic"
+[[ "$(printf 'wd-abcd-efgh-ijkl\r\n' | ph -- phone on -)" == "topic wd-abcd-efgh-ijkl"* ]] && ok "a pasted topic with a CRLF ending is accepted" || no "pasted CRLF"
+for bad in WD-ABCD-EFGH-IJKL wd-abc1-efgh-ijkl wd-abc-efgh-ijklm wd-abcd-efgh alerts 'wd-abcd-efgh-ijk"' $'wd-abcd-efgh-ijkl\nx' ' wd-abcd-efgh-ijkl' wd-abcd-efgh-ijkl-mnop ''; do
+  [[ "$(printf '%s' "$bad" | ph -- phone on -)" == invalid-topic ]] && grep -qx 'phone_topic=wd-abcd-efgh-ijkl' "$UCFG" && ok "pasted '$bad' is refused, nothing saved" || no "pasted '$bad' ($(cat "$UCFG"))"
+done
+[[ "$(ph -- phone on - < /dev/null)" == invalid-topic ]] && ok "an empty paste is refused, never a new topic" || no "empty paste"
+# A linked config may sit in a dotfiles repo: the topic is never written there.
+mkdir -p "$TMP/dots"; printf 'notifications=on\n' > "$TMP/dots/config.env"
+rm -f "$UCFG"; ln -s "$TMP/dots/config.env" "$UCFG"
+[[ "$(ph -- phone on)" == linked-config && "$(printf 'wd-abcd-efgh-ijkl\n' | ph -- phone on -)" == linked-config && "$(ph -- phone reset)" == linked-config ]] && ! grep -q phone_topic "$TMP/dots/config.env" && grep -qx phone=off "$TMP/dots/config.env" && [[ "$(ph -- phone get)" == off ]] && ok "a symlinked config: linked-config, no topic written, phone=off saved so it is not asked again" || no "linked config ($(cat "$TMP/dots/config.env"))"
+rm -f "$UCFG"; rm -rf "$H/.workflow-dev"; ln -s "$TMP/dots" "$H/.workflow-dev"
+[[ "$(ph -- phone on)" == linked-config ]] && ! grep -q phone_topic "$TMP/dots/config.env" && ok "a symlinked ~/.workflow-dev folder: linked-config too" || no "linked folder"
+rm -f "$H/.workflow-dev"; rm -rf "$TMP/dots"; mkdir -p "$H/.workflow-dev"
+# A phone already set up before the config was linked is left on.
+mkdir -p "$TMP/dots"; printf 'phone=on\nphone_topic=wd-abcd-efgh-ijkl\n' > "$TMP/dots/config.env"
+rm -f "$UCFG"; ln -s "$TMP/dots/config.env" "$UCFG"
+[[ "$(ph -- phone on)" == linked-config && "$(ph -- phone get)" == on ]] && grep -qx phone=on "$TMP/dots/config.env" && ok "a linked config with the phone already on: phone on leaves it on" || no "linked on turned off ($(cat "$TMP/dots/config.env"))"
+# A link whose target cannot be written: unavailable, never a claimed save.
+rm -f "$UCFG"; mkdir -p "$TMP/dots/ro"; printf 'notifications=on\n' > "$TMP/dots/ro/config.env"; chmod 555 "$TMP/dots/ro"
+ln -s "$TMP/dots/ro/config.env" "$UCFG"
+[[ "$(ph -- phone on)" == unavailable && "$(ph -- phone get)" == unset ]] && ok "a linked config that cannot be written: unavailable, phone still unset" || no "linked ro ($(ph -- phone on))"
+chmod 755 "$TMP/dots/ro"; rm -f "$UCFG"; rm -rf "$TMP/dots"
+printf 'notifications=on\nphone=on\nphone_topic=wd-abcd-efgh-ijkl\n' > "$UCFG"
+printf 'phone=on\n' > "$UCFG"
+[[ "$(ph -- phone get)" == unset ]] && ok "phone=on with no topic reads unset" || no "on without topic"
+printf 'phone=on\nphone_topic=alerts\n' > "$UCFG"
+[[ "$(ph -- phone get)" == unset ]] && ok "phone=on with a topic of another shape reads unset" || no "on with foreign topic"
+for raw in 'phone=yes' 'phone=ON' 'phone=' 'notifications=on'; do
+  printf '%s\nphone_topic=wd-abcd-efgh-ijkl\n' "$raw" > "$UCFG"
+  [[ "$(ph -- phone get)" == unset ]] && ok "'$raw' reads as phone unset" || no "'$raw' phone get"
+done
+rm -rf "$H"; mkdir -p "$H/.workflow-dev"; printf 'notifications=on\n' > "$UCFG"; chmod 644 "$UCFG"
+ph -- phone on >/dev/null
+[[ "$(fmode "$UCFG")" == "-rw-------" ]] && grep -qx 'notifications=on' "$UCFG" && ok "a config made 644 by hand becomes 600, other lines kept" || no "644 to 600 ($(fmode "$UCFG"))"
+[[ "$(ph -- get)" == on ]] && ok "turning the phone on leaves the alerts' answer alone" || no "alerts answer changed"
+out="$(run "$TMP/mac" Darwin -- phone reset)"
+[[ "$(sed -n 2p <<< "$out")" == "clipboard unavailable" && "$(ph -- phone get)" == on ]] && ok "no pbcopy: clipboard unavailable, still saved" || no "no pbcopy ($out)"
+[[ "$(ph CLAUDE_CODE_BRIDGE_SESSION_ID=session_01AbC -- phone on | tail -1)" == "remote-control active" ]] && ok "Remote Control on: remote-control active" || no "rc active"
+[[ "$(ph -- phone on | tail -1)" == "remote-control inactive" ]] && ok "Remote Control off: remote-control inactive" || no "rc inactive"
+[[ "$(ph 'CLAUDE_CODE_BRIDGE_SESSION_ID=a b' -- phone on | tail -1)" == "remote-control inactive" ]] && ok "a session id unsafe in a URL counts as off" || no "rc unsafe id"
+t="$(sed -n 's/^phone_topic=//p' "$UCFG")"
+for flag in --stop --ask --notify --prompt; do
+  out="$(printf '%s' "$(payload "sess-ph" "$PROJ")" | ph -- "$flag")"
+  [[ "$out" != *"$t"* && -z "$out" ]] && ok "hook $flag never prints the topic" || no "hook $flag printed '$out'"
+done
+[[ "$(ph -- get)" == on && "$(ph -- phone get)" == on ]] && ok "get still answers the alerts, phone get the phone" || no "get split"
+mkdir "$TMP/ro"; rm -rf "$H"; mkdir -p "$H/.workflow-dev"; chmod 555 "$H/.workflow-dev"
+[[ "$(ph -- phone on)" == unavailable && "$(ph -- phone off)" == unavailable ]] && ok "an unwritable folder: unavailable, no topic printed" || no "ro phone"
+chmod 755 "$H/.workflow-dev"; rm -rf "$H" "$TMP/ro" "$TMP/clipboard"
+for bad in "phone" "phone x" "phone off x" "phone reset wd-abcd-efgh-ijkl" "phone get x" "phone on a b" "phone on wd-abcd-efgh-ijkl" "phone test x"; do
+  run "$TMP/mac" Darwin -- $bad >/dev/null 2>&1; rc=$?
+  [[ $rc -eq 2 ]] && ok "'$bad' is a usage error" || no "'$bad' usage (rc=$rc)"
+done
+
+# --- 14. the push: which kinds, what it carries, never in the way (WD-0109) ---
+# A fake curl stands in for the network: it logs its argv and the config it
+# reads on stdin, one block per request, and exits with FAKE_CURL_RC.
+CB="$TMP/curlbin"; mkdir -p "$CB"
+printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s/curl.argv"\n{ cat; echo ---; } >> "%s/curl.cfg"\nexit ${FAKE_CURL_RC:-0}\n' "$TMP" "$TMP" > "$CB/curl"
+chmod +x "$CB/curl"
+printf '#!/bin/bash\necho "running 1"\n' > "$TMP/awake"; chmod +x "$TMP/awake"
+PT=wd-test-abcd-efgh
+seed_phone() { # seed_phone <notifications on|off> <phone line or empty>
+  mkdir -p "${UCFG%/*}"; printf 'notifications=%s\n%s\n' "$1" "$2" > "$UCFG"
+}
+preset() { : > "$LOG"; rm -f "$TMP/curl.argv" "$TMP/curl.cfg"; seed_phone on "phone=on"$'\n'"phone_topic=$PT"; }
+pushes() { # pushes [want]: wait for the detached sender, then a little longer
+  local want="${1:-0}" _ n
+  for _ in $(seq 1 60); do
+    n="$(grep -c '^---$' "$TMP/curl.cfg" 2>/dev/null)"; n="${n:-0}"
+    (( n >= want )) && break
+    sleep 0.05
+  done
+  sleep 0.5
+  n="$(grep -c '^---$' "$TMP/curl.cfg" 2>/dev/null)"; printf '%s' "${n:-0}"
+}
+cpush() { # cpush <name> <want pushes>
+  local got; got="$(pushes "$2")"
+  [[ "$got" == "$2" ]] && ok "$1" || no "$1 (pushed $got, want $2: $(tr "\n" "|" < "$TMP/curl.cfg" 2>/dev/null))"
+}
+pr() { RUN_CWD="$PROJ" run "$TMP/mac:$CB" Darwin "$@"; }
+phook() { # phook <flag> <session> [extra json] [VAR=value ...]
+  local flag="$1" sid="$2" extra="${3:-}"; shift 3 2>/dev/null || shift $#
+  printf '%s' "$(payload "$sid" "$PROJ" "$extra")" | pr ${@+"$@"} -- "$flag"
+}
+pstop() { # pstop <kind> [VAR=value ...]: arm then Stop, one session
+  local kind="$1"; shift
+  N=$((N + 1)); pr "CLAUDE_CODE_SESSION_ID=p-$N" -- arm "$kind" >/dev/null
+  phook --stop "p-$N" '' ${@+"$@"} >/dev/null
+}
+cfg() { cat "$TMP/curl.cfg" 2>/dev/null; }
+
+for kind in fail story; do
+  preset; pstop "$kind"; cpush "an armed '$kind' Stop pushes once" 1
+done
+preset; N=$((N + 1)); phook --ask "p-$N" '' _WD_KEEP_AWAKE="$TMP/awake" >/dev/null
+cpush "a question mid autonomous run (away) pushes once" 1
+preset; N=$((N + 1)); phook --notify "p-$N" ',"notification_type":"permission_prompt"' >/dev/null
+cpush "a permission prompt pushes once" 1
+for kind in need commit pr done passed saved start; do
+  preset; pstop "$kind"; cpush "an armed '$kind' Stop does not push" 0
+done
+preset; N=$((N + 1)); phook --ask "p-$N" '' >/dev/null
+cpush "a question outside an autonomous run (need) does not push" 0
+preset; pr -- play fail >/dev/null
+cpush "the play command never pushes" 0
+
+preset; pstop fail; pushes 1 >/dev/null
+grep -qx 'header = "Priority: high"' <<< "$(cfg)" && ok "fail pushes with Priority: high" || no "fail priority ($(cfg))"
+preset; pstop story; pushes 1 >/dev/null
+! grep -q 'Priority' <<< "$(cfg)" && ok "story pushes with ntfy's default priority" || no "story priority ($(cfg))"
+preset; N=$((N + 1)); phook --notify "p-$N" ',"notification_type":"permission_prompt"' >/dev/null; pushes 1 >/dev/null
+grep -qx 'header = "Priority: high"' <<< "$(cfg)" && ok "permission pushes with Priority: high" || no "permission priority"
+preset; N=$((N + 1)); phook --ask "p-$N" '' _WD_KEEP_AWAKE="$TMP/awake" >/dev/null; pushes 1 >/dev/null
+grep -qx 'header = "Priority: high"' <<< "$(cfg)" && ok "away pushes with Priority: high" || no "away priority"
+grep -qx 'header = "Title: workflow-dev"' <<< "$(cfg)" && grep -qx "url = \"https://ntfy.sh/$PT\"" <<< "$(cfg)" && ok "the title is workflow-dev and the URL is the topic's" || no "title/url ($(cfg))"
+! grep -q "$PT" "$TMP/curl.argv" && grep -q -- '-K -' "$TMP/curl.argv" && ok "the topic goes on stdin, never in curl's argv" || no "argv ($(cat "$TMP/curl.argv"))"
+
+preset; pstop fail CLAUDE_CODE_BRIDGE_SESSION_ID=session_01AbC-x_9; pushes 1 >/dev/null
+grep -qx 'header = "Click: https://claude.ai/code/session_01AbC-x_9"' <<< "$(cfg)" && ok "with Remote Control the notice opens the session" || no "click ($(cfg))"
+preset; pstop fail; pushes 1 >/dev/null
+! grep -q 'Click' <<< "$(cfg)" && ok "without Remote Control there is no link" || no "no click ($(cfg))"
+for bad in 'a b' 'x"y' 'x\y' $'x\nTitle: evil' 'https://evil' ''; do
+  preset; pstop fail "CLAUDE_CODE_BRIDGE_SESSION_ID=$bad"; pushes 1 >/dev/null
+  ! grep -q 'Click' <<< "$(cfg)" && ! grep -q 'evil' <<< "$(cfg)" && ok "an unsafe session id '$bad' adds no link" || no "unsafe id '$bad' ($(cfg))"
+done
+
+for rc in 6 22 28; do
+  preset; N=$((N + 1)); pr "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+  out="$(phook --stop "p-$N" '' "FAKE_CURL_RC=$rc" 2>&1)"; code=$?
+  [[ $code -eq 0 && -z "$out" ]] && check "curl exiting $rc: the hook exits 0, prints nothing, still sounds once" 1 || no "curl rc $rc (code=$code out='$out')"
+done
+mkdir -p "$TMP/slowcurl"; printf '#!/bin/bash\nsleep 5\n' > "$TMP/slowcurl/curl"; chmod +x "$TMP/slowcurl/curl"
+preset; N=$((N + 1)); pr "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+start=$(date +%s); printf '%s' "$(payload "p-$N" "$PROJ")" | RUN_CWD="$PROJ" run "$TMP/mac:$TMP/slowcurl" Darwin -- --stop >/dev/null; took=$(( $(date +%s) - start ))
+[[ $took -lt 2 ]] && ok "a slow network does not hold the hook (${took}s)" || no "slow network held the hook (${took}s)"
+
+for v in CI=true CLAUDE_CODE_SESSION_ATTENDED=0; do
+  preset; pstop fail "$v"; cpush "$v: no push" 0
+done
+for line in "phone=off"$'\n'"phone_topic=$PT" "" "phone=on" "phone=on"$'\n'"phone_topic=alerts"; do
+  : > "$LOG"; rm -f "$TMP/curl.argv" "$TMP/curl.cfg"; seed_phone on "$line"
+  pstop fail; cpush "phone '${line//$'\n'/ }': no push" 0
+done
+: > "$LOG"; rm -f "$TMP/curl.cfg"; seed_phone off "phone=on"$'\n'"phone_topic=$PT"
+pstop fail; cpush "alerts off, phone on: it pushes" 1
+silent && ok "...and makes no sound" || no "alerts off sounded ($(cat "$LOG"))"
+: > "$LOG"; rm -f "$TMP/curl.cfg"; seed_phone on "phone=off"
+pstop fail; check "alerts on, phone off: the sound plays as before" 1
+[[ "$(pushes 0)" == 0 ]] && ok "...and nothing is pushed" || no "phone off pushed"
+preset; N=$((N + 1)); SIDP="p-$N"
+phook --ask "$SIDP" '' _WD_KEEP_AWAKE="$TMP/awake" >/dev/null
+phook --notify "$SIDP" ',"notification_type":"permission_prompt"' >/dev/null
+cpush "a question and the permission prompt it raised: one push" 1
+for alerts in on off; do
+  : > "$LOG"; rm -f "$TMP/curl.argv" "$TMP/curl.cfg"; seed_phone "$alerts" "phone=on"$'\n'"phone_topic=$PT"
+  N=$((N + 1)); SIDP="p-$N"
+  phook --ask "$SIDP" '' >/dev/null
+  phook --notify "$SIDP" ',"notification_type":"permission_prompt"' >/dev/null
+  cpush "alerts $alerts: a plain question and the permission prompt it raised push nothing" 0
+done
+preset; N=$((N + 1)); pr "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+printf '%s' "$(payload "p-$N" "$PROJ/")" | pr -- --stop >/dev/null; pushes 1 >/dev/null
+grep -qx 'data = "proj — Something went wrong."' <<< "$(cfg)" && ok "a cwd with a trailing slash still names the repo" || no "trailing slash ($(cfg))"
+# A name in another script keeps its letters; a quote is still dropped; a cut
+# never splits a letter in half.
+for case in 'proyecto-año|proyecto-año' '日本語|日本語' 'a"b\c|abc' 'ñññññññññññññññññññññññ|ññññññññññññññññññññ'; do
+  dirn="${case%%|*}"; want="${case#*|}"
+  UP="$TMP/u8/$dirn"; mkdir -p "$UP/.workflow-dev/context"
+  preset; N=$((N + 1)); RUN_CWD="$UP" run "$TMP/mac:$CB" Darwin "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+  printf '{"session_id":"p-%s","cwd":"%s"}' "$N" "$(printf '%s' "$UP" | sed 's/\\/\\\\/g; s/"/\\"/g')" | RUN_CWD="$UP" run "$TMP/mac:$CB" Darwin -- --stop >/dev/null
+  pushes 1 >/dev/null
+  grep -qx "data = \"$want — Something went wrong.\"" <<< "$(cfg)" && ok "folder '$dirn' is named '$want' in the notice" || no "folder '$dirn' ($(cfg))"
+done
+rm -rf "$TMP/u8"
+mkdir -p "$TMP/nopush"; preset; N=$((N + 1)); pr "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+printf '%s' "$(payload "p-$N" "$TMP/nopush")" | RUN_CWD="$TMP/nopush" run "$TMP/mac:$CB" Darwin -- --stop >/dev/null
+cpush "outside a workflow-dev project: no push" 0
+
+# What the notice says: the repo, the story when there is exactly one, the
+# conversation's language; never more.
+mkdir -p "$TMP/sp/my\"repo/.workflow-dev/context"
+SP="$TMP/sp/my\"repo"
+printf '# WD-0001\n### Implementation Status: In Progress\n' > "$SP/.workflow-dev/context/WD-0001.md"
+TR="$TMP/sp/t.jsonl"
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"%s/.workflow-dev/context/WD-0001.md"}}]}}\n' "${SP//\"/\\\"}" > "$TR"
+spstop() { # spstop [VAR=value ...]
+  N=$((N + 1)); RUN_CWD="$SP" run "$TMP/mac:$CB" Darwin "CLAUDE_CODE_SESSION_ID=p-$N" -- arm fail >/dev/null
+  printf '{"session_id":"p-%s","cwd":"%s","transcript_path":"%s","hook_event_name":"Stop"}' "$N" "${SP//\"/\\\"}" "$TR" \
+    | RUN_CWD="$SP" run "$TMP/mac:$CB" Darwin ${@+"$@"} -- --stop >/dev/null
+}
+preset; spstop; pushes 1 >/dev/null
+grep -qx 'data = "myrepo · WD-0001 — Something went wrong."' <<< "$(cfg)" && ok "the notice names the repo and the story, a quote in the folder name dropped" || no "text ($(cfg))"
+printf 'language=es\n' > "$SP/.workflow-dev/config.env"
+preset; spstop; pushes 1 >/dev/null
+grep -qx 'data = "myrepo · WD-0001 — Algo salió mal."' <<< "$(cfg)" && ok "the repo's language (es) words the notice" || no "es text ($(cfg))"
+rm -f "$SP/.workflow-dev/config.env"
+printf '# WD-0002\n### Implementation Status: In Progress\n' > "$SP/.workflow-dev/context/WD-0002.md"
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"%s/.workflow-dev/context/WD-0002.md"}}]}}\n' "${SP//\"/\\\"}" >> "$TR"
+preset; spstop; pushes 1 >/dev/null
+grep -qx 'data = "myrepo — Something went wrong."' <<< "$(cfg)" && ok "two stories in the session: the notice names none" || no "two stories ($(cfg))"
+rm -rf "$TMP/sp"
+
+preset
+[[ "$(pr -- phone test)" == sent ]] && grep -qx 'data = "proj — Test notice: your phone is set up."' <<< "$(cfg)" && ok "phone test sends a test notice now" || no "phone test ($(cfg))"
+! grep -q 'Priority' <<< "$(cfg)" && ok "...at the default priority" || no "test priority"
+preset; [[ "$(pr FAKE_CURL_RC=22 -- phone test)" == failed ]] && ok "phone test on a refused request says failed" || no "phone test failed"
+: > "$LOG"; rm -f "$TMP/curl.cfg"; seed_phone on ""
+[[ "$(pr -- phone test)" == no-topic && ! -e "$TMP/curl.cfg" ]] && ok "phone test with no topic says no-topic and sends nothing" || no "phone test no-topic"
+preset; [[ "$(RUN_CWD="$PROJ" run "$TMP/mac" Darwin -- phone test)" == failed ]] && ok "phone test with no curl says failed" || no "phone test no curl"
+rm -rf "$H" "$TMP/curl.argv" "$TMP/curl.cfg"
+
+# The setup pastes these by path (references/attention-alert.md).
+for qr in "qr-app-store.txt|https://apps.apple.com/us/app/ntfy/id1625396347" "qr-google-play.txt|https://play.google.com/store/apps/details?id=io.heckel.ntfy"; do
+  f="$ASSETS/${qr%%|*}"
+  [[ -s "$f" ]] && grep -q '█' "$f" && [[ "$(tail -1 "$f")" == "${qr#*|}" ]] && ! grep -q 'wd-' "$f" \
+    && ok "${qr%%|*} holds a QR and its store link, and no topic" || no "${qr%%|*} asset"
+done
 
 out="$(run "$TMP/mac" Darwin -- arm done extra 2>/dev/null)"; rc=$?
 [[ $rc -eq 2 ]] && ok "three arguments are a usage error" || no "three arguments (rc=$rc)"

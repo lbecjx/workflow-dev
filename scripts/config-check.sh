@@ -24,12 +24,13 @@
 #       `/workflow-dev:<skill>`, which bypasses PreToolUse. That event cannot
 #       hold anything, so it carries the same text as context.
 #
-# The four questions and their owners, which keep each question's wording, its
+# The five questions and their owners, which keep each question's wording, its
 # options and how its answer is saved (this script only says which are missing):
 #   gitignored         `.workflow-dev/config.env`          skills/init/SKILL.md, "The gitignored question"
 #   model tiering      model-tiering-check.sh --status     references/tiering-question.md
 #   agentCoauthorship  `.workflow-dev/config.env`          skills/summarize-changes/SKILL.md, Step 1
 #   notifications      `~/.workflow-dev/config.env`        references/attention-alert.md, "Alerts on this machine"
+#   phone              `~/.workflow-dev/config.env`        references/attention-alert.md, "Phone notifications"
 #
 # Silent on: a skill that isn't this plugin's, `setup-models` (it is the fix
 # for tiering), `help` and `usage` (they only read), and nothing missing.
@@ -108,12 +109,17 @@ al="$("$HERE/attention-alert.sh" get 2>/dev/null </dev/null)"
 [[ "$al" == "unset" ]] \
   && MISSING+=("whether to turn the notifications on for this machine — owner: references/attention-alert.md, \"Alerts on this machine\"")
 
+# Its own answer, also for a machine that already answered the sounds.
+ph="$("$HERE/attention-alert.sh" phone get 2>/dev/null </dev/null)"
+[[ "$ph" == "unset" ]] \
+  && MISSING+=("whether to send push notifications to the phone on this machine — owner: references/attention-alert.md, \"Phone notifications\"")
+
 [[ ${#MISSING[@]} -eq 0 ]] && exit 0
 
 # --- Tell the agent --------------------------------------------------------
 LIST=""
 for i in "${!MISSING[@]}"; do LIST="$LIST $((i + 1))) ${MISSING[$i]}."; done
-NOTE="workflow-dev is missing setup answers, and they come before anything else: before this skill's own first step (for init, before the run-mode question). Missing:$LIST Ask all of them together, in one ask-question call (up to 4 questions), in the user's language. Each owner file (under $PLUGIN_ROOT) holds that question's wording, options, how its answer is saved, and its fallback when nobody can answer; read the owners before asking. An answer the user already gave counts only under the rule in skills/init/SKILL.md, Phase 0 step 3: save it instead of asking. When nobody can answer (no ask-question tool, a non-interactive session with CLAUDE_CODE_SESSION_ATTENDED=0, or an ask that came back empty), do not ask in prose: apply each owner's fallback and save it, so it is not asked again. If an answer cannot be saved (the script refuses it or prints unavailable), say so once and do not ask it again in this conversation. Save every answer, then continue the skill the user asked for; it is already loaded, so do not call it again."
+NOTE="workflow-dev is missing setup answers, and they come before anything else: before this skill's own first step (for init, before the run-mode question). Missing:$LIST Ask all of them together, in as few ask-question calls as the tool allows (up to 4 questions per call; the phone question last when they do not fit), in the user's language. Each owner file (under $PLUGIN_ROOT) holds that question's wording, options, how its answer is saved, and its fallback when nobody can answer; read the owners before asking. An answer the user already gave counts only under the rule in skills/init/SKILL.md, Phase 0 step 3: save it instead of asking. When nobody can answer (no ask-question tool, a non-interactive session with CLAUDE_CODE_SESSION_ATTENDED=0, or an ask that came back empty), do not ask in prose: apply each owner's fallback and save what it says to save (one saves nothing, so it is asked again when a human is there). If an answer cannot be saved (the script refuses it or prints unavailable), say so once and do not ask it again in this conversation. Save every answer, then continue the skill the user asked for; it is already loaded, so do not call it again."
 
 if [[ "$MODE" == "expansion" ]]; then
   printf '{"hookSpecificOutput":{"hookEventName":"UserPromptExpansion","additionalContext":"%s"}}' "$(json_escape "$NOTE")"

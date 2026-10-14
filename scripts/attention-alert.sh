@@ -39,6 +39,19 @@
 #   attention-alert.sh --prompt      UserPromptSubmit hook: drops a stale arm
 #   attention-alert.sh get           this machine's answer: on, off or unset
 #   attention-alert.sh set on|off    save it (prints saved or unavailable)
+#   attention-alert.sh phone get     the phone's answer: on, off or unset
+#   attention-alert.sh phone on [-] | phone reset
+#                                    turn the phone notices on (keeping the
+#                                    topic, reading a pasted one from stdin with
+#                                    `-`, or making one); prints `topic <t>` and
+#                                    `clipboard copied|unavailable` (or `topic
+#                                    kept` when the phone already had it), then
+#                                    `remote-control active|inactive`; or
+#                                    `invalid-topic`, `linked-config` (the
+#                                    config is a symlink: the topic is not
+#                                    written) or `unavailable`
+#   attention-alert.sh phone off     turn them off, topic kept (saved or unavailable)
+#   attention-alert.sh phone test    send a test notice now (sent, failed or no-topic)
 #
 # An unknown kind falls back to `need`: a typo in a skill must still call the
 # human, never go silent. When to arm, and with which kind, is the skills' rule,
@@ -107,7 +120,7 @@
 set -u
 
 usage() {
-  printf 'usage: %s play [kind] | arm [kind] | --stop | --ask | --notify | --prompt | get | set on|off\n' "${0##*/}" >&2
+  printf 'usage: %s play [kind] | arm [kind] | --stop | --ask | --notify | --prompt | get | set on|off | phone on [-]|off|reset|get|test\n' "${0##*/}" >&2
   exit 2
 }
 
@@ -244,6 +257,12 @@ read_answer() {
 # (hooks run for every project on the machine) and a yes from the human.
 alerts_gate() { # alerts_gate [dir]
   workflow_root "${1:-}" >/dev/null || return 1
+  sound_answer_on
+}
+
+# 0 when this machine said yes to the sounds. play_event asks it apart from the
+# project check, since the phone may be on while the sounds are off.
+sound_answer_on() {
   [[ "$(read_answer)" == on ]]
 }
 
@@ -254,6 +273,216 @@ do_set() { # do_set <on|off>
   else
     printf 'unavailable\n'
   fi
+}
+
+# ## The phone — a second answer per machine (WD-0109)
+#
+# A push to the human's phone through ntfy.sh, for the few kinds that matter when
+# nobody is at the Mac. Its own yes/no, beside the alerts' one, in the same file:
+#
+#   ~/.workflow-dev/config.env    phone=on|off
+#                                 phone_topic=wd-xxxx-xxxx-xxxx
+#
+# An ntfy.sh topic has no owner and no password: whoever knows its name reads the
+# notices and can send forged ones. So the topic is 12 random letters, the file
+# is kept 600, and nothing but `phone on|reset` (at setup, once, for the human
+# to paste into the app) ever prints it.
+#
+# The pattern is this script's own shape and nothing broader: a topic pasted
+# from another Mac is one this script generated there, and the strict shape
+# keeps every character that is special to curl's config format (quotes,
+# backslashes, line breaks) out of the request. Letters only, no digits: they
+# are typed on a phone keyboard.
+TOPIC_RE='^wd-[a-z]{4}-[a-z]{4}-[a-z]{4}$'
+
+valid_topic() {
+  [[ "${1:-}" =~ $TOPIC_RE ]]
+}
+
+gen_topic() {
+  local raw
+  # A bounded read, not `tr </dev/urandom`: that pipe ends only when SIGPIPE
+  # kills tr, and a caller that ignores SIGPIPE would leave tr spinning
+  # forever. 4096 random bytes hold about 400 letters.
+  raw="$(head -c 4096 /dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'a-z' | head -c 12)"
+  [[ ${#raw} -eq 12 ]] || return 1
+  printf 'wd-%s-%s-%s' "${raw:0:4}" "${raw:4:4}" "${raw:8:4}"
+}
+
+# The saved topic, only when it has this script's shape.
+read_topic() {
+  local topic
+  topic="$(config_env_get "$(user_config)" phone_topic)" || return 1
+  valid_topic "$topic" && printf '%s' "$topic"
+}
+
+# `on`, `off` or `unset`. `phone=on` without a valid topic would push to nobody
+# forever, so it reads as unset and the setup is offered again.
+phone_state() {
+  case "$(config_env_get "$(user_config)" phone)" in
+    on) read_topic >/dev/null && printf 'on\n' || printf 'unset\n' ;;
+    off) printf 'off\n' ;;
+    *) printf 'unset\n' ;;
+  esac
+}
+
+# The Remote Control session id, only when it is safe in a header and a URL.
+bridge_session() {
+  local id="${CLAUDE_CODE_BRIDGE_SESSION_ID:-}"
+  [[ "$id" =~ ^[A-Za-z0-9_-]{1,128}$ ]] && printf '%s' "$id"
+}
+
+# `on` keeps a saved topic; a pasted one replaces it; else a new one. `reset`
+# always makes a new one. Prints the topic once, then whether it reached the
+# clipboard and whether Remote Control is on (the setup's `/rc` hint).
+phone_on() { # phone_on <on|reset> [-]   (`-`: a pasted topic comes on stdin)
+  local mode="$1" topic file show=1
+  file="$(user_config)"
+  # A linked config usually lives in a dotfiles repo, and the next push of that
+  # repo would publish the secret: mode 600 does not stop a commit. The sounds'
+  # answer may live there; the topic never does.
+  # When the phone has no answer yet, `phone=off` (no secret) is written through
+  # the link, so the question is not asked again in every session; moving the
+  # config out of the link and running `phone on` turns it on later. A phone
+  # already set up is left as it is: its topic is in that file already.
+  if [[ -L "$file" || -L "$(machine_dir)" ]]; then
+    if [[ "$(phone_state)" == unset ]] && ! config_env_set "$file" phone off; then
+      printf 'unavailable\n'
+      return 0
+    fi
+    printf 'linked-config\n'
+    return 0
+  fi
+  if [[ "${2:-}" == - ]]; then
+    # On stdin, not as an argument: any local user can read a process's
+    # arguments with `ps`. The whole input must be the topic, nothing more.
+    topic="$(cat)"
+    topic="${topic%$'\r'}"
+    valid_topic "$topic" || { printf 'invalid-topic\n'; return 0; }
+  elif [[ "$mode" == on ]] && topic="$(read_topic)"; then
+    # Set up before (on or off): the phone is already subscribed, so the secret
+    # is not shown or copied again.
+    [[ "$(phone_state)" == unset ]] || show=0
+  else
+    topic="$(gen_topic)" || { printf 'unavailable\n'; return 0; }
+  fi
+  # 600 before the topic lands: config-env.sh keeps an existing file's mode, so
+  # a config made by hand as 644 would otherwise hold the secret readable.
+  [[ -f "$file" ]] && chmod 600 "$file"
+  # `phone=on` first: if the topic's write then fails, the file keeps the old
+  # topic (already on the phone) or none (read as unset, so asked again), never
+  # `on` with a topic nobody saw.
+  if ! config_env_set "$file" phone on || ! config_env_set "$file" phone_topic "$topic"; then
+    printf 'unavailable\n'
+    return 0
+  fi
+  chmod 600 "$file"
+  if (( show )); then
+    printf 'topic %s\n' "$topic"
+    if command -v pbcopy >/dev/null 2>&1 && printf '%s' "$topic" | pbcopy; then
+      printf 'clipboard copied\n'
+    else
+      printf 'clipboard unavailable\n'
+    fi
+  else
+    printf 'topic kept\n'
+  fi
+  if [[ -n "$(bridge_session)" ]]; then
+    printf 'remote-control active\n'
+  else
+    printf 'remote-control inactive\n'
+  fi
+}
+
+# Only the kinds that matter when nobody is at the Mac reach the phone: a
+# question mid autonomous run, a permission dialog, a failure, a finished story.
+push_kind() {
+  case "${1:-}" in away|permission|fail|story) return 0 ;; *) return 1 ;; esac
+}
+
+# ntfy's default priority for the good news, high for anything blocking.
+push_priority() {
+  case "${1:-}" in away|permission|fail) printf 'high' ;; esac
+}
+
+# The repo's folder name, cut to characters that need no quoting in curl's
+# config, and to 40 bytes: a lock screen shows about two lines, and the kind's
+# own line must still fit after the name.
+safe_name() {
+  local dir="${1%/}"
+  # Bytes 0x80-0xFF are kept: a UTF-8 letter (año, 日本) never holds a quote,
+  # a backslash or a line break. The cut is in bytes, and iconv then drops a
+  # letter it split in half (and any byte that is not UTF-8 at all).
+  printf '%s' "${dir##*/}" | LC_ALL=C tr -cd 'A-Za-z0-9._\200-\377-' | head -c 40 \
+    | iconv -c -f UTF-8 -t UTF-8 2>/dev/null
+}
+
+# The story this session works on, when there is exactly one.
+story_code() { # story_code <transcript> <workflow root>
+  local ids
+  ids="$(session_stories "$1" "$2/.workflow-dev/context" 2>/dev/null)"
+  [[ "$ids" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] && printf '%s' "$ids"
+}
+
+push_text() { # push_text <lang> <kind> <repo> <story>
+  local where="$3"
+  [[ -n "$4" ]] && where="${where:+$where · }$4"
+  printf '%s%s' "${where:+$where — }" "$(hook_msg "$1" "phone_$2")"
+}
+
+# One notice to ntfy.sh. The URL goes to curl through a config on stdin, never
+# in argv: any local user can read argv with `ps` while the request lives, and
+# the topic is the only key to the notices. Every value written into that
+# config is either built in or checked first (the topic, the session id, the
+# repo name, the story code), so nothing can close a quote or add a line.
+# The body never carries the question, code or a path: ntfy.sh keeps what it
+# relays for hours. Returns 0 only when ntfy accepted it.
+send_push() { # send_push <kind> <cwd> <payload>
+  local kind="$1" dir="$2" payload="$3" topic root="" repo="" story="" lang prio id
+  topic="$(read_topic)" || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  # shellcheck source=hook-language.sh
+  . "$HERE/hook-language.sh" 2>/dev/null || return 1
+  # shellcheck source=session-story.sh
+  . "$HERE/session-story.sh" 2>/dev/null
+  if root="$(workflow_root "$dir")"; then
+    repo="$(safe_name "$root")"
+    story="$(story_code "$(payload_field "$payload" transcript_path)" "$root")"
+  fi
+  # The repo's own `language` is read from the current folder.
+  lang="$(cd "${root:-.}" 2>/dev/null && hook_language "$payload")"
+  prio="$(push_priority "$kind")"
+  id="$(bridge_session)"
+  {
+    printf 'url = "https://ntfy.sh/%s"\n' "$topic"
+    printf 'header = "Title: workflow-dev"\n'
+    [[ -n "$prio" ]] && printf 'header = "Priority: %s"\n' "$prio"
+    [[ -n "$id" ]] && printf 'header = "Click: https://claude.ai/code/%s"\n' "$id"
+    printf 'data = "%s"\n' "$(push_text "$lang" "$kind" "$repo" "$story")"
+  } | curl -q -fsS -m 5 -o /dev/null -K - >/dev/null 2>&1
+}
+
+# Detached like the player: the hook returns at once, and a slow or failed
+# request changes nothing the human sees.
+push_detached() { # push_detached <kind> <cwd> <payload>
+  ( send_push "$@" </dev/null >/dev/null 2>&1 & ) 2>/dev/null
+}
+
+do_phone() { # do_phone <on|off|reset|get|test> [topic]
+  case "$1" in
+    get) phone_state ;;
+    test)
+      if ! read_topic >/dev/null; then
+        printf 'no-topic\n'
+      elif send_push test "$PWD" ''; then
+        printf 'sent\n'
+      else
+        printf 'failed\n'
+      fi
+      ;;
+    off) config_env_set "$(user_config)" phone off && printf 'saved\n' || printf 'unavailable\n' ;;
+    on|reset) phone_on "$1" "${2:-}" ;;
+  esac
 }
 
 # A top-level string field of a hook payload. Same reading as command-match.sh's
@@ -296,13 +525,22 @@ store_ready() {
 }
 
 # The one way a hook plays: gate, dedupe window, record the play, drop the
-# session's arm (so the same event cannot sound again at the next Stop), play.
-play_event() { # play_event <session> <source: stop|ask|notify> <sound kind> <cwd>
-  local session="$1" kind="$2" sound="$3" dir last last_time last_kind now
+# session's arm (so the same event cannot sound again at the next Stop), play,
+# and push to the phone. The sound and the push each follow their own answer,
+# so a human can have either one alone; the dedupe covers both, so one event
+# is one sound and one push.
+play_event() { # play_event <session> <source: stop|ask|notify> <sound kind> <cwd> [payload]
+  local session="$1" kind="$2" sound="$3" dir last last_time last_kind now sound_on=0 push_on=0
   dir="$(store_dir)"
   rm -f "$dir/armed-$session" 2>/dev/null
   alert_enabled || return 0
-  alerts_gate "$4" || return 0
+  workflow_root "$4" >/dev/null || return 0
+  sound_answer_on && sound_on=1
+  # The phone's answer, not yet the kind: a question that does not push (need)
+  # still records the event, so the permission prompt it raises is merged into
+  # it instead of pushing on its own.
+  [[ "$(phone_state)" == on ]] && push_on=1
+  (( sound_on || push_on )) || return 0
   now="$(date +%s)"
   last="$(cat "$dir/last-$session" 2>/dev/null)"
   last_time="${last%% *}"
@@ -315,7 +553,9 @@ play_event() { # play_event <session> <source: stop|ask|notify> <sound kind> <cw
     return 0
   fi
   printf '%s %s\n' "$now" "$kind" | marker_write "$dir/last-$session" 2>/dev/null
-  play_now "$sound"
+  (( sound_on )) && play_now "$sound"
+  (( push_on )) && push_kind "$sound" && push_detached "$sound" "$4" "${5:-}"
+  return 0
 }
 
 # The session's cwd or any parent holds `.workflow-dev/context`.
@@ -392,7 +632,7 @@ do_stop() {
   # which nothing reads any more.
   sound="$(alert_kind "$(head -n 1 "$claimed" 2>/dev/null)")"
   rm -f "$claimed"
-  play_event "$session" stop "$sound" "$(payload_field "$payload" cwd)"
+  play_event "$session" stop "$sound" "$(payload_field "$payload" cwd)" "$payload"
   return 0
 }
 
@@ -414,7 +654,7 @@ do_ask() {
   store_ready || return 0
   # Mid autonomous run the human walked away, so the question calls them back.
   in_autonomous_run && sound=away
-  play_event "$session" ask "$sound" "$(payload_field "$payload" cwd)"
+  play_event "$session" ask "$sound" "$(payload_field "$payload" cwd)" "$payload"
 }
 
 do_notify() {
@@ -427,12 +667,14 @@ do_notify() {
   kind="$(payload_field "$payload" notification_type)"
   [[ -z "$kind" || "$kind" == "permission_prompt" ]] || return 0
   store_ready || return 0
-  play_event "$session" notify permission "$(payload_field "$payload" cwd)"
+  play_event "$session" notify permission "$(payload_field "$payload" cwd)" "$payload"
 }
 
 case "${1:-}:$#" in
   play:1|play:2|arm:1|arm:2|--stop:1|--ask:1|--notify:1|--prompt:1|get:1) ;;
   set:2) [[ "$2" == on || "$2" == off ]] || usage ;;
+  phone:2) case "$2" in on|off|reset|get|test) ;; *) usage ;; esac ;;
+  phone:3) [[ "$2" == on && "$3" == - ]] || usage ;;
   *) usage ;;
 esac
 # Past the usage check nothing is worth showing: a hook's stray stderr (a tool
@@ -447,6 +689,7 @@ case "$1" in
   --prompt) do_prompt ;;
   get) read_answer ;;
   set) do_set "$2" ;;
+  phone) do_phone "$2" "${3:-}" ;;
   *) usage ;;
 esac
 exit 0

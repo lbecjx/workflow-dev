@@ -70,9 +70,9 @@ has '.workflow-dev/ folder gitignored' "$OUT" "gitignored is listed"
 has 'model of each agent role' "$OUT" "tiering is listed"
 has 'credit the agent as co-author' "$OUT" "co-authorship is listed"
 has 'notifications on for this machine' "$OUT" "the alerts are listed"
-has 'Ask all of them together, in one ask-question call' "$OUT" "the context asks for one batch"
+has 'Ask all of them together, in as few ask-question calls as the tool allows' "$OUT" "the context asks for as few batches as the tool allows"
 has 'Phase 0 step 3: save it instead of asking' "$OUT" "an answer already given counts, under init's one rule"
-has 'apply each owner'"'"'s fallback and save it' "$OUT" "an unattended default is saved, so it is not asked again"
+has 'apply each owner'"'"'s fallback and save what it says to save' "$OUT" "an unattended default is saved, so it is not asked again"
 has 'do not ask it again in this conversation' "$OUT" "an answer that cannot be saved is not asked over and over"
 has 'do not call it again' "$OUT" "the skill goes on, not called twice"
 has 'references/tiering-question.md' "$OUT" "the tiering owner is named"
@@ -94,7 +94,7 @@ done
 # --- 5: all answered → silent -----------------------------------------------
 mkdir -p "$REPO/.workflow-dev" "$HOME_DIR/.workflow-dev"
 printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > "$REPO/.workflow-dev/config.env"
-printf 'notifications=on\n' > "$HOME_DIR/.workflow-dev/config.env"
+printf 'notifications=on\nphone=off\n' > "$HOME_DIR/.workflow-dev/config.env"
 OUT="$(run "" workflow-dev:init)"
 [[ -z "$OUT" ]] && ok "all answered → silent" || no "all answered → silent (got: $OUT)"
 OUT="$(run "" workflow-dev:init "$REPO/sub")"
@@ -111,18 +111,37 @@ printf 'gitignored=true\ntiering=default\nagentCoauthorship=maybe\n' > "$REPO/.w
 OUT="$(run "" workflow-dev:validate)"
 has 'credit the agent as co-author' "$OUT" "an unreadable co-authorship value counts as missing"
 printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > "$REPO/.workflow-dev/config.env"
-printf 'notifications=off\n' > "$HOME_DIR/.workflow-dev/config.env"
+printf 'notifications=off\nphone=off\n' > "$HOME_DIR/.workflow-dev/config.env"
 OUT="$(run "" workflow-dev:validate)"
 [[ -z "$OUT" ]] && ok "notifications=off is an answer" || no "notifications=off is an answer (got: $OUT)"
 rm -f "$HOME_DIR/.workflow-dev/config.env"
 OUT="$(run "" workflow-dev:validate)"
 has 'notifications on for this machine' "$OUT" "no machine answer → the alerts are listed"
-lacks 'gitignored' "$OUT" "…and only the alerts"
+lacks 'gitignored' "$OUT" "…and only the alerts and the phone"
+has 'push notifications to the phone' "$OUT" "no machine answer → the phone is listed"
+
+# --- 6a: the phone is its own answer (WD-0109) -------------------------------
+phone_case() { # phone_case <config text> <listed|silent> <label>
+  printf '%s' "$1" > "$HOME_DIR/.workflow-dev/config.env"
+  OUT="$(run "" workflow-dev:plan)"
+  if [[ "$2" == listed ]]; then has 'push notifications to the phone' "$OUT" "$3"; else [[ -z "$OUT" ]] && ok "$3" || no "$3 (got: $OUT)"; fi
+}
+mkdir -p "$HOME_DIR/.workflow-dev"
+phone_case $'notifications=on\n' listed "alerts answered, no phone answer → the phone is still asked"
+phone_case $'notifications=on\nphone=off\n' silent "phone=off is an answer"
+phone_case $'notifications=off\nphone=on\nphone_topic=wd-abcd-efgh-ijkl\n' silent "phone=on with its topic is an answer"
+phone_case $'notifications=on\nphone=on\n' listed "phone=on without a topic is asked again"
+phone_case $'notifications=on\nphone=yes\nphone_topic=wd-abcd-efgh-ijkl\n' listed "an unreadable phone value is asked"
+printf 'phone=off\n' > "$HOME_DIR/.workflow-dev/config.env"
+OUT="$(run "" workflow-dev:plan)"
+has 'notifications on for this machine' "$OUT" "the phone answered, the alerts not → the alerts are still asked"
+lacks 'push notifications to the phone' "$OUT" "…and not the phone"
+printf 'notifications=on\nphone=off\n' > "$HOME_DIR/.workflow-dev/config.env"
 
 # --- 6b: a repo path with a quote keeps its tiering default -----------------
 QREPO="$TMP/r\"quote"; mkdir -p "$QREPO/.workflow-dev"; git -C "$QREPO" init -q -b main
 printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > "$QREPO/.workflow-dev/config.env"
-mkdir -p "$HOME_DIR/.workflow-dev"; printf 'notifications=on\n' > "$HOME_DIR/.workflow-dev/config.env"
+mkdir -p "$HOME_DIR/.workflow-dev"; printf 'notifications=on\nphone=off\n' > "$HOME_DIR/.workflow-dev/config.env"
 OUT="$(printf '{"tool_name":"Skill","tool_input":{"skill":"workflow-dev:plan"}}' | (cd "$QREPO" && env HOME="$HOME_DIR" CLAUDECODE=1 bash "$SCRIPT"))"
 [[ -z "$OUT" ]] && ok "a quoted repo path keeps its tiering default" || no "a quoted repo path keeps its tiering default (got: $OUT)"
 
