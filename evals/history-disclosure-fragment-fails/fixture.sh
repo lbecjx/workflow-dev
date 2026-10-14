@@ -18,7 +18,9 @@ git config user.name "Eval Fixture"
 # the run: that question is required even unattended, so without it validate
 # stops before reviewing anything, for a reason this case is not about.
 mkdir -p .workflow-dev
-printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
+# agentCoauthorship=no: the configuration interceptor asks a missing one
+# before any workflow-dev skill, and this case is not about it.
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 mkdir -p changes

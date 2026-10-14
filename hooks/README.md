@@ -90,8 +90,14 @@ the Free Software Foundation, either version 3 of the License, or
   no bypass beyond the human's own co-authorship answer, so it
   blocks in autonomous mode exactly as it does in a human-piloted one. See
   `../references/autonomous-mode.md`.
-- **The model-tiering reminder has the agent ask; it neither asks nor blocks**
-  (WD-0042, WD-0045, WD-0046). The `PreToolUse:Skill` hook can
+- **The configuration interceptor has the agent ask; it neither asks nor blocks**
+  (WD-0042, WD-0045, WD-0046, WD-0108). It began as the model-tiering reminder
+  (`model-tiering-check.sh`); since WD-0108 `config-check.sh` holds every
+  workflow-dev skill that works on a story (not `setup-models`, `help`, `usage`)
+  while any setup answer is missing — `.workflow-dev/` gitignored, model tiering
+  (read through `model-tiering-check.sh --status`), agent co-authorship, the
+  alerts — and lists them all, to be asked together before the skill's first
+  step (for `init`, before the run-mode question). The `PreToolUse:Skill` hook can
   return `allow`, `ask`, `deny` or `defer`, plus `permissionDecisionReason`,
   `updatedInput` and `additionalContext`. Each of the first two attempts failed on
   something the plugin cannot change:
@@ -104,17 +110,19 @@ the Free Software Foundation, either version 3 of the License, or
     every hook deny behind `Error: PreToolUse:Skill hook error:`, which reads as a
     failure when nothing failed (WD-0045).
 
-  So the hook now returns `allow` with an `additionalContext` that only the agent
-  reads: do not start the skill's own steps, put one question to the user, then
-  continue. The user sees no error line and no dialog. The context points at
-  `references/tiering-question.md`, which holds the question: three answers in this
+  So the hook returns `allow` with an `additionalContext` that only the agent
+  reads: before the skill's own steps, put the missing questions to the user
+  together, save the answers, then continue. The user sees no error line and no dialog. The context names each
+  question's owner file; tiering's is `references/tiering-question.md`: three answers in this
   order — configure the agents (the agent runs `/workflow-dev:setup-models`
   itself, as the main agent, since the flow is interactive), a default model for
   this story (a `Tiering: default model` row in the active story's Decisions, offered only on a branch
   that names the story), or a default model for this repo (`tiering=default`
-  in `.workflow-dev/config.env`). The hook reads both defaults and stays silent
-  for them, and once the roles are bound; the story one is a table row, not a
-  mention. The question is required in autonomous mode too. There is no
+  in `.workflow-dev/config.env`). `--status` reads both defaults as `opted-out`
+  and bound roles as `ok`, and the interceptor then leaves tiering out; the
+  story default is a table row, not a mention. The questions are required in
+  autonomous mode too while a human can answer; with nobody to answer, each
+  owner's default applies (WD-0108). There is no
   machine-wide opt-out: the old `~/.workflow-dev/tiering.json` is ignored, because
   tiering is either configured once or defaulted per repo or story. The
   `UserPromptExpansion` path (the user typing `/workflow-dev:<skill>`) cannot block
@@ -124,6 +132,8 @@ the Free Software Foundation, either version 3 of the License, or
   when the context arrives, so an agent that ignores it runs the skill without the
   question. A single live run (a new scratch repo, `init`) showed the agent reading
   the question file and asking before any of `init`'s steps, with no error line.
+  `init`'s Phase 0 checks again and asks what is still missing, so a run where
+  the hook did not fire keeps the same order.
 - **The attention sounds play only when workflow-dev needs the human** (WD-0052).
   `scripts/attention-alert.sh` is registered four times, and each entry only
   ever plays a sound — it prints nothing, never asks or denies, and exits 0:

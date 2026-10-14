@@ -19,6 +19,13 @@ git init -q
 git config user.email "eval@example.com"
 git config user.name "Eval Fixture"
 
+# The setup answers the configuration interceptor (config-check.sh) would
+# otherwise ask before /workflow-dev:validate; this case is not about them.
+# `.git/info/exclude` keeps the folder out of the diff without a tracked change.
+mkdir -p .workflow-dev
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
+printf '.workflow-dev/\n' >> .git/info/exclude
+
 mkdir -p release-notes.d src
 cat > README.rst <<'RST'
 Eval fixture

@@ -7,27 +7,22 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version. See LICENSE for the full text.
 #
-# The model-tiering reminder: speaks up while the agent roles are unbound or stale,
-# and goes quiet once they are bound and current — or once the user has opted
-# out. Called in three ways:
+# The model-tiering verdict: are the agent roles bound and current, or has the
+# user chosen the default model for this repo or this story? Called in two ways:
 #
-#   model-tiering-check.sh
-#       Claude Code `PreToolUse` (matcher: Skill) — the agent invoking a
-#       workflow-dev skill. Emits `permissionDecision: "allow"` with an
-#       `additionalContext` telling the agent to put the setup question to the user
-#       before the skill goes on (WD-0045, WD-0046) — no dialog, so no "don't ask
-#       again", and no "Error:" line either.
-#   model-tiering-check.sh --expansion
-#       Claude Code `UserPromptExpansion` — the user typing
-#       `/workflow-dev:<skill>` directly, which bypasses PreToolUse entirely.
-#       That event has no permission decision, so the most it supports is
-#       injecting the same reminder as context (a soft advisory — the honest
-#       ceiling on that path, not a choice).
 #   model-tiering-check.sh --status [payload]
-#       Prints one word and exits 0. `skills/init` asks this before its research
-#       pass, so a missing or stale binding is fixed before that work runs on
-#       the default model. The payload (the JSON the hook would have piped) is
-#       passed as an argument; with none, stdin is read.
+#       Prints one word and exits 0: ok, unmapped, stale, incomplete, opted-out,
+#       no-harness, no-registry, or not-ours. `skills/init` (Phase 0) and
+#       `config-check.sh`, the configuration interceptor, read it. The payload
+#       (a hook-style JSON naming the skill, and optionally `cwd`) is passed as
+#       an argument; with none, stdin is read.
+#   model-tiering-check.sh --role-models
+#       One `role<TAB>state<TAB>model` line per role, for the usage report.
+#
+# Until WD-0108 this script was also the hook that paused a skill to ask the
+# tiering question. That moved to config-check.sh, which asks it together with
+# the other missing setup answers; called any other way, this script says
+# nothing.
 #
 # A skill counts as this plugin's when it arrives as `workflow-dev:<name>`,
 # where `<name>` is a real directory under this plugin's `skills/` — derived,
@@ -38,18 +33,18 @@
 # equal to the one scripts/roles-hash.sh computes now. Anything else — no file,
 # or a hash from an older registry — is stale, and says so.
 #
-# Silent on: a skill that isn't this plugin's, the setup command itself (asking
-# someone to run the fix while they run the fix is noise), a run outside Claude
-# Code (`no-harness`), and a default model chosen for this repo or this story.
+# `--status` answers `not-ours` for a skill that isn't this plugin's and for the
+# setup command itself, `no-harness` outside Claude Code, and `opted-out` for a
+# default model chosen for this repo or this story.
 
 set -u
 
-MODE="hook"
+MODE=""
 PAYLOAD_ARG=""
 case "${1:-}" in
-  --expansion) MODE="expansion" ;;
   --status) MODE="status"; PAYLOAD_ARG="${2:-}" ;;
   --role-models) MODE="role-models" ;;
+  *) exit 0 ;;
 esac
 
 HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
@@ -179,12 +174,6 @@ if [[ "$MODE" == "role-models" ]]; then
   exit 0
 fi
 
-# JSON-escape a string for embedding in a hand-built JSON envelope. The reminder
-# text contains `"` (around `"tiering": "default"`), which a JSON string value must
-# escape as `\"`. Kept as a function so the text stays plain and only the JSON
-# boundary escapes it — the one place a raw quote must never land.
-json_escape() { printf '%s' "$1" | sed 's/"/\\"/g'; }
-
 # --- Is this even a workflow-dev skill? ------------------------------------
 # The Skill tool's input field name isn't documented, and the two events carry
 # the skill's name under different keys, so try the known ones and fall back to
@@ -270,37 +259,4 @@ if [[ "$MODE" == "status" ]]; then
   fi
 fi
 
-# --- Tell the human --------------------------------------------------------
-# This text is the single source of truth for both envelopes below. It stays
-# plain here; only the JSON boundary escapes it (json_escape above).
-REMINDER="Model tiering isn't set up on this harness. Run /workflow-dev:setup-models to bind each agent role to a model, or choose the default model for this story or this repo."
-if [[ -n "$STALE" ]] && [[ -z "$MISSING" ]]; then
-  REMINDER="The agent roles are stale — the role registry changed since they were generated. Re-run /workflow-dev:setup-models to refresh them (your chosen models are kept), or choose the default model for this story or this repo."
-fi
-# The agent-facing paths put the question to the user through the agent instead of
-# a dialog (WD-0045, WD-0046). An `ask` dialog's buttons belong to the harness, and
-# its "don't ask again" saves a permission `allow` rule that silences this reminder
-# without configuring anything (hooks/README.md). A `deny` avoids that button but
-# Claude Code prints every hook deny behind "Error: ...hook error:", which reads as
-# a failure. So the PreToolUse path allows the skill and hands the agent the
-# instruction as `additionalContext`: stop, put one three-answer question to the
-# user, then continue. Nothing enforces that — the agent could ignore it — which
-# hooks/README.md records as the accepted cost. Once an answer is recorded the hook
-# is silent. The question is required in autonomous mode too: no answer is assumed
-# for the user. There is no machine-wide opt-out: tiering is configured once (the
-# agent files live in the user's agents directory) or the default is chosen per
-# repo or story.
-# The details live in references/tiering-question.md so this text stays short.
-QUESTION_FILE="$(cd -P "$HERE/.." && pwd -P)/references/tiering-question.md"
-PAUSE_NOTE="Model tiering is not set up, so the user must choose how to handle the model of each agent before this skill goes any further: do not start the skill's own steps until the user has answered. Put that choice to the user as one question and wait for the answer; it is required, also in autonomous mode. The options, how each answer is recorded, and the rules are in $QUESTION_FILE: read it before asking. Then continue the skill."
-EXPANSION_NOTE="$REMINDER Before continuing the skill the user asked for, read $QUESTION_FILE and ask the user what to do."
-
-case "$MODE" in
-  expansion)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptExpansion\",\"additionalContext\":\"$(json_escape "$EXPANSION_NOTE")\"}}"
-    ;;
-  *)
-    emit "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"additionalContext\":\"$(json_escape "$PAUSE_NOTE")\"}}"
-    ;;
-esac
 exit 0

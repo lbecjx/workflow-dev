@@ -375,9 +375,13 @@ for want in 'Alerts on this machine' 'attention-alert.sh get' 'attention-alert.s
   grep -qF -- "$want" "$DOC" && ok "the reference carries '$want'" || no "the reference carries '$want'"
 done
 grep -qF 'Alerts on this machine' "$ROOT/skills/init/SKILL.md" && ok "init asks the alerts question" || no "init alerts question"
-grep -qF 'Alerts on this machine' "$ROOT/references/autonomous-mode.md" && ok "the autonomous checkpoint carries the alerts question" || no "autonomous alerts question"
-# The alerts question waits for the answer, so an autonomous run says first it has not started.
-grep -qF '## Before the run starts' "$ROOT/references/autonomous-mode.md" && ok "autonomous mode says the run has not started before its setup questions" || no "autonomous 'Before the run starts' section"
+# init asks the alerts with its other configuration, before any work: the
+# autonomous checkpoint no longer carries it.
+grep -qF 'scripts/config-check.sh' "$DOC" && ok "the alerts reference says the configuration interceptor asks it" || no "alerts reference names config-check.sh"
+grep -qF 'Phase 0' "$DOC" && ok "the alerts reference names init's Phase 0 as the backstop" || no "alerts reference names init's Phase 0 block"
+grep -qF 'Alerts on this machine' "$ROOT/references/autonomous-mode.md" && no "the autonomous checkpoint no longer carries the alerts question" || ok "the autonomous checkpoint no longer carries the alerts question"
+# The alerts question comes before the run mode is chosen, so autonomous mode says why no notice is needed.
+grep -qF '## Before the run starts' "$ROOT/references/autonomous-mode.md" && ok "autonomous mode says why setup questions need no notice" || no "autonomous 'Before the run starts' section"
 grep -qF 'Before the run starts' "$DOC" && ok "the alerts reference points to 'Before the run starts'" || no "alerts reference points to 'Before the run starts'"
 grep -qF 'never blocks' "$ROOT/references/autonomous-mode.md" "$DOC" && no "docs no longer claim the alerts question never blocks" || ok "docs no longer claim the alerts question never blocks"
 # `play start` is the one direct play a skill may ask for; every other kind is armed.

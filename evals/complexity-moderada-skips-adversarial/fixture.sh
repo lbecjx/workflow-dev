@@ -18,7 +18,9 @@ mkdir -p .workflow-dev/context
 # The repo default (`"tiering": "default"`) keeps the model-tiering question out
 # of the run, a question this case is not about. `.workflow-dev/` and
 # `fixture.sh` are ignored so the only change under review is the code below.
-printf 'gitignored=true\ntiering=default\n' > .workflow-dev/config.env
+# agentCoauthorship=no: the configuration interceptor asks a missing one
+# before any workflow-dev skill, and this case is not about it.
+printf 'gitignored=true\ntiering=default\nagentCoauthorship=no\n' > .workflow-dev/config.env
 printf '.workflow-dev/\nfixture.sh\n' > .gitignore
 
 cat > .workflow-dev/context/REPO.md <<'MD'
