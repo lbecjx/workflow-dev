@@ -16,6 +16,14 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.53.0
+
+- workflow-dev now checks a library's current docs through Context7 before guessing its API, with no account or setup.
+  Lookups never carry your code; the README explains how to add an API key or turn it off in `/mcp`.
+- `validate` now picks the checks for each pass from your plan and the actual change, and lists what it skipped and why; the security check always runs.
+  `plan` no longer grades a story or warns about long lists of acceptance criteria.
+- Push notifications to your phone through the free ntfy app when workflow-dev needs you, fails or finishes a story, asked once per machine with the other setup questions; with Remote Control on, tapping one opens the session.
+
 ## 1.52.0
 
 - workflow-dev now asks every missing setup question (keeping `.workflow-dev/` out of git, the agents' models, agent co-authorship, notifications) together as soon as you call one of its skills, before `/workflow-dev:init` asks how to run the story; when nobody can answer, it uses sensible defaults instead of stopping.
