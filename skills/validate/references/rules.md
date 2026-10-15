@@ -137,8 +137,8 @@ Run whatever the project provides — discovered per SKILL.md's Step 1 (a stack-
 
 This section applies only when the run includes `claude plugin eval` — a plugin
 repo whose diff touches its `evals/` suite. It owns the rule for every path that
-runs the suite: the full set's Verification dimension, the reduced set, and the
-batched story-end pass.
+runs the suite: the Verification dimension, whether a sub-agent or you run it,
+and the batched story-end pass.
 
 **Pick the judge first, then run.** Only `llm` graders use a judge; a
 `tool_used` grader needs none. Left to itself, `claude plugin eval` judges `llm`
@@ -148,7 +148,7 @@ carries `--judge-model`, and the judge is the model the human chose for
 judgment:
 
 1. **You, the orchestrator, resolve it** — before you brief the `wd-operator`
-   that runs the command, or before you run it yourself on the reduced set.
+   that runs the command, or before you run it yourself.
    Choosing the judge is not mechanical work; the operator only runs the
    command it is handed, flag included.
 2. **Read the `wd-judge` binding** through the one reader the roles have:
@@ -275,14 +275,12 @@ reflexively — see §11.0 before spawning anything.
 
 ### 11.0 Deciding whether to run this, and at what depth
 
-The other dimensions always run — they're cheap enough that skipping them
-saves nothing worth the risk. This one is different: it's expensive enough
-that running the full version by default, on every change regardless of what
-the change actually is, wastes real time and tokens for no real return on a
-change with nothing much to break. Whether this dimension runs at all is first
-the story's complexity (`../../plan/references/complexity.md`): a `moderada`
-or `simple` story skips it, unless its diff raises it to `compleja`. This section decides the depth once it runs, and
-applies unchanged to a story with no level. There are three levels, not two — **`Skip`**,
+This dimension is expensive enough that running the full version by default,
+on every change regardless of what the change actually is, wastes real time and
+tokens for no real return on a change with nothing much to break. Whether it
+runs at all is the selection judge's pick, like every other validation
+(`selection.md`). This section decides the depth once it runs. There are three
+levels, not two — **`Skip`**,
 **`no-repro`** (*Adversarial without reproduction*), and **`complete`**
 (*Adversarial complete*):
 
@@ -404,22 +402,23 @@ decision, not a gate the human can't override, and no-repro/complete are
 recommendations, not requirements.
 
 **One scoped exception to that unattended fallback:** the batched/story-end
-scope (`validate/SKILL.md` Step 2) — the single validate pass a story
-running in "once, at the end" mode gets, per `implement/SKILL.md` Step 5 —
-does **not** default to no-repro when unattended. It uses whatever depth this
+scope (`validate/SKILL.md` Step 2) — the story's last validate pass, in
+either validation mode, per `implement/SKILL.md` Step 5 — does **not**
+default to no-repro when unattended. It uses whatever depth this
 section's own criteria actually recommend for that cumulative diff (no-repro or
 complete). Reasoning: for an ordinary single call, defaulting to no-repro when
 nobody's there to confirm complete is the safe, cheap choice, because another
 validate call can always happen later. For the batched story-end pass, that
-assumption doesn't hold — it may be the *only* check the deferred work ever
+assumption doesn't hold — it is the last check before the story closes, and
+in "once, at the end" mode it may be the *only* check the deferred work ever
 receives, since the whole point of deferring was to avoid paying for
 per-task-group validation along the way. Forcibly capping depth there for
 cost reasons would undercut the very check being batched, on a diff that
 already earned complete by this section's own risk criteria. This exception is
 scoped narrowly to that one batched-run case; every other unattended
-validate call — a normal single-diff scope, whether from a story in
-"after every task group" mode or a one-off ad-hoc run — still defaults to
-no-repro exactly as above.
+validate call — a normal single-diff scope, whether from an earlier task
+group of a story in "after every task group" mode or a one-off ad-hoc run —
+still defaults to no-repro exactly as above.
 
 Both depths run two independent sub-agents (hunt then verify), never with any
 memory of each other or of how the change was designed (verify gets one line of
@@ -1031,8 +1030,8 @@ independent of Part 9's own escalation.
   suboptimal data structure. Advisory, the human's call — the same tier as
   Parts 4 and 9.
 - **SKIP** — the diff carries no logic to reason about (docs, a pure rename, a
-  config value). Part of the reduced set, like every judgment dimension except
-  AC Coverage (Part 14).
+  config value). The selection judge normally skips this dimension for such a
+  diff (`selection.md`).
 
 **Boundary with Part 9.** Where a check here overlaps Part 9's — an N+1, or
 unbounded per-iteration growth — the finding takes **Part 9's** verdict, not
@@ -1129,10 +1128,10 @@ depends on whether another group can still finish it:
   status — Blocked, dropped) → it stays a
   **WARN** that needs a disposition, and the report says the earlier groups'
   share is committed outside this diff: the human confirms the whole AC is met,
-  or sends what is missing to a fix or a new story. Without this, in "after
-  every task group" mode, an AC no group finishes would pass with no one asked.
+  or sends what is missing to a fix or a new story. Without this, an AC no
+  group finishes would pass with no one asked.
 
-The batched/story-end pass, when the story has one, sees the whole story and
+The batched/story-end pass, the story's last one in either mode, sees the whole story and
 judges the AC in full: there, nothing is accepted as shared, and a PARTIAL is a
 WARN like any other.
 

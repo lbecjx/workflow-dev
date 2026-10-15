@@ -25,6 +25,7 @@ Progress is tracked as you go. Decisions and discoveries are saved with `/workfl
 - `gh` (GitHub CLI), if you want the agent to open pull requests.
 - MCP servers for Jira, Confluence or GitHub, only if your stories or docs live there. Don't use them, or would rather not? Try [`local-backlog`](https://github.com/lbecjx/local-backlog): describe what you want built and you have a structured story in your repo in seconds, ready to hand to `init`. No account, no setup.
 - `jq`, recommended.
+- Internet, for [library docs](#library-docs) lookups. Optional: without it, the agent goes on without them.
 
 **Platform.** workflow-dev was built, used day to day and tested on macOS. It has not been tested on Windows or Linux.
 
@@ -83,7 +84,7 @@ Some figures are estimates: `≈` marks an estimate and `≥` a minimum.
 | `/workflow-dev:init-auto` | Starts a story with `init` in [autonomous mode](#autonomous-mode-opt-in) — same input as `init` |
 | `/workflow-dev:plan` | Splits the story into ordered task groups for you to approve |
 | `/workflow-dev:implement` | Runs the next task group one task at a time, explaining each change |
-| `/workflow-dev:validate` | Checks the change across several dimensions to make sure the story meets its quality bar, before you commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds. The checks scale with the story: lighter stories skip what their risk does not call for, and the security check runs at every level |
+| `/workflow-dev:validate` | Checks the change across several dimensions to make sure the story meets its quality bar, before you commit. It fails only on defects real use can reach, and stops fixing the same finding after a set number of rounds. It reads your plan and the actual change, then runs only the checks that change calls for, and tells you what it skipped and why. The security check always runs |
 | `/workflow-dev:manual-qa` | Verifies a story's Acceptance Criteria in a real browser/device (run by validate when the story opts in) |
 | `/workflow-dev:summarize-changes` | Drafts and reviews the commit message, PR title, and PR description before commit |
 | `/workflow-dev:save` | Persists decisions, discoveries, and progress into the context files |
@@ -105,6 +106,8 @@ workflow-dev also watches for the moments a step is easy to forget. It asks; it 
 - **After a PR is opened:** its full URL, as plain text.
 - **When the agent roles are not set up:** one question before the skill goes on (see [Model tiering](#model-tiering)).
 - **When a new version is out:** a one-time note with the update command.
+- **When a library-docs lookup looks private:** if a lookup seems to carry a secret, a path on your machine or pasted code, it never leaves. The agent rewrites it without that part, sends it again, and tells you in one line.
+- **When the free library-docs lookups run out:** a short note on how to keep using them (see [Library docs](#library-docs)).
 
 Questions and these dialogs come in the language you write in. The dialogs cover English, Spanish, French, Portuguese, German, Italian, Chinese, Japanese, Korean and Russian; any other language gets English.
 
@@ -135,6 +138,14 @@ The alerts play on whatever output your system is using, at its volume, so with 
 
 **Already have an alert sound in Claude Code?** A `Stop` or `Notification` hook of your own that plays a sound fires after every response and drowns this one out. Remove it from the `hooks` block of `~/.claude/settings.json` to hear only workflow-dev.
 
+### On your phone
+
+Walk away while an autonomous run works, and your phone still tells you when it needs you. workflow-dev sends a push notification when a question is waiting, when a permission prompt is open, when something went wrong, and when the story is complete. The rest stays on the Mac. With Remote Control on (`/rc`), tapping the notification opens the session, so you can answer from wherever you are.
+
+It uses [ntfy](https://ntfy.sh), a free app for iPhone and Android with no account and no ads. The first time you start a story, workflow-dev asks once whether you want notifications on your phone. Say yes, and it shows a QR code to install the app and gives you a private topic to paste into it; then it sends a test notification. On an iPhone, the topic is already on your Mac's clipboard. Notifications come in the language you write in, and only say which repo and story need you, never your code or your question.
+
+iOS Focus modes (Work, Do Not Disturb, …) hide ntfy unless you add it to the allowed apps. To turn the notifications off or on again, get a new private topic, or send a test, ask the agent.
+
 ## Model tiering
 
 Put the heavy thinking on a strong model and the routine checks on a fast one, and choose which is which. workflow-dev's sub-agents run under four roles (`wd-operator`, `wd-judge`, `wd-adversary` and `wd-architect`), and you bind each role to a model once:
@@ -148,6 +159,16 @@ Put the heavy thinking on a strong model and the routine checks on a fast one, a
 - **Models outside Claude** need a gateway in front of Claude Code.
 - **Updates keep your choice.** If a release changes a role, it asks you to run `setup-models` again, and keeps the model you picked.
 - `init` also recommends a model for the session itself, once per story.
+
+## Library docs
+
+No more code written against an API that changed two versions ago. When the agent is unsure how a library works, it reads that library's current docs for the version your repo uses, before it guesses or asks you. It works out of the box, with no account and nothing to set up.
+
+- **What leaves your machine:** the library's name, its version and a short question, sent to [Context7](https://context7.com), a third-party docs service by Upstash. The agent is told never to send your code, your file paths or your secrets. A lookup that looks like it carries one is stopped, rewritten without it and sent again, and the agent tells you; lookups never wait on a permission dialog.
+- **What comes back is treated as reference only:** the agent uses it as evidence and never follows instructions inside it.
+- **If it is not available** (no internet, turned off, or out of free lookups), the agent carries on without it and notes that it could not check.
+- **More lookups:** without an account you get Context7's basic limit. When it runs out, the agent tells you. To raise it, create a free API key at [context7.com/dashboard](https://context7.com/dashboard) and set it as `CONTEXT7_API_KEY`, either with `export CONTEXT7_API_KEY=…` in your shell profile or under `env` in `~/.claude/settings.json`. A project's `.claude/settings.json` does not work for this.
+- **Turn it off:** run `/mcp`, select `plugin:workflow-dev:context7` and disable it. Claude Code remembers the choice for that project.
 
 ## Recommended alongside this plugin
 

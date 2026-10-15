@@ -39,7 +39,7 @@ Context splits into two files:
 
 Before the run-mode question, and before any work on the story, `init` detects
 every missing fixed configuration answer (`.workflow-dev/` gitignored, model
-tiering, agent co-authorship, alerts on this machine) and asks them together.
+tiering, agent co-authorship, alerts and phone notifications on this machine) and asks them together.
 `../SKILL.md` Phase 0 owns that block and its order, and says which file owns
 each question; this file does not restate them. Two points matter for the steps
 below:

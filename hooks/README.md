@@ -96,7 +96,7 @@ the Free Software Foundation, either version 3 of the License, or
   workflow-dev skill that works on a story (not `setup-models`, `help`, `usage`)
   while any setup answer is missing — `.workflow-dev/` gitignored, model tiering
   (read through `model-tiering-check.sh --status`), agent co-authorship, the
-  alerts — and lists them all, to be asked together before the skill's first
+  alerts, the phone notices — and lists them all, to be asked together before the skill's first
   step (for `init`, before the run-mode question). The `PreToolUse:Skill` hook can
   return `allow`, `ask`, `deny` or `defer`, plus `permissionDecisionReason`,
   `updatedInput` and `additionalContext`. Each of the first two attempts failed on
@@ -134,6 +134,35 @@ the Free Software Foundation, either version 3 of the License, or
   the question file and asking before any of `init`'s steps, with no error line.
   `init`'s Phase 0 checks again and asks what is still missing, so a run where
   the hook did not fire keeps the same order.
+- **Library-docs lookups run with no dialog, unless they look private** (WD-0090).
+  The plugin ships the Context7 server (`../.mcp.json`) so skills can look up a
+  library's docs (`../references/library-docs.md`). Its tools need permission on
+  first use, and a lookup behind a dialog is one nobody waits for in an
+  autonomous run. A plugin cannot ship permission rules (`plugin.json`
+  `settings` keeps only `agent` and `subagentStatusLine`), so
+  `scripts/context7-query-check.sh`, on `PreToolUse` with the matcher
+  `mcp__plugin_workflow-dev_context7__.*`, returns `allow` — the main agent's
+  and a sub-agent's call both ran with no dialog (probed on Claude Code
+  2.1.287). A matcher on the bare server name never fires for a plugin server.
+  - A lookup that looks like it carries a credential, a path on this machine,
+    or pasted code gets `deny`, the second deliberate exception to "ask, never
+    deny" (owner's decision, WD-0090). Its reason, in the conversation's
+    language (`scripts/hook-language.sh`, key `library_query_rewrite`), tells
+    the agent to rewrite the lookup with only the library, its version and a
+    short question, tell the human in the chat, and call again; it never
+    quotes what matched. Not `ask`: a dialog pauses an autonomous run until
+    someone answers, and headless it is a denial with nothing to act on, so
+    the lookup would be lost. The rule is the reference file's; this is its
+    backstop.
+  - The user keeps the off switch: a `permissions.deny` on the server, or
+    turning it off in `/mcp`, removes the tools before any hook runs (probed).
+  - Only the two tools the plugin uses (`resolve-library-id`, `query-docs`) get
+    `allow`; a tool the server adds later was never reviewed and gets no output.
+    The same for input it cannot read, or a machine with neither `jq` nor
+    `python3` to decode it: Claude Code's own permission flow applies.
+  - Every string under `tool_input` is checked, not a list of known fields: the
+    server is remote and can rename or add fields without a plugin release. The
+    size check runs first, so a long paste is held before any slower check.
 - **The attention sounds play only when workflow-dev needs the human** (WD-0052).
   `scripts/attention-alert.sh` is registered four times, and each entry only
   ever plays a sound — it prints nothing, never asks or denies, and exits 0:
@@ -156,6 +185,12 @@ the Free Software Foundation, either version 3 of the License, or
     means silence, `need` and `permission` included.
     Every sound plays on the system's default output, and nothing is turned
     off when a story ends.
+  - **The phone** (WD-0109). The same three hooks also push `away`,
+    `permission`, `fail` and `story` to the human's phone through ntfy.sh when
+    `phone=on` (with its topic) is in that file, whatever the sounds' answer.
+    The push runs detached with a 5-second limit and prints nothing, so it never
+    holds the hook, and it is silent in CI and in a non-interactive session like
+    the sounds.
   - `UserPromptSubmit` → `--prompt` drops the session's arm: a turn the human
     interrupts ends without a `Stop`, and its arm must not sound at the end of
     the next, ordinary response.

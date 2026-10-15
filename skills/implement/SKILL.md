@@ -105,7 +105,8 @@ During implementation, STOP and ask the human when any condition from `reference
 Before you stop, settle what the evidence settles (`references/inference-first.md`
 at the plugin root): a decision point the story, REPO.md, the code, git history or
 the docs already answer is recorded as an inferred answer with its evidence, not
-asked.
+asked. A doubt about a library's API or version is looked up first
+(`references/library-docs.md` at the plugin root).
 
 In autonomous mode, a decision point the evidence settles is not a stop — it is
 resolved by the infer + record + report rule in `references/autonomous-mode.md`:
@@ -162,8 +163,11 @@ Mac sleep again (`references/autonomous-mode.md`, "Keeping the Mac awake").
    itself; it only reads what was already decided.
 
    - **"After every task group"** (or no such row at all — an older story
-     from before this mode existed): unchanged from before. Run
-     `/workflow-dev:validate`. If FAIL → fix issues, re-validate, within
+     from before this mode existed): run `/workflow-dev:validate` for this
+     task group — unless every other task group is already Done, so that
+     this pass is the story-end validation of point 3. A group finished
+     while another is still pending (Not Started, In Progress, Blocked) is
+     validated on its own here, whatever its place in the plan. If FAIL → fix issues, re-validate, within
      §11.3's cap. Once it PASSes (or, in autonomous mode, its FAIL is
      capped and recorded — point 4), continue to point 4.
    - **"Once, at the end"**: defer this task group's validation instead of
@@ -177,22 +181,23 @@ Mac sleep again (`references/autonomous-mode.md`, "Keeping the Mac awake").
    - **Ad-hoc override, either mode:** if the human explicitly says
      something like "validate this one now" for this specific task group,
      run `/workflow-dev:validate` for it regardless of the stored mode,
-     then continue to point 4 once it PASSes. This doesn't change the
+     then continue to point 4 once it PASSes. When every other task group
+     is already Done, that request is the story-end validation of point 3:
+     run it once, in the batched/story-end scope, never a single-diff pass
+     followed by another. This doesn't change the
      stored mode for the rest of the story — the next task group still
      follows whatever was recorded in Step 2 above.
 
-3. **If this was the last task group in the plan** (every other one
-   already Done) **and** the story's mode is "once, at the end": this is
-   the trigger for the story-end batched validation — see
-   `/workflow-dev:validate`'s batched/story-end mode (its own SKILL.md).
-   Run it now, against the full accumulated diff since the story started,
-   before considering the story finished — this is the actual validation
-   all the deferred task groups have been waiting for, not optional at
-   this point. If the mode was "after every task group" instead, skip
-   this entirely: every task group was already fully validated on its
-   own, so there's nothing left pending to batch — running another pass
-   here would just re-pay the cost this mode never deferred in the first
-   place.
+3. **If every other task group in the plan is already Done**, in either
+   mode: this is the trigger for the story-end
+   batched validation — see `/workflow-dev:validate`'s batched/story-end
+   mode (its own SKILL.md). Run it now, against the full accumulated diff
+   since the story started, before considering the story finished: it
+   validates all the story's changes together. Under "once, at the end" it
+   is the validation all the deferred task groups have been waiting for;
+   under "after every task group" it replaces the last group's own pass, so
+   it is still one pass, not an extra one. If FAIL → fix issues,
+   re-validate, within §11.3's cap, as in point 2.
 
 4. Once this task group is validated, deferred, or overridden (not
    FAILed — except, in autonomous mode, a FAIL whose findings are all capped

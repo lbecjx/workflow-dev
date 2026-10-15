@@ -45,29 +45,6 @@ Decomposes the current story's acceptance criteria into ordered task groups with
 5. Read `../implement/references/coding-standards.md` and `../implement/references/decision-points.md` — the rules every task group is implemented under, and where implementation must stop for a decision
 6. Read the stack file `implement` would load for this project (`../implement/SKILL.md` Step 1, item 5 — e.g. `../implement/references/stacks/react-typescript.md`); none matches → skip it
 
-**More than 10 acceptance criteria — warn before planning.** Count the story's
-acceptance criteria. Up to 10, say nothing and go on. Above 10, warn first,
-before any code is explored: a story that size hides regressions, and it is
-validated as one large diff. Say how many ACs it has, suggest splitting it, and
-ask with the ask-question tool, worded per `references/user-language.md`:
-
-- **Question:** this story has N acceptance criteria; split it first, or plan it
-  as one story?
-- **Option 1:** `Split it (Recommended)` — "I stop here so you can split it."
-- **Option 2:** `Keep as one story` — "I plan it whole; it gets the full check."
-
-Split → stop the plan: propose how the ACs could group into smaller stories,
-record this run's end (below), and leave the new stories to the human. Keep →
-write `| YYYY-MM-DD | Acceptance criteria kept as one story (N ACs, over the 10-AC threshold) | Human |`
-to the Decisions table and go on. That row forces the story's complexity to
-`compleja` (`references/complexity.md`, "Forced `compleja`", which also says
-where the threshold comes from).
-
-In autonomous mode, or unattended, this is a decision point under
-`references/autonomous-mode.md` (at the plugin root), "infer + record +
-report": don't ask, infer **keep** (splitting a story is the human's action),
-and write the same row with `Agent (inferred)` as who decided.
-
 ### Step 2: Explore code
 
 Read the relevant source files to understand:
@@ -118,7 +95,8 @@ exactly as in a plan you drafted yourself — and so does every autonomous-mode
 rule below. Read its draft against the code you explored before you present it. Settle
 each point it leaves unsettled from the evidence, and record it with that
 evidence; one the evidence cannot settle is asked, never assumed
-(`references/inference-first.md` at the plugin root).
+(`references/inference-first.md` at the plugin root). A doubt about a
+library's API or version is looked up first (`references/library-docs.md`).
 
 **An eval earns its place.** Every eval is maintenance for a small team, and
 an eval in the plan makes `validate` run it. So the plan never adds one by
@@ -336,40 +314,11 @@ adversarial `verify`, which judges a finding against it
 does not mention concurrency is not read as "safe under concurrent calls",
 unless a real caller runs the code in parallel.
 
-**Complexity — a judge classifies the story once the plan is written.** The
-level decides how much validation the story gets; `references/complexity.md`
-owns the levels, their criteria, and the rows below. It is decided after the
-approval on purpose: the human approves the plan, not a level, and sees the
-level in the "plan saved" line.
+**No risk grade here.** `plan` records nothing about which validations run:
+`validate` picks them on each pass, from this plan and the real diff
+(`../validate/references/selection.md`).
 
-Launch one sub-agent under the **`wd-judge`** role
-(`../setup-models/references/roles.md`) — name the role as the sub-agent's
-type, never a model. Its brief carries, inline:
-
-- the story's acceptance criteria and its Decisions table (a `kept as one
-  story` row from Step 1 forces `compleja`);
-- every task group just written, with its files and execution class (files
-  outside this repository force `compleja`);
-- what REPO.md says about security and sensitive areas, and the story's Do Not
-  list;
-- the content of `references/complexity.md` — the text itself, not a path.
-
-It answers with the level (`simple`, `moderada` or `compleja`), a one-line
-reason, and, for `simple`, the list of validations to run. Write its answer to
-the Decisions table in the rows `references/complexity.md` defines; the level,
-its reason, and the list for `simple` go in the "plan saved" message below.
-Never classify the story yourself: you proposed the plan,
-and you would be grading the risk of your own work.
-
-Two fallbacks, each one said, never hidden:
-
-- `wd-judge` is not bound (its `model-tiering-check.sh --role-models` state is
-  anything other than `bound`) → run it on the default model and say so.
-- The sub-agent fails, or returns no valid level → write no `Complexity:` row
-  and say so. `validate` then keeps its full flow
-  (`references/complexity.md`, "No level recorded").
-
-Tell the human the plan is saved, with its complexity level and reason, and suggest running `/workflow-dev:implement` to start on Task Group 1.
+Tell the human the plan is saved, and suggest running `/workflow-dev:implement` to start on Task Group 1.
 
 In autonomous mode, don't suggest: run `/workflow-dev:implement` in the same
 turn, right after this run's end checkpoint below (`references/autonomous-mode.md`
@@ -392,4 +341,4 @@ questions above are part of the run.
 9. **The drafting is delegated, the conversation is not** — a `wd-architect` sub-agent drafts the task groups from an inline brief; the main agent presents them, asks for approval, and asks Step 5's questions (Step 3).
 10. **Validation mode and manual QA are decided once, up front** — both asked together right after plan approval (Step 5), never per task group, never re-asked, and never silently defaulted without asking (except when genuinely unattended). `/workflow-dev:implement` reads the validation mode; `/workflow-dev:validate` reads the manual-QA choice; neither decides its own.
 11. **An eval earns its place** — never a default task or AC; a `wd-judge` sub-agent, not the drafter, decides whether one the human did not ask for stays, and the plan carries its justification (Step 3).
-12. **Validation scales with the story** — a `wd-judge` sub-agent, not the drafter, classifies the story `simple`, `moderada` or `compleja` once the plan is written (Step 6), and `validate` reads that level; `references/complexity.md` owns the criteria. A story over 10 acceptance criteria is warned about first (Step 1).
+12. **Validation is picked per pass, not planned** — `plan` grades no story and records nothing about validation; `validate`'s judge picks the checks each pass runs, from the plan and the real diff (`../validate/references/selection.md`).

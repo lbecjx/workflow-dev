@@ -85,7 +85,7 @@ the skills (read by the agent), and the commit/PR hooks do **not** need it — s
 ## Before the run starts
 
 The fixed configuration (`.workflow-dev/` gitignored, model tiering, agent
-co-authorship, the alerts) is asked before the run mode is chosen: by the
+co-authorship, the alerts, the phone notices) is asked before the run mode is chosen: by the
 configuration interceptor (`scripts/config-check.sh`) when a skill is invoked,
 and by `init`'s Phase 0, which owns the order (`../skills/init/SKILL.md`). So
 autonomous mode has not been chosen yet when those questions come, and no
@@ -131,7 +131,7 @@ In order:
    (`references/inference-first.md`, "A doubt you cannot infer").
 
 This checkpoint holds only the story's own doubts. The fixed configuration
-(`.workflow-dev/` gitignored, co-authorship, the alerts, model tiering) was
+(`.workflow-dev/` gitignored, co-authorship, the alerts, the phone notices, model tiering) was
 already asked in `init`'s Phase 0, before any work on the story
 (`../skills/init/SKILL.md`), and the run-mode question decides whether there is
 a checkpoint at all.
@@ -216,9 +216,9 @@ not judgment calls, and they have no autonomous fallback:
   whatever the repo's protected branch is).
 - **Never merge** (never `git merge`, never `gh pr merge`).
 - **Never skip the adversarial pass when it would run.** Whether it would run is
-  the story's complexity, decided by `plan`'s judge once the plan is written
-  (`../skills/plan/references/complexity.md`); the mode never lowers a level or
-  picks one. The depth is decided by
+  the selection judge's pick in `validate`
+  (`../skills/validate/references/selection.md`); the mode never removes a
+  picked validation and never picks one. The depth is decided by
   `validate/references/rules.md` §11.0's unattended fallback — the mode consumes
   that fallback, it never invents a shallower one (see "Adversarial depth").
 - **Never invent acceptance criteria, and never assume an answer the evidence
@@ -240,7 +240,7 @@ Besides the pre-autonomous checkpoint, two things are asked even in
 autonomous mode, and the run waits for the answer:
 
 - A missing setup answer (`.workflow-dev/` gitignored, model tiering, agent
-  co-authorship, the alerts): the configuration interceptor
+  co-authorship, the alerts, the phone notices): the configuration interceptor
   (`scripts/config-check.sh`, see `hooks/README.md`) has the agent ask it
   before any workflow-dev skill goes on, and `init`'s Phase 0 asks what is
   still missing (`../skills/init/SKILL.md`, which owns the order).
@@ -286,10 +286,10 @@ a normal single-diff run defaults to **no-repro**; the batched/story-end pass
 uses the depth §11.0's own criteria recommend for that cumulative diff.
 Autonomous mode consumes that fallback verbatim. It never re-debates depth, and
 "make the adversarial cheaper because nobody is watching" is a different story,
-not this one. Whether the pass runs at all is the story's complexity level
-(`../skills/plan/references/complexity.md`), and the mode consumes it the same
-way: a `moderada` or `simple` story skips the pass because of its level (unless
-its diff raises it to `compleja`), never because nobody is watching.
+not this one. Whether the pass runs at all is the selection judge's pick
+(`../skills/validate/references/selection.md`), and the mode consumes it the
+same way: the pass is skipped because the judge found nothing in the diff for
+it, never because nobody is watching.
 
 ## Hooks — no change, and that is the point
 

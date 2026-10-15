@@ -91,6 +91,16 @@
         ]
       },
       {
+        "matcher": "mcp__plugin_workflow-dev_context7__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/context7-query-check.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
