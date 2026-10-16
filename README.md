@@ -1,6 +1,10 @@
 # workflow-dev
 
-Guardrails for agent-driven development in [Claude Code](https://code.claude.com). You pilot and the agent executes, and every step leaves something you can check: each story's context stays on disk through compaction and new sessions, a quality gate runs before every commit, and you see what each story cost.
+> **workflow-dev is the free, open-source edition of [workflow-x](https://github.com/lbecjx/workflow-x).** Use it, and read the code to see how I work. workflow-x, the pro edition, adds new features and is proprietary. **Want this kind of work on your team?** Write to [lbecjx@gmail.com](mailto:lbecjx@gmail.com). [More about how I work](#how-i-work).
+
+Coding agents write code that looks right and isn't. workflow-dev makes them prove it.
+
+A [Claude Code](https://code.claude.com) agent that takes your story end to end, from the ticket to a PR ready for review, with guardrails at every step. You pilot and the agent executes, and every step leaves something you can check: each story's context survives compaction and new sessions, a quality gate runs before every commit, and you see what each story cost, step by step ([more below](#story-cost)).
 
 No issue tracker? Pair it with [`local-backlog`](https://github.com/lbecjx/local-backlog) ([more below](#recommended-alongside-this-plugin)).
 
@@ -18,6 +22,19 @@ No issue tracker? Pair it with [`local-backlog`](https://github.com/lbecjx/local
 5. **`/workflow-dev:summarize-changes`**: drafts the commit message and PR text. Nothing is committed until you say yes.
 
 Progress is tracked as you go. Decisions and discoveries are saved with `/workflow-dev:save`, and never without your review. In a new session, `/workflow-dev:resume` picks the story up where you left it.
+
+## Where it started
+
+On my first stories with AI coding agents, with no plugins and no frameworks, I kept hitting the same wall: after a compaction, the agent forgot important constraints and rules we had agreed on at the start of the conversation. So I started writing down what mattered as I went, somewhere the agent could always read it again. It worked. workflow-dev automates that idea: a persistent memory for each story, so the agent picks up exactly where it left off. Everything else, the plan, the quality gate, the autonomous runs, grew on top of that memory.
+
+## Built the hard way
+
+workflow-dev is the result of months of research into how coding agents fail, real tests on real repositories, and daily dogfooding on personal projects. Every feature was planned, built and validated with workflow-dev itself, and ships with its tests.
+
+- **[107 merged pull requests](https://github.com/lbecjx/workflow-dev/pulls?q=is%3Apr+is%3Amerged)**, each one through [CI](https://github.com/lbecjx/workflow-dev/actions/workflows/tests.yml).
+- **88 versions**, each one with its notes in the [changelog](./CHANGELOG.md).
+- **38 test suites** and **[26 behavior evals](./evals)** that check what the agent actually does, not only what the code says.
+- **[Signed commits](https://github.com/lbecjx/workflow-dev/commits/main)**, verified by GitHub.
 
 ## Requirements
 
@@ -175,6 +192,28 @@ No more code written against an API that changed two versions ago. When the agen
 Keep your backlog where your code is. [`local-backlog`](https://github.com/lbecjx/local-backlog) creates and browses stories as plain Markdown in your repo, with auto-incrementing codes: no cloud account, no subscription, nothing to sync. `/workflow-dev:init` takes any of its stories as they are.
 
 They're independent plugins: install either one on its own, or both.
+
+## Want more? workflow-x
+
+workflow-dev stays open source under the GPL, and it keeps getting fixes. New features go to [workflow-x](https://github.com/lbecjx/workflow-x), the pro edition: proprietary, with all rights reserved. A taste of what it adds, and of what is coming:
+
+- **Long sessions stay light.** Your progress is saved and the session compacted at a clean point, never in the middle of a task.
+- **Autonomous runs that don't stall.** A long run keeps going by itself, start to finish.
+- **A gate that leaves no debt behind.** Fewer false alarms, and no story closes while a problem is still open.
+- **It finds you wherever you are.** Push notifications built into Claude, and spoken alerts for every kind of failure.
+
+See them all in the [workflow-x showcase](https://github.com/lbecjx/workflow-x).
+
+## How I work
+
+This project is the clearest example of how I approach a problem:
+
+- **Research in depth before building.** I start from how things fail in practice, then design the fix.
+- **Structure and clarity.** Every story runs through the same sequential process, so the result is repeatable for every developer on a team. Every decision leaves a written trail.
+- **Quality as the baseline.** Every change ships with the tests that prove it. Nothing is overbuilt: each feature solves a real problem, and no more.
+- **Ownership through closure.** Work is not done until CI is green, the release is out and the docs are written for the people who use them.
+
+I am an AI engineer. I build agent workflows, guardrails and evals that make coding agents reliable. If your team is adopting AI coding agents and wants them to ship code it can trust, write to [lbecjx@gmail.com](mailto:lbecjx@gmail.com).
 
 ## License
 
