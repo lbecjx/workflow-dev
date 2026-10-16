@@ -154,7 +154,7 @@ session_stories() { # session_stories <transcript> <context dir>
     | LC_ALL=C grep -aoE '"file_path":"([^"\\]|\\.)*"' | LC_ALL=C sort -u)
   args="$(printf '%s\n' "$blocks" | LC_ALL=C grep -aE '"skill":"workflow-dev:(init|init-auto|resume|refresh|plan|implement)"' \
     | LC_ALL=C grep -aoE '"args":"[^" \\]*' | sed 's/^"args":"//')"
-  args="$args"$'\n'"$typed"
+  args="$(printf '%s\n%s\n' "$args" "$typed" | LC_ALL=C sort -u)"
   while IFS= read -r file; do
     id="$(basename "$file" .md)"
     is_in_progress "$file" || continue

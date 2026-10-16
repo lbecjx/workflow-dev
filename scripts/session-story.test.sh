@@ -218,6 +218,18 @@ check "a missing transcript returns 0" "0" "$code"
 OUT="$(session_stories "" "$CTX")"
 check "no transcript path lists nothing" "" "$OUT"
 
+# A long session repeats the same skill argument many times. Each distinct
+# argument is checked once per story, so the hooks that read the transcript
+# stay inside their timeout.
+fresh; story WD-0002
+for _ in 1 2 3 4 5 6 7 8 9 10; do call Skill '{"skill":"workflow-dev:implement","args":"WD-0001"}'; done
+COUNT="$TMP/arg-calls"; : > "$COUNT"
+eval "orig_$(declare -f arg_names_code)"
+arg_names_code() { printf 'x\n' >> "$COUNT"; orig_arg_names_code "$@"; }
+check "a repeated argument does not attach another story" "" "$(stories)"
+check "a repeated argument is checked once per story" "1" "$(wc -l < "$COUNT" | tr -d ' ')"
+eval "$(declare -f orig_arg_names_code | sed '1s/^orig_//')"
+
 fresh; story WD-0001
 printf '\000\001binary\n' >> "$T"
 call Write "{\"file_path\":\"$P/WD-0001.md\"}"
