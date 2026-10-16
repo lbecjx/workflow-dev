@@ -16,6 +16,11 @@ All notable changes to this plugin are documented here. Format loosely follows
 
 <!-- towncrier release notes start -->
 
+## 1.53.1
+
+- In long sessions, attention alerts and the check before a compaction no longer risk running out of time when the same story command repeats many times.
+- workflow-dev is now the free, open-source edition of workflow-x, the pro edition.
+
 ## 1.53.0
 
 - workflow-dev now checks a library's current docs through Context7 before guessing its API, with no account or setup.
