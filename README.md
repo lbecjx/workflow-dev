@@ -1,6 +1,6 @@
 # workflow-dev
 
-> **workflow-dev is the free, open-source edition of [workflow-x](https://github.com/lbecjx/workflow-x).** Use it, and read the code to see how I work. workflow-x, the pro edition, adds new features and is proprietary. **Want this kind of work on your team?** Write to [lbecjx@gmail.com](mailto:lbecjx@gmail.com). [More about how I work](#how-i-work).
+> **workflow-dev is the free, open-source edition of [workflow-x](https://github.com/lbecjx/workflow-x-site).** Use it, and read the code to see how I work. workflow-x, the pro edition, adds new features and is proprietary. **Want this kind of work on your team?** Write to [lbecjx@gmail.com](mailto:lbecjx@gmail.com). [More about how I work](#how-i-work).
 
 Coding agents write code that looks right and isn't. workflow-dev makes them prove it.
 
@@ -195,14 +195,14 @@ They're independent plugins: install either one on its own, or both.
 
 ## Want more? workflow-x
 
-workflow-dev stays open source under the GPL, and it keeps getting fixes. New features go to [workflow-x](https://github.com/lbecjx/workflow-x), the pro edition: proprietary, with all rights reserved. A taste of what it adds, and of what is coming:
+workflow-dev stays open source under the GPL, and it keeps getting fixes. New features go to [workflow-x](https://github.com/lbecjx/workflow-x-site), the pro edition: proprietary, with all rights reserved. A taste of what it adds, and of what is coming:
 
 - **Long sessions stay light.** Your progress is saved and the session compacted at a clean point, never in the middle of a task.
 - **Autonomous runs that don't stall.** A long run keeps going by itself, start to finish.
 - **A gate that leaves no debt behind.** Fewer false alarms, and no story closes while a problem is still open.
 - **It finds you wherever you are.** Push notifications built into Claude, and spoken alerts for every kind of failure.
 
-See them all in the [workflow-x showcase](https://github.com/lbecjx/workflow-x).
+See them all in the [workflow-x showcase](https://github.com/lbecjx/workflow-x-site).
 
 ## How I work
 
